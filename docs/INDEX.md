@@ -39,6 +39,7 @@ This is the canonical entry point for project documentation. Everything below sh
 
 - `docs/strategy/gnars-token-spec.md` — $gnars token product spec: goal, current state, new-token tokenomics, allocations, migration mechanics, addresses, phases, open decisions
 - `docs/strategy/gnars-migration-handoff.md` — handoff for the Upgrader team to review/complete the gnars.com side (run steps, file map, what's built vs pending, coordination items)
+- `scripts/README-campaign-baseline.md` — "Stake or Die" measurement procedure: what the pre-campaign baseline captures, why it could not wait, and the re-collection steps for 27/08, 28/08 and 01/09
 
 ## Specs
 
