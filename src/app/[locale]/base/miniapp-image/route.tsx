@@ -1,20 +1,24 @@
 import { ImageResponse } from "next/og";
 import { BASE_BLUE, baseCardLabels } from "@/lib/og-stake-labels";
-import { OG_COLORS, OG_FONTS, OG_SIZE } from "@/lib/og-utils";
+import { MINIAPP_SIZE, OG_COLORS, OG_FONTS } from "@/lib/og-utils";
 
-// Link preview for /base — the pitch page shared with Base ecosystem programs.
+// The Farcaster embed for /base (3:2). The route had no `fc:miniapp` of its
+// own, so it inherited the root default and a cast of the Base pitch page
+// launched the home mini app behind the generic site card.
+//
+// Copy is shared with the 1.91:1 link preview via `og-stake-labels`. The chip
+// row is capped at a width that breaks it 3 + 3 instead of letting six chips
+// wrap 5 + 1 — a lone trailing chip reads as an accident rather than a choice.
 
 export const alt = "Gnars on Base — A Complete Onchain DAO";
-export const size = OG_SIZE;
+export const size = MINIAPP_SIZE;
 export const contentType = "image/png";
 
-const OG_CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
+const CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
 
-export default async function Image({ params }: { params: Promise<{ locale: string }> }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const isPt = locale === "pt-br";
-
-  const labels = baseCardLabels(isPt);
+  const labels = baseCardLabels(locale === "pt-br");
 
   return new ImageResponse(
     (
@@ -24,9 +28,10 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
           width: "100%",
           display: "flex",
           flexDirection: "column",
+          justifyContent: "center",
           backgroundColor: OG_COLORS.background,
           fontFamily: OG_FONTS.family,
-          padding: "60px",
+          padding: "72px",
         }}
       >
         <div
@@ -36,8 +41,8 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
             backgroundColor: BASE_BLUE,
             color: "#fff",
             borderRadius: "999px",
-            padding: "10px 22px",
-            fontSize: 22,
+            padding: "12px 26px",
+            fontSize: 24,
             fontWeight: 700,
             letterSpacing: "0.08em",
           }}
@@ -47,10 +52,10 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
 
         <div
           style={{
-            fontSize: 76,
+            fontSize: 84,
             fontWeight: 800,
             color: OG_COLORS.foreground,
-            marginTop: "22px",
+            marginTop: "26px",
             lineHeight: 1.05,
             maxWidth: "1000px",
           }}
@@ -62,8 +67,9 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: "14px",
-            marginTop: "auto",
+            gap: "16px",
+            marginTop: "52px",
+            maxWidth: "880px",
           }}
         >
           {labels.features.map((f) => (
@@ -74,8 +80,8 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
                 backgroundColor: OG_COLORS.card,
                 border: `2px solid ${OG_COLORS.cardBorder}`,
                 borderRadius: "12px",
-                padding: "16px 24px",
-                fontSize: 26,
+                padding: "16px 26px",
+                fontSize: 27,
                 color: OG_COLORS.foreground,
               }}
             >
@@ -84,21 +90,11 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
           ))}
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginTop: "36px",
-            fontSize: 20,
-            color: OG_COLORS.muted,
-          }}
-        >
-          <div>Gnars DAO</div>
-          <div>{labels.footer}</div>
+        <div style={{ display: "flex", fontSize: 22, color: OG_COLORS.muted, marginTop: "44px" }}>
+          {labels.footer}
         </div>
       </div>
     ),
-    { ...size, headers: { "Cache-Control": OG_CACHE_CONTROL } },
+    { ...size, headers: { "Cache-Control": CACHE_CONTROL } },
   );
 }
