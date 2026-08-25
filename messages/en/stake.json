@@ -2,27 +2,27 @@
   "morpheusPage": {
     "eyebrow": "Gnars × Morpheus",
     "title": "Gnars builds on Morpheus",
-    "lede": "Gnars — the community-owned action-sports DAO — runs a Builder subnet on Morpheus, the decentralized AI network, building permissionlessly on the open protocol and bringing skate, BMX, and surf culture with it.",
+    "lede": "Gnars is an action-sports DAO owned by its community. It runs a Builder subnet on Morpheus, the decentralized AI network, and brings skate, BMX and surf culture with it. Morpheus is an open protocol, and Gnars builds on it without asking permission.",
     "ctaStake": "Stake MOR",
     "ctaFull": "Every way to stake",
     "how": {
-      "title": "How the flywheel works",
+      "title": "How the loop works",
       "step1t": "Stake MOR into the Gnars subnet",
       "step1d": "Anyone can back the subnet, from 0.001 MOR up. Your stake powers what Gnars ships on Morpheus.",
       "step2t": "Milestones unlock the $gnars airdrop",
-      "step2d": "The $gnars airdrop is locked and unlocks in buckets as the community's total stake grows — the earlier you stake and the more you bring, the bigger the share you unlock. (Allocation being finalized, subject to change.)",
+      "step2d": "The $gnars airdrop is locked. It unlocks in buckets as the community's total stake grows, so the earlier you stake and the more you bring, the bigger your share. Allocation is still being finalized and can change.",
       "step3t": "Gnars amplifies Morpheus",
-      "step3d": "Every milestone also triggers Gnars to put Morpheus in front of its crew — from a Morpheus ad on Gnars TV at 10k MOR up to an IRL activation and a flagship spotlight."
+      "step3d": "Every milestone also puts Morpheus in front of the Gnars crew, from an ad on Gnars TV at 10k MOR up to an IRL activation and a flagship spotlight."
     },
     "facts": {
       "title": "The fine print, verified on-chain",
-      "f1": "Your principal stays yours — only your wallet can withdraw it, straight from the contract on Base.",
-      "f2": "Withdrawals unlock 7 days after your last deposit — each new deposit restarts the lock on your whole position.",
-      "f3": "Rewards accrue to the subnet — you're backing the builder, not farming yield."
+      "f1": "Your principal stays yours. Only your wallet can withdraw it, straight from the contract on Base.",
+      "f2": "Withdrawals unlock 7 days after your last deposit, and each new deposit restarts the lock on your whole position.",
+      "f3": "Rewards accrue to the subnet. You're backing the builder, not farming yield."
     },
     "amp": {
       "title": "The amplification ladder",
-      "desc": "Milestones aren't just airdrop buckets. Every rung the community climbs, Gnars puts its own media and its own crew behind Morpheus — real reach, shipped by the DAO itself.",
+      "desc": "Every rung the community climbs, Gnars puts its own media and its own crew behind Morpheus. The DAO ships that reach itself, out of its own channels.",
       "liveChip": "{n, number} MOR staked so far",
       "unlocked": "unlocked",
       "next": "next up",
@@ -30,10 +30,10 @@
     },
     "crew": {
       "title": "The crew breaks it down",
-      "vlad": "We run a Builder subnet on Morpheus. Stake MOR behind the crew — every coin funds what Gnars ships next on decentralized AI.",
-      "r4to": "Morpheus also powers the sponsorship vaults: back a rider on /stake with stETH or USDC and the yield lands in MOR — principal unlocks 7 days after your last stake.",
-      "yan": "The $gnars airdrop is locked. Every milestone the community stakes past unlocks the next bucket — early stakers set the pace.",
-      "pamtech": "And every milestone ships real Morpheus marketing from our side: the Gnars TV ad at 10k, edits, swag, IRL activations."
+      "vlad": "We run a Builder subnet on Morpheus. Stake MOR behind the crew and every coin funds what Gnars ships next on decentralized AI.",
+      "r4to": "Morpheus also powers the sponsorship vaults: back a rider on /stake with stETH or USDC and the yield lands in MOR. Your principal unlocks 7 days after your last stake.",
+      "yan": "The $gnars airdrop is locked. Every milestone the community stakes past unlocks the next bucket, and early stakers set the pace.",
+      "pamtech": "And every milestone ships Morpheus marketing from our side: the Gnars TV ad at 10k, edits, swag, IRL activations."
     }
   },
   "title": "Stake or Die",
