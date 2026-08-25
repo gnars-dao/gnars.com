@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { MorpheusPageContent } from "@/components/stake/MorpheusPageContent";
+import { MORPHEUS_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 
 // The landing the Gnars subnet bio on the Morpheus site links to. Single
 // purpose: explain the Gnars × Morpheus build to a cold visitor and let them
@@ -36,6 +37,11 @@ export async function generateMetadata({
       card: "summary_large_image",
       title: t("title"),
       description: t("description"),
+    },
+    // Farcaster mini app embed — the route had none, so a cast of this link
+    // rendered a bare preview with no launch button at all.
+    other: {
+      "fc:miniapp": JSON.stringify(MORPHEUS_MINIAPP_EMBED_CONFIG),
     },
   };
 }

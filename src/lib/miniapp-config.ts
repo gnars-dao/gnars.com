@@ -374,6 +374,27 @@ export const BLOGS_MINIAPP_EMBED_CONFIG = {
 };
 
 /**
+ * Morpheus Mini App Configuration
+ *
+ * /morpheus is the campaign landing the Morpheus subnet bio points at, so it
+ * gets its own embed image (the live stake card) instead of the generic one.
+ */
+export const MORPHEUS_MINIAPP_EMBED_CONFIG = {
+  version: "1",
+  imageUrl: `${BASE_URL}/morpheus/miniapp-image`,
+  button: {
+    title: "Stake or Die",
+    action: {
+      type: "launch_miniapp" as const,
+      name: "Gnars × Morpheus",
+      url: `${BASE_URL}/morpheus`,
+      splashImageUrl: `${BASE_URL}/gnars-splash-200.png`,
+      splashBackgroundColor: "#000000",
+    },
+  },
+};
+
+/**
  * Generic launch embed for routes that just need to open at their own URL
  * instead of inheriting the root default (which launches the home mini app).
  */
@@ -394,12 +415,40 @@ export function launchMiniappEmbed(path: string, name: string, title: string) {
   };
 }
 
-export const AUCTIONS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/auctions", "Gnars Auctions", "View auction");
-export const TREASURY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/treasury", "Gnars Treasury", "View treasury");
-export const COMMUNITY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/community", "Gnars Community", "Explore community");
+export const AUCTIONS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/auctions",
+  "Gnars Auctions",
+  "View auction",
+);
+export const TREASURY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/treasury",
+  "Gnars Treasury",
+  "View treasury",
+);
+export const COMMUNITY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/community",
+  "Gnars Community",
+  "Explore community",
+);
 export const STORE_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/store", "Gnars Store", "Shop Gnars");
 export const FEED_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/feed", "Gnars Feed", "Open the feed");
-export const PROPOSE_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/propose", "Gnars Propose", "Create a proposal");
-export const ROUNDS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/rounds", "Gnars Rounds", "View rounds");
-export const ABOUT_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/about", "About Gnars", "About Gnars");
-export const PROPDATES_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/propdates", "Gnars Propdates", "View propdates");
+export const PROPOSE_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/propose",
+  "Gnars Propose",
+  "Create a proposal",
+);
+export const ROUNDS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/rounds",
+  "Gnars Rounds",
+  "View rounds",
+);
+export const ABOUT_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/about",
+  "About Gnars",
+  "About Gnars",
+);
+export const PROPDATES_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/propdates",
+  "Gnars Propdates",
+  "View propdates",
+);
