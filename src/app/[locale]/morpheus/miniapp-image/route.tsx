@@ -23,10 +23,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ loc
       <MorpheusCard
         {...data}
         isPt={isPt}
-        height={size.height}
-        figureHeight={525}
+        figureHeight={620}
         padding={64}
-        titleSize={58}
+        numberSize={140}
+        titleSize={42}
       />
     ),
     { ...size, headers: { "Cache-Control": CACHE_CONTROL } },

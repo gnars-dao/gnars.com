@@ -1,7 +1,6 @@
 import { BASE_URL } from "@/lib/config";
 import { getGnarsSubnetTotalStaked } from "@/lib/morpheus-builder";
 import { OG_COLORS, OG_FONTS } from "@/lib/og-utils";
-import { nextMilestone } from "@/lib/stake-milestones";
 
 /**
  * The shared composition behind /morpheus's two share cards: the 1200x630 OG
@@ -24,7 +23,6 @@ const FIGURE_RATIO = 941 / 1000;
 
 export type MorpheusCardData = {
   stakedLabel: string;
-  nextLabel: string;
 };
 
 /**
@@ -42,11 +40,9 @@ export async function readMorpheusCardData(isPt: boolean): Promise<MorpheusCardD
     console.error("[morpheus OG] subnet read failed:", error);
   }
 
-  const next = staked == null ? null : nextMilestone(staked);
   const locale = isPt ? "pt-BR" : "en-US";
   return {
     stakedLabel: staked == null ? "—" : Math.floor(staked).toLocaleString(locale),
-    nextLabel: next == null ? "—" : next.amountMor.toLocaleString(locale),
   };
 }
 
@@ -58,7 +54,6 @@ export function morpheusCardLabels(isPt: boolean) {
       ? "Faça stake de MOR na subnet Gnars Builder"
       : "Stake MOR into the Gnars Builder subnet",
     staked: isPt ? "MOR em stake" : "MOR staked",
-    next: isPt ? "Próximo marco" : "Next milestone",
     footer: isPt ? "gnars.com/pt-br/morpheus" : "gnars.com/morpheus",
   };
 }
@@ -66,26 +61,29 @@ export function morpheusCardLabels(isPt: boolean) {
 export function MorpheusCard({
   isPt,
   stakedLabel,
-  nextLabel,
-  height,
-  /** Height of the cut-out in px. The column is sized around what's left. */
+  /** Height of the cut-out in px. The text column is sized around what's left. */
   figureHeight,
   padding,
+  /** Type size for the staked figure — the largest thing on the card. */
+  numberSize,
   titleSize,
 }: MorpheusCardData & {
   isPt: boolean;
-  height: number;
   figureHeight: number;
   padding: number;
+  numberSize: number;
   titleSize: number;
 }) {
   const labels = morpheusCardLabels(isPt);
   const figureWidth = Math.round(figureHeight * FIGURE_RATIO);
-  // Flush to the left edge, no overhang: on the right the bleed cropped the
-  // board (harmless), but on the left it cuts into the man's arm and torso.
-  // The text column takes the rest minus a gutter, so the thrown-out arm never
-  // lands on a word.
+  // Flush to the right edge, no overhang: any bleed here crops the board, and
+  // the wordmark on it is half the reason to use this cut-out at all.
   const columnWidth = 1200 - padding - figureWidth - 32;
+  // The staked total is the one thing that survives thumbnail size, so it is
+  // set as display type — and shrunk as it gains digits so a five-figure subnet
+  // can never push it into the figure.
+  const digits = stakedLabel.length;
+  const scaledNumber = Math.round(numberSize * (digits <= 5 ? 1 : digits <= 7 ? 0.86 : 0.72));
 
   return (
     <div
@@ -110,7 +108,7 @@ export function MorpheusCard({
         height={figureHeight}
         style={{
           position: "absolute",
-          left: 0,
+          right: 0,
           bottom: 0,
           width: figureWidth,
           height: figureHeight,
@@ -118,82 +116,59 @@ export function MorpheusCard({
         }}
       />
 
-      {/* `marginLeft: auto` parks the column against the right edge, clear of
-          the figure, without a second absolutely-positioned box to keep in sync. */}
       <div
         style={{
           display: "flex",
           flexDirection: "column",
           width: columnWidth,
           height: "100%",
-          marginLeft: "auto",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div
+          style={{
+            fontSize: 24,
+            fontWeight: 700,
+            color: MOR_GREEN,
+            letterSpacing: "0.12em",
+          }}
+        >
+          {labels.eyebrow}
+        </div>
+
+        {/* The number leads and the title reads as its caption — inverted from a
+            normal card on purpose, because at preview size the headline is
+            already unreadable and the total is not. */}
+        <div style={{ display: "flex", flexDirection: "column", marginTop: "auto" }}>
+          <div style={{ fontSize: 26, color: OG_COLORS.muted }}>{labels.staked}</div>
           <div
             style={{
-              fontSize: 24,
-              fontWeight: 700,
+              fontSize: scaledNumber,
+              fontWeight: 800,
               color: MOR_GREEN,
-              letterSpacing: "0.12em",
+              lineHeight: 1,
             }}
           >
-            {labels.eyebrow}
+            {stakedLabel}
           </div>
           <div
             style={{
               fontSize: titleSize,
-              fontWeight: 800,
+              fontWeight: 700,
               color: OG_COLORS.foreground,
-              marginTop: "14px",
-              lineHeight: 1.05,
+              marginTop: "18px",
+              lineHeight: 1.1,
             }}
           >
             {labels.title}
           </div>
-          <div style={{ fontSize: 26, color: OG_COLORS.mutedLight, marginTop: "14px" }}>
-            {labels.sub}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: "20px", marginTop: "auto" }}>
-          <Stat label={labels.staked} value={stakedLabel} color={MOR_GREEN} />
-          <Stat label={labels.next} value={nextLabel} color={OG_COLORS.accentYellow} />
         </div>
 
         {/* Just the URL: "Gnars DAO · Base" repeated what the eyebrow, the
             wordmark on the board, and the domain itself already say. */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            marginTop: height >= 700 ? "32px" : "24px",
-            fontSize: 20,
-            color: OG_COLORS.muted,
-          }}
-        >
+        <div style={{ display: "flex", fontSize: 20, color: OG_COLORS.muted, marginTop: "26px" }}>
           {labels.footer}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        backgroundColor: OG_COLORS.card,
-        borderRadius: "16px",
-        border: `2px solid ${OG_COLORS.cardBorder}`,
-        padding: "24px",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div style={{ fontSize: 20, color: OG_COLORS.muted }}>{label}</div>
-      <div style={{ fontSize: 56, fontWeight: 800, color, marginTop: "4px" }}>{value}</div>
     </div>
   );
 }

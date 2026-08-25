@@ -30,10 +30,10 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
       <MorpheusCard
         {...data}
         isPt={isPt}
-        height={size.height}
-        figureHeight={431}
+        figureHeight={510}
         padding={56}
-        titleSize={54}
+        numberSize={150}
+        titleSize={40}
       />
     ),
     { ...size, headers: { "Cache-Control": OG_CACHE_CONTROL } },
