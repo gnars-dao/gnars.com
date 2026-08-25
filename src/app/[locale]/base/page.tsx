@@ -14,6 +14,19 @@ import { loadTreasurySnapshot } from "@/services/treasury";
 // The pitch page for Base ecosystem programs (Base Batches): everything Gnars
 // runs on Base, with links to the live surfaces. See BasePageContent.
 
+/**
+ * This page declared no revalidate and was fully dynamic — it re-rendered its
+ * three server-side fetches plus auction, droposals and feed on EVERY request
+ * (measured p50 922 ms against ~200 ms for the cached routes).
+ *
+ * 300 rather than something more generous on purpose: it is a pitch page, so a
+ * long TTL would cost nothing in freshness — but Next takes the MINIMUM of this
+ * value and every fetch TTL in the render, and the treasury and subgraph reads
+ * below declare 300. Declaring 1800 here would be a number that never takes
+ * effect. 300 is what the page actually gets, written down.
+ */
+export const revalidate = 300;
+
 export async function generateMetadata({
   params,
 }: {
