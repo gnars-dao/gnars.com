@@ -81,6 +81,7 @@ const POSES = {
   "point-far": { w: 653, h: 898 },
   "calm-down": { w: 514, h: 890 },
   offer: { w: 377, h: 888 },
+  board: { w: 941, h: 1000 },
 } as const;
 
 type PoseId = keyof typeof POSES;
@@ -224,15 +225,18 @@ export function MorpheusPageContent() {
         </Reveal>
       </section>
 
-      {/* The flywheel, narrated. One Morpheus — the thrown-out arm — presents
-          the three steps as a numbered list: the figure appears once, big,
-          instead of three miniatures, and the arm reads into the rows it
-          introduces. The cropped shins run past the card's bottom edge. */}
+      {/* The flywheel, narrated. One Morpheus — hand on the conspiracy board —
+          presents the three steps as a numbered list: the figure appears once,
+          big, instead of three miniatures, and the arm reads into the rows it
+          introduces. The cropped feet run past the card's bottom edge. The
+          `board` cut-out is far wider than a plain pose, so its column is
+          capped and it only appears from `lg` up, where the list still has
+          room. */}
       <section className={`${CARD} ${CARD_PAD} overflow-hidden sm:p-8`}>
         <h2 className="text-lg font-bold tracking-tight">{t("how.title")}</h2>
         <div className="flex items-end gap-6 lg:gap-10">
-          <Reveal className="hidden shrink-0 md:-mb-[110px] md:block">
-            <Pose id="point-far" className="h-[400px]" sizes="300px" />
+          <Reveal className="hidden shrink-0 lg:-mb-[90px] lg:block">
+            <Pose id="board" className="h-[400px]" sizes="380px" />
           </Reveal>
           <ol className="min-w-0 flex-1">
             {steps.map((s, i) => (
@@ -261,8 +265,8 @@ export function MorpheusPageContent() {
       {/* The amplification ladder, illustrated — the marketing Gnars ships for
           Morpheus at each rung, with live unlock state. Morpheus green is the
           accent on purpose: this page is the Morpheus page. No figure here —
-          `point-far` moved up to narrate the flywheel, and the grid keeps its
-          three columns. */}
+          the `board` cut-out narrates the flywheel above, and the grid keeps
+          its three columns. */}
       <section className={`${CARD} ${CARD_PAD} sm:p-8`}>
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3">
