@@ -69,12 +69,15 @@ describe("run", () => {
     const fn = vi
       .fn()
       .mockRejectedValue(new SubgraphTransientError("429", { status: 429, retryAfterMs: 0 }));
-    // The full ladder is ~15s of real backoff, so run it on fake timers rather
-    // than making every `pnpm test` wait it out.
+    // The full ladder is minutes of real backoff, so run it on fake timers
+    // rather than making every `pnpm test` wait it out. Advance far past the
+    // ladder's own length: if the clock stops short the call never settles, and
+    // because a pending call holds its semaphore slot, that hangs every test
+    // after this one too.
     vi.useFakeTimers();
     try {
       const settled = expect(run(fn, "test")).rejects.toThrow("429");
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(600_000);
       await settled;
     } finally {
       vi.useRealTimers();

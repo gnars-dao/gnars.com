@@ -44,11 +44,23 @@ const MAX_CONCURRENCY = (() => {
   return isBuild ? 1 : 8;
 })();
 
-const MAX_ATTEMPTS = 6;
+/**
+ * The ladder is deliberately patient rather than fast.
+ *
+ * A six-rung ladder was not enough. A cold build against a Goldsky that had
+ * been hammered all day came back with two calls surviving on their fifth of
+ * six attempts — margin that thin fails as soon as the builder is slower or
+ * the endpoint is crosser, which is exactly what two consecutive red deploys
+ * looked like. The endpoint does recover; it just recovers slower than we were
+ * willing to wait. Nine rungs with a 30s ceiling buys roughly two minutes per
+ * call before giving up, and costs nothing on a build that isn't being
+ * throttled — these delays only run after a failure.
+ */
+const MAX_ATTEMPTS = 9;
 const BASE_DELAY_MS = 500;
-const MAX_DELAY_MS = 15_000;
+const MAX_DELAY_MS = 30_000;
 /** Cap on an honored `retry-after`, so a hostile header can't stall a build. */
-const MAX_RETRY_AFTER_MS = 30_000;
+const MAX_RETRY_AFTER_MS = 60_000;
 
 let active = 0;
 const waiting: Array<() => void> = [];
