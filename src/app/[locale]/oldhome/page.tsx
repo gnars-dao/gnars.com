@@ -19,7 +19,17 @@ import { Gnar3DTVClient } from "@/components/tv/Gnar3DTVClient";
 import { HeroTVObserver } from "@/components/tv/HeroTVObserver";
 import { Link } from "@/i18n/navigation";
 
-export const revalidate = 300;
+// force-dynamic, NOT ISR: with `revalidate` this page was prerendered at build
+// time in both locales, and its proposal fetch joined ~307 other pages hammering
+// the Goldsky subgraph in parallel. Goldsky answered 429, the four retries ran
+// out, and the whole production build died on `/pt-br/oldhome` — three deploys
+// in a row (5c8d082, b17b067, 9291226) failed exactly there.
+//
+// Rendering on demand is free here in practice: this page is noindex, absent
+// from the sitemap and from the nav, so it serves a rollback check and nothing
+// else. It is the one route where per-request cost is cheaper than build cost.
+// Delete the route and this comment goes with it.
+export const dynamic = "force-dynamic";
 
 // Deliberately NOT the homepage's metadata. This page served `/` until the
 // /newhome build replaced it, and its `generateMetadata` moved with the route —
