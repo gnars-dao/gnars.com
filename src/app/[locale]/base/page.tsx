@@ -7,7 +7,6 @@ import { GovSection } from "@/components/newhome/GovSection";
 import { StakeSection } from "@/components/newhome/StakeSection";
 import { SwapSection } from "@/components/newhome/SwapSection";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { BASE_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 import { fetchRecentAuctions } from "@/services/auctions";
 import { fetchDroposals } from "@/services/droposals";
 import { loadTreasurySnapshot } from "@/services/treasury";
@@ -58,11 +57,6 @@ export async function generateMetadata({
       card: "summary_large_image",
       title: t("title"),
       description: t("description"),
-    },
-    // Farcaster mini app embed — without this /base inherits the root default
-    // and a cast shows the generic site card over a "Launch Gnars DAO" button.
-    other: {
-      "fc:miniapp": JSON.stringify(BASE_MINIAPP_EMBED_CONFIG),
     },
   };
 }

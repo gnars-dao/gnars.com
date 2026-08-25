@@ -1,5 +1,4 @@
 import { ImageResponse } from "next/og";
-import { BASE_BLUE, baseCardLabels } from "@/lib/og-stake-labels";
 import { OG_COLORS, OG_FONTS, OG_SIZE } from "@/lib/og-utils";
 
 // Link preview for /base — the pitch page shared with Base ecosystem programs.
@@ -9,12 +8,20 @@ export const size = OG_SIZE;
 export const contentType = "image/png";
 
 const OG_CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
+const BASE_BLUE = "#0052FF";
 
 export default async function Image({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const isPt = locale === "pt-br";
 
-  const labels = baseCardLabels(isPt);
+  const labels = {
+    eyebrow: isPt ? "CONSTRUÍDO NA BASE · CHAIN 8453" : "BUILT ON BASE · CHAIN 8453",
+    title: isPt ? "A Gnars roda inteira na Base" : "Gnars runs entirely on Base",
+    features: isPt
+      ? ["Leilões diários", "Governança onchain", "Tesouro", "Droposals", "Swap", "Staking"]
+      : ["Daily auctions", "Onchain governance", "Treasury", "Droposals", "Swap", "Staking"],
+    footer: isPt ? "gnars.com/pt-br/base" : "gnars.com/base",
+  };
 
   return new ImageResponse(
     (

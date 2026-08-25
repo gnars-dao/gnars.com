@@ -1,5 +1,4 @@
 import { ImageResponse } from "next/og";
-import { MOR_GREEN, STAKE_GOLD, stakeCardLabels } from "@/lib/og-stake-labels";
 import { OG_COLORS, OG_FONTS, OG_SIZE } from "@/lib/og-utils";
 
 // Link preview for /stake — the URL every campaign piece calls to action.
@@ -11,12 +10,23 @@ export const size = OG_SIZE;
 export const contentType = "image/png";
 
 const OG_CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
+const GOLD = "#f7c948";
 
 export default async function Image({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const isPt = locale === "pt-br";
 
-  const labels = stakeCardLabels(isPt);
+  const labels = {
+    title: "STAKE OR DIE",
+    sub: isPt
+      ? "Apoie um rider da Gnars ou a subnet Gnars Builder na Morpheus"
+      : "Back a Gnars rider, or the Gnars Builder subnet on Morpheus",
+    a: isPt ? "Vaults dos riders" : "Rider vaults",
+    aDesc: isPt ? "stETH · USDC · rendimento compartilhado" : "stETH · USDC · shared yield",
+    b: isPt ? "Subnet na Morpheus" : "Morpheus subnet",
+    bDesc: isPt ? "MOR na Base · trava de 7 dias" : "MOR on Base · 7-day lock",
+    footer: isPt ? "gnars.com/pt-br/stake" : "gnars.com/stake",
+  };
 
   return new ImageResponse(
     (
@@ -35,7 +45,7 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
           style={{
             fontSize: 96,
             fontWeight: 800,
-            color: STAKE_GOLD,
+            color: GOLD,
             lineHeight: 1,
             letterSpacing: "-0.02em",
           }}
@@ -55,8 +65,8 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
 
         <div style={{ display: "flex", gap: "28px", marginTop: "auto" }}>
           {[
-            { t: labels.a, d: labels.aDesc, c: STAKE_GOLD },
-            { t: labels.b, d: labels.bDesc, c: MOR_GREEN },
+            { t: labels.a, d: labels.aDesc, c: GOLD },
+            { t: labels.b, d: labels.bDesc, c: "#2be58b" },
           ].map((card) => (
             <div
               key={card.t}

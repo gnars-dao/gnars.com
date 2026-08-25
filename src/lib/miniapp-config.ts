@@ -342,10 +342,7 @@ export const MIGRATE_MINIAPP_EMBED_CONFIG = {
  */
 export const STAKE_MINIAPP_EMBED_CONFIG = {
   version: "1",
-  // Its own card, not the generic site one: /stake is the campaign's main call
-  // to action, and the feed was showing the Gnars logo next to a "Stake or Die"
-  // button.
-  imageUrl: `${BASE_URL}/stake/miniapp-image`,
+  imageUrl: `${BASE_URL}/miniapp-image`,
   button: {
     title: "Stake or Die",
     action: {
@@ -370,28 +367,6 @@ export const BLOGS_MINIAPP_EMBED_CONFIG = {
       type: "launch_miniapp" as const,
       name: "Gnars Blog",
       url: `${BASE_URL}/blogs`,
-      splashImageUrl: `${BASE_URL}/gnars-splash-200.png`,
-      splashBackgroundColor: "#000000",
-    },
-  },
-};
-
-/**
- * Base Mini App Configuration
- *
- * /base is the pitch page shared with Base ecosystem programs. It had no embed
- * of its own, so a cast fell back to the root default — generic card, and a
- * button that launched the home mini app instead of the pitch.
- */
-export const BASE_MINIAPP_EMBED_CONFIG = {
-  version: "1",
-  imageUrl: `${BASE_URL}/base/miniapp-image`,
-  button: {
-    title: "See Gnars on Base",
-    action: {
-      type: "launch_miniapp" as const,
-      name: "Gnars on Base",
-      url: `${BASE_URL}/base`,
       splashImageUrl: `${BASE_URL}/gnars-splash-200.png`,
       splashBackgroundColor: "#000000",
     },
