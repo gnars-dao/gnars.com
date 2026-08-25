@@ -54,5 +54,12 @@
       "q4": "Dinheiro de lixa pra crew inteira.",
       "q5": "Dá lance, ganha, governa. Esse é o loop."
     }
+  },
+  "how": {
+    "label": "Como isso roda na Base",
+    "gov": "Toda a stack de governança está deployada na Base (chain 8453): a casa de leilões liquida cada Gnar onchain, os votos caem no governor do Nouns Builder, e propostas aprovadas entram na fila e executam por um timelock que guarda o próprio tesouro. Cada lance e voto abaixo é uma transação na Base — e com smart accounts patrocinadas, votar não custa nada pros membros.",
+    "droposals": "Um droposal é uma proposta de governança que, executada na Base, deploya uma edição de NFT e liga o split de receita onchain — a receita de mint flui para criadores e tesouro por contratos 0xSplits na Base.",
+    "swap": "O swap roteia pela liquidez dos DEXs da Base via 0x API, e uma taxa de afiliado de 0,5% de cada troca vai direto pro tesouro da Gnars na Base — o site financia a DAO ao ser usado.",
+    "staking": "Os vaults dos riders são vaults ERC-4626 na Base — o depósito rende lá e o split liquida onchain. O stake da subnet Gnars Builder trava MOR (um OFT LayerZero na Base) no contrato BuildersV4, sacável só pelo próprio staker depois do lock de 7 dias."
   }
 }

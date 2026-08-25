@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { AuctionDemoPanel } from "@/components/base/AuctionDemoPanel";
-import { BasePageContent, BaseUnderHood } from "@/components/base/BasePageContent";
+import { BaseHowStrip, BasePageContent, BaseUnderHood } from "@/components/base/BasePageContent";
 import { DroposalsGrid } from "@/components/droposals/DroposalsGrid";
 import { GovSection } from "@/components/newhome/GovSection";
 import { StakeSection } from "@/components/newhome/StakeSection";
@@ -69,11 +69,13 @@ export default async function BasePage({ params }: { params: Promise<{ locale: s
       {/* The proof: live production sections, not screenshots. GovSection is
           the daily auction + recent proposals + activity feed; SwapSection is
           the working 0x swap widget; StakeSection is the rider roster. */}
+      <BaseHowStrip k="gov" />
       <GovSection
         auction={
           <AuctionDemoPanel items={pastAuctions} totalSalesEth={treasury.totalAuctionSales} />
         }
       />
+      <BaseHowStrip k="droposals" />
       {droposals.length > 0 && (
         <section className="mx-auto w-full max-w-5xl px-4 pb-4 pt-10 sm:px-6">
           <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
@@ -87,7 +89,9 @@ export default async function BasePage({ params }: { params: Promise<{ locale: s
           </div>
         </section>
       )}
+      <BaseHowStrip k="swap" />
       <SwapSection />
+      <BaseHowStrip k="staking" />
       <StakeSection />
       <BaseUnderHood />
     </div>
