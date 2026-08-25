@@ -73,6 +73,14 @@ const nextConfig: NextConfig = {
     },
     // Persist Turbopack compile artifacts across dev restarts (Next.js 16 beta).
     turbopackFileSystemCacheForDev: true,
+    // Prerender pressure on the public Goldsky subgraph. The default (8 pages
+    // per worker x 3 workers) opened ~20 concurrent renders, each fanning out
+    // into several subgraph reads, and Goldsky answered the burst with 429s
+    // that aborted the whole build. `src/lib/subgraph-gate.ts` bounds the
+    // requests; these two bound the pages and give a page that still loses the
+    // race a second chance instead of failing the deploy.
+    staticGenerationMaxConcurrency: 4,
+    staticGenerationRetryCount: 2,
   },
   async redirects() {
     const blogRedirects = generateBlogRedirects();
