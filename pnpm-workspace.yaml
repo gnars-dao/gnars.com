@@ -1,13 +1,25 @@
+# Build scripts are opted out, one by one and on purpose.
+#
+# pnpm 11 turned "ignored build scripts" from a warning into a hard error
+# (ERR_PNPM_IGNORED_BUILDS), and Vercel moved to pnpm 11 mid-afternoon on
+# 2026-08-25. This file already existed but every entry still read "set this to
+# true or false", so installs that had only warned for months started failing
+# the deploy outright — same tree, same account, different pnpm.
+#
+# false everywhere reproduces exactly what shipped green: none of these ran
+# their scripts in any previous build. They all ship prebuilt binaries through
+# optional dependencies, so nothing needs compiling here. Flip one to true only
+# with a reason — a missing native binary, not a hunch.
 allowBuilds:
-  '@parcel/watcher': set this to true or false
-  '@sentry/cli': set this to true or false
-  '@swc/core': set this to true or false
-  '@tailwindcss/oxide': set this to true or false
-  bufferutil: set this to true or false
-  esbuild: set this to true or false
-  keccak: set this to true or false
-  msw: set this to true or false
-  protobufjs: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
-  utf-8-validate: set this to true or false
+  '@parcel/watcher': false
+  '@sentry/cli': false
+  '@swc/core': false
+  '@tailwindcss/oxide': false
+  bufferutil: false
+  esbuild: false
+  keccak: false
+  msw: false
+  protobufjs: false
+  sharp: false
+  unrs-resolver: false
+  utf-8-validate: false
