@@ -26,6 +26,10 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
           width: "100%",
           display: "flex",
           flexDirection: "column",
+          // Centrado, não empurrado para o chão: com o bloco no rodapé sobrava
+          // um vão morto no meio, e é justamente no meio que o card é lido
+          // quando aparece pequeno no feed.
+          justifyContent: "center",
           backgroundColor: OG_COLORS.background,
           fontFamily: OG_FONTS.family,
           padding: "60px",
@@ -53,7 +57,7 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
           {labels.sub}
         </div>
 
-        <div style={{ display: "flex", gap: "28px", marginTop: "auto" }}>
+        <div style={{ display: "flex", gap: "28px", marginTop: "48px" }}>
           {[
             { t: labels.a, d: labels.aDesc, c: STAKE_GOLD },
             { t: labels.b, d: labels.bDesc, c: MOR_GREEN },

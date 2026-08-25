@@ -64,6 +64,9 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
             flexWrap: "wrap",
             gap: "14px",
             marginTop: "auto",
+            // Largura limitada para quebrar 3 + 3: com a fileira inteira o
+            // sexto chip caía sozinho na segunda linha e lia como acidente.
+            maxWidth: "820px",
           }}
         >
           {labels.features.map((f) => (
