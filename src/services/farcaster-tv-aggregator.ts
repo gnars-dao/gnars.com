@@ -14,6 +14,7 @@ import {
   fetchFarcasterUserCoinsUncached,
   fetchFarcasterUserNFTs,
   lookupProfile,
+  type FarcasterLookup,
   type FarcasterNftHolding,
   type FarcasterProfile,
   type FarcasterTokenBalance,
@@ -80,10 +81,27 @@ export interface TVItemData {
   creatorCoinBalance?: number;
 }
 
+/**
+ * Whether the Farcaster slice of the feed is a COUNT or a GUESS — issue #2.
+ *
+ * The counts below are only meaningful when every address lookup answered.
+ * When some (or all) could not be asked, a `0` is not "nobody holds anything",
+ * it is "we do not know" — and on this surface that distinction is invisible
+ * without saying so, because the feed still returns hundreds of items from
+ * other sources and therefore looks healthy. An aggregate that adds up is the
+ * kind of number nobody audits.
+ */
+export type FarcasterSliceState =
+  | { status: "ok" }
+  | { status: "incomplete"; reason: string; unresolvedWallets: number }
+  | { status: "unavailable"; reason: string };
+
 export interface FarcasterTVData {
   qualifiedCreators: QualifiedCreator[];
   items: TVItemData[];
   stats: { creators: number; coins: number; nfts: number };
+  /** Read this before trusting `stats`. */
+  farcaster: FarcasterSliceState;
   durationMs: number;
   cache: { source: "lru" | "next" };
 }
@@ -508,25 +526,55 @@ function rankByFollowerCount(matches: FarcasterCreatorMatch[]): FarcasterCreator
   return [...matches].sort((a, b) => b.profile.followerCount - a.profile.followerCount);
 }
 
+/**
+ * Turn per-address lookups into one honest verdict about the whole slice.
+ *
+ * A wallet that resolved to "absent" is an ANSWER — that creator genuinely has
+ * no Farcaster account. A wallet that came back "unavailable" is a HOLE, and
+ * every creator standing behind it drops out of the results for a reason that
+ * has nothing to do with what they hold. Counting the second as if it were the
+ * first is what turns a failed read into a confident zero.
+ *
+ * Pure and exported so the rule is testable without a network, a key, or the
+ * rest of the aggregator.
+ */
+export function deriveFarcasterSliceState(
+  lookups: readonly FarcasterLookup[],
+): FarcasterSliceState {
+  if (lookups.length === 0) return { status: "ok" };
+
+  const unresolved = lookups.filter(
+    (l): l is Extract<FarcasterLookup, { status: "unavailable" }> => l.status === "unavailable",
+  );
+  if (unresolved.length === 0) return { status: "ok" };
+
+  const reason = unresolved[0].reason || "Could not reach Neynar";
+  return unresolved.length === lookups.length
+    ? { status: "unavailable", reason }
+    : { status: "incomplete", reason, unresolvedWallets: unresolved.length };
+}
+
+type FarcasterMatchResult = {
+  matches: FarcasterCreatorMatch[];
+  state: FarcasterSliceState;
+};
+
 async function fetchFarcasterMatches(
   creators: QualifiedCreator[],
   useCache = true,
-): Promise<FarcasterCreatorMatch[]> {
-  if (creators.length === 0) return [];
+): Promise<FarcasterMatchResult> {
+  if (creators.length === 0) return { matches: [], state: { status: "ok" } };
 
   const wallets = creators.flatMap((creator) => creator.wallets);
   const profilesByAddress = useCache
     ? await fetchFarcasterProfilesByAddress(wallets)
     : await fetchFarcasterProfilesByAddressUncached(wallets);
 
+  const state = deriveFarcasterSliceState(Object.values(profilesByAddress));
+
   const matches: FarcasterCreatorMatch[] = [];
 
   for (const creator of creators) {
-    // Out of scope for issue #2's fix: /tv still collapses "absent" and
-    // "unavailable" into "no profile" and therefore still shows an empty
-    // Farcaster slice when a read fails. lookupProfile() reproduces the
-    // previous behaviour exactly; giving /tv the three states is its own
-    // change, tracked separately.
     const profiles = creator.wallets
       .map((wallet) => lookupProfile(profilesByAddress[wallet.toLowerCase()]))
       .filter((profile): profile is FarcasterProfile => Boolean(profile));
@@ -537,7 +585,7 @@ async function fetchFarcasterMatches(
     matches.push({ profile: bestProfile });
   }
 
-  return matches;
+  return { matches, state };
 }
 
 function parseUsd(value: string | null | undefined): number {
@@ -693,9 +741,17 @@ function mapFarcasterNftToTVItem(
 async function fetchFarcasterHoldings(
   creators: QualifiedCreator[],
   useCache = true,
-): Promise<{ items: TVItemData[]; stats: { creators: number; coins: number; nfts: number } }> {
-  const matches = await fetchFarcasterMatches(creators, useCache);
-  if (matches.length === 0) return { items: [], stats: { creators: 0, coins: 0, nfts: 0 } };
+): Promise<{
+  items: TVItemData[];
+  stats: { creators: number; coins: number; nfts: number };
+  farcaster: FarcasterSliceState;
+}> {
+  const { matches, state } = await fetchFarcasterMatches(creators, useCache);
+  // Zero matches with a healthy read is a real zero; zero matches because the
+  // reads failed is not, and `state` is what tells them apart downstream.
+  if (matches.length === 0) {
+    return { items: [], stats: { creators: 0, coins: 0, nfts: 0 }, farcaster: state };
+  }
 
   const rankedAll = rankByFollowerCount(matches);
   const ranked = rankedAll.slice(0, MAX_FARCASTER_USERS);
@@ -772,7 +828,11 @@ async function fetchFarcasterHoldings(
     MAX_CONCURRENT_FARCASTER_FETCHES,
   );
 
-  return { items, stats: { creators: ranked.length, coins: coinCount, nfts: nftCount } };
+  return {
+    items,
+    stats: { creators: ranked.length, coins: coinCount, nfts: nftCount },
+    farcaster: state,
+  };
 }
 
 /**
@@ -797,7 +857,15 @@ const getCachedFarcasterTVPayload = unstable_cache(
 
     const farcasterHoldings = farcasterHoldingsPromise
       ? await farcasterHoldingsPromise
-      : { items: [], stats: { creators: 0, coins: 0, nfts: 0 } };
+      : {
+          items: [],
+          stats: { creators: 0, coins: 0, nfts: 0 },
+          // We skipped the fetch entirely, so this is "unknown", not "none".
+          farcaster: {
+            status: "unavailable",
+            reason: "NEYNAR_API_KEY is not set",
+          } satisfies FarcasterSliceState,
+        };
 
     const durationMs = Date.now() - start;
 
@@ -805,6 +873,7 @@ const getCachedFarcasterTVPayload = unstable_cache(
       qualifiedCreators,
       items: farcasterHoldings.items,
       stats: farcasterHoldings.stats,
+      farcaster: farcasterHoldings.farcaster,
       durationMs,
     };
   },

@@ -517,6 +517,11 @@ export async function GET() {
           farcasterCreators: farcasterData.stats.creators,
           farcasterCoins: farcasterData.stats.coins,
           farcasterNfts: farcasterData.stats.nfts,
+          // Read this BEFORE the four counts above. When it is not "ok" they
+          // are a lower bound, not a total: a Farcaster read that failed
+          // otherwise arrives here as a confident zero inside an aggregate
+          // that adds up, which is the kind of number nobody audits. See #2.
+          farcasterState: farcasterData.farcaster,
         },
         fetchedAt: new Date().toISOString(),
         durationMs: elapsed,
