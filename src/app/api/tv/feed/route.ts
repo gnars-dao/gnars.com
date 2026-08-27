@@ -17,7 +17,22 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const CACHE_CONTROL_HEADER = "public, s-maxage=3600, stale-while-revalidate=86400";
+/**
+ * `s-maxage` governs how often this regenerates, and therefore the upstream
+ * cost (~95 Zora reads per regeneration). It is deliberately UNCHANGED — that
+ * is the expensive knob and moving it without measured regenerations/day would
+ * be guesswork.
+ *
+ * `stale-while-revalidate` governs only WHAT is served while a regeneration is
+ * in flight, and concurrent revalidations are deduped, so lowering it costs no
+ * additional upstream calls. At 86400 a single bad generation was served,
+ * byte-identical, for a day — which is how the 375→0 creator-content collapse
+ * on 27/08 stayed invisible for over an hour. At 3600 the worst-case staleness
+ * is ~2h instead of ~25h, and past that window a request waits for a fresh
+ * answer instead of receiving a day-old corpse: a visible delay rather than a
+ * cached zero.
+ */
+const CACHE_CONTROL_HEADER = "public, s-maxage=3600, stale-while-revalidate=3600";
 
 // Gnars addresses (use centralized config)
 const GNARS_COIN_ADDRESS = GNARS_CREATOR_COIN;
