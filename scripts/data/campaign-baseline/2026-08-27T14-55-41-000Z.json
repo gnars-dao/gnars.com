@@ -1,0 +1,200 @@
+{
+  "campaign": "stake-or-die",
+  "capturedAt": "2026-08-27T14:55:41.000Z",
+  "chain": {
+    "name": "base",
+    "chainId": 8453,
+    "blockNumber": "50526597"
+  },
+  "subnet": {
+    "subnetId": "0xf129111951997d1c386be9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d",
+    "buildersContract": "0x42BB446eAE6dca7723a9eBdb81EA88aFe77eF4B9",
+    "depositedMor": 8212.070874735658,
+    "depositedMorWei": "8212070874735657822011",
+    "rate": "10376744545476897971964191",
+    "pendingRewardsMor": 0,
+    "currentSubnetRewardsMor": 1.0694634844294515,
+    "contractMorBalance": 1939032.7879651242
+  },
+  "stakers": {
+    "activeCount": 8,
+    "everCount": 8,
+    "totalStakedMor": 8212.070874735658,
+    "largestPositionMor": 7269.2,
+    "largestPositionShare": 0.885184761661472,
+    "medianPositionMor": 24.503258735657823,
+    "depositEvents": 22,
+    "withdrawEvents": 0,
+    "otherSubnetEvents": 19,
+    "positions": [
+      {
+        "address": "0x05A1ff0a32bc24265BCB39499d0c5D9A6cb2011c",
+        "stakedMor": 7269.2,
+        "lastDepositAt": 1785361303,
+        "depositCount": 1,
+        "withdrawCount": 0
+      },
+      {
+        "address": "0x8Bf5941d27176242745B716251943Ae4892a3C26",
+        "stakedMor": 601,
+        "lastDepositAt": 1787694471,
+        "depositCount": 7,
+        "withdrawCount": 0
+      },
+      {
+        "address": "0x4b008Efa69177CDE525e7aB222aF0Aec8473Dd3f",
+        "stakedMor": 200.067616,
+        "lastDepositAt": 1787695301,
+        "depositCount": 1,
+        "withdrawCount": 0
+      },
+      {
+        "address": "0x2C8D2e50Ee03f98A2f4CCFbe1A61552b79bDF6fa",
+        "stakedMor": 103.3,
+        "lastDepositAt": 1785942753,
+        "depositCount": 1,
+        "withdrawCount": 0
+      },
+      {
+        "address": "0x96C37393B79aD7EABdF9Ccf82C2EDAd3d3c0eEA2",
+        "stakedMor": 24.503258735657823,
+        "lastDepositAt": 1787699823,
+        "depositCount": 8,
+        "withdrawCount": 0
+      },
+      {
+        "address": "0xAF0d21e544F193DCF9d005dE5644b760b2B8C6D6",
+        "stakedMor": 11,
+        "lastDepositAt": 1787754097,
+        "depositCount": 2,
+        "withdrawCount": 0
+      },
+      {
+        "address": "0xC1afA4c0A70B622d7b71d42241Bb4d52B6F3E218",
+        "stakedMor": 2,
+        "lastDepositAt": 1786923153,
+        "depositCount": 1,
+        "withdrawCount": 0
+      },
+      {
+        "address": "0xeaDA699f119Ec274dD2C58E286664C231602Bb44",
+        "stakedMor": 1,
+        "lastDepositAt": 1785774697,
+        "depositCount": 1,
+        "withdrawCount": 0
+      }
+    ]
+  },
+  "reconciliation": {
+    "subnetDepositedMor": 8212.070874735658,
+    "sumOfPositionsMor": 8212.070874735658,
+    "deltaMor": 0,
+    "ok": true
+  },
+  "treasury": {
+    "address": "0x72aD986ebAc0246D2b3c565ab2a1ce3a14cE6f88",
+    "chain": "base",
+    "eth": 6.810598212223597,
+    "ethWei": "6810598212223596338",
+    "tokens": {
+      "USDC": {
+        "amount": 13473.61135,
+        "raw": "13473611350",
+        "decimals": 6
+      },
+      "WETH": {
+        "amount": 0.03020407,
+        "raw": "30204070000000000",
+        "decimals": 18
+      },
+      "SENDIT": {
+        "amount": 474092937.5544444,
+        "raw": "474092937554444359999999998",
+        "decimals": 18
+      }
+    }
+  },
+  "sponsorshipGraph": {
+    "source": "https://www.gnars.com/api/stake-graph",
+    "totalReferredMor": 2587.599029,
+    "backerCount": 6,
+    "backersResolved": true,
+    "gnarsAccruedMor": 0.016642,
+    "athletes": [
+      {
+        "handle": "vlad",
+        "total": 2524.58292,
+        "vaultTvl": 21.052065,
+        "backers": 6
+      },
+      {
+        "handle": "nogenta",
+        "total": 24.005571,
+        "vaultTvl": 2.005571,
+        "backers": 3
+      },
+      {
+        "handle": "r4topunk",
+        "total": 8.010538,
+        "vaultTvl": 8.010538,
+        "backers": 1
+      },
+      {
+        "handle": "pamtech",
+        "total": 0,
+        "vaultTvl": 0,
+        "backers": 0
+      },
+      {
+        "handle": "louzoshi",
+        "total": 0,
+        "vaultTvl": 0,
+        "backers": 0
+      },
+      {
+        "handle": "zima",
+        "total": 0,
+        "vaultTvl": 0,
+        "backers": 0
+      },
+      {
+        "handle": "will",
+        "total": 31,
+        "vaultTvl": 0,
+        "backers": 1
+      }
+    ]
+  },
+  "traffic": {
+    "collected": false,
+    "reason": "GA4 needs credentials this repo does not hold. Retroactive pull is possible — GA retains aggregate reports — so this metric does not expire with the campaign.",
+    "property": "G-S0R9RBJDKL",
+    "verifiedFiringOn": [
+      "/stake",
+      "/morpheus",
+      "/base",
+      "/pt-br/stake"
+    ],
+    "reportToRun": {
+      "dimensions": [
+        "date",
+        "pagePath"
+      ],
+      "metrics": [
+        "screenPageViews",
+        "totalUsers",
+        "sessions",
+        "averageSessionDuration"
+      ],
+      "pagePathFilter": [
+        "/stake",
+        "/morpheus",
+        "/base",
+        "/pt-br/stake",
+        "/pt-br/morpheus",
+        "/pt-br/base"
+      ],
+      "dateRange": "2026-08-12..2026-08-25 for the pre-campaign baseline; extend the end date on each re-collection"
+    }
+  }
+}
