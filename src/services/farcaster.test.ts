@@ -180,3 +180,18 @@ describe("lookupProfile", () => {
     expect(mod.lookupProfile(undefined)).toBeNull();
   });
 });
+
+describe("no boolean can-we-read guard exists any more", () => {
+  it("assertNeynarApiKey is gone from the module surface", async () => {
+    // It was not merely dead code, it was a loaded trap: exported, named like
+    // it guaranteed the key WORKS, while only checking that it EXISTS. An
+    // expired key sailed through it and the caller believed it was protected —
+    // which is how /members ended up telling 1050 people "Not linked".
+    //
+    // A boolean has nowhere to put the difference between "no key",
+    // "key rejected" and "answered, nobody there". If a guard like this comes
+    // back, this test is the thing that argues with it.
+    const mod = await loadModule("valid-key");
+    expect("assertNeynarApiKey" in mod).toBe(false);
+  });
+});

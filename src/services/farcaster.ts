@@ -125,15 +125,6 @@ function selectBestUser(users: NeynarUser[], address: string): NeynarUser | null
   return [...users].sort((a, b) => (b.follower_count ?? 0) - (a.follower_count ?? 0))[0] ?? null;
 }
 
-export function assertNeynarApiKey(context: string): boolean {
-  if (!apiKey) {
-    console.warn(`[${context}] NEYNAR_API_KEY is not set; skipping Neynar calls.`);
-    return false;
-  }
-
-  return true;
-}
-
 async function fetchFarcasterProfilesChunk(
   addresses: string[],
 ): Promise<FarcasterProfilesByAddress> {
