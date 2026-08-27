@@ -18,7 +18,7 @@ import { usePathname, useRouter } from "@/i18n/navigation";
 import { CHAIN, DAO_ADDRESSES } from "@/lib/config";
 import { resolveENS } from "@/lib/ens";
 import { getProposalStatus } from "@/lib/schemas/proposals";
-import type { FarcasterProfile } from "@/services/farcaster";
+import type { FarcasterLookupStatus, FarcasterProfile } from "@/services/farcaster";
 import {
   fetchDelegators,
   fetchJointMemberOverview,
@@ -57,6 +57,23 @@ interface MemberDetailProps {
   address: string;
 }
 
+type FarcasterState = { profile: FarcasterProfile | null; status: FarcasterLookupStatus };
+
+// Never returns null: a failure here is "unavailable", not "absent". Handing
+// back null would land on the component's "absent" default and print
+// "Not linked" — the exact false statement issue #2 is about.
+async function fetchMemberFarcasterProfile(targetAddress: string): Promise<FarcasterState> {
+  const url = new URL("/api/members", window.location.origin);
+  url.searchParams.set("search", targetAddress);
+  const res = await fetch(url.toString(), { cache: "no-store" });
+  if (!res.ok) return { profile: null, status: "unavailable" };
+  const json = (await res.json()) as { members: MemberListItem[] };
+  const match = json.members.find(
+    (member) => member.owner.toLowerCase() === targetAddress.toLowerCase(),
+  );
+  return { profile: match?.farcaster ?? null, status: match?.farcasterStatus ?? "unavailable" };
+}
+
 export function MemberDetail({ address }: MemberDetailProps) {
   const t = useTranslations("members");
   const searchParams = useSearchParams();
@@ -75,22 +92,11 @@ export function MemberDetail({ address }: MemberDetailProps) {
   };
   const [votes, setVotes] = useState<VoteItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [farcasterProfile, setFarcasterProfile] = useState<FarcasterProfile | null>(null);
+  const [farcasterProfile, setFarcasterProfile] = useState<{
+    profile: FarcasterProfile | null;
+    status: FarcasterLookupStatus;
+  } | null>(null);
   const [farcasterLoading, setFarcasterLoading] = useState(true);
-
-  async function fetchMemberFarcasterProfile(
-    targetAddress: string,
-  ): Promise<FarcasterProfile | null> {
-    const url = new URL("/api/members", window.location.origin);
-    url.searchParams.set("search", targetAddress);
-    const res = await fetch(url.toString(), { cache: "no-store" });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { members: MemberListItem[] };
-    const match = json.members.find(
-      (member) => member.owner.toLowerCase() === targetAddress.toLowerCase(),
-    );
-    return match?.farcaster ?? null;
-  }
 
   // Fetch Zora profile data
   const { data: zoraProfile } = useZoraProfile(address);
@@ -208,7 +214,7 @@ export function MemberDetail({ address }: MemberDetailProps) {
       } catch (err) {
         console.error("Failed to load Farcaster profile", err);
         if (!mounted) return;
-        setFarcasterProfile(null);
+        setFarcasterProfile({ profile: null, status: "unavailable" });
       } finally {
         if (mounted) setFarcasterLoading(false);
       }
@@ -270,7 +276,8 @@ export function MemberDetail({ address }: MemberDetailProps) {
           </CardHeader>
           <CardContent>
             <FarcasterProfileSummary
-              profile={farcasterProfile}
+              profile={farcasterProfile?.profile ?? null}
+              status={farcasterProfile?.status}
               loading={farcasterLoading}
               size="md"
               bioLines={2}

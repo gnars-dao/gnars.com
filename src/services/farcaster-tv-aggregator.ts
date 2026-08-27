@@ -13,6 +13,7 @@ import {
   fetchFarcasterUserCoins,
   fetchFarcasterUserCoinsUncached,
   fetchFarcasterUserNFTs,
+  lookupProfile,
   type FarcasterNftHolding,
   type FarcasterProfile,
   type FarcasterTokenBalance,
@@ -521,8 +522,13 @@ async function fetchFarcasterMatches(
   const matches: FarcasterCreatorMatch[] = [];
 
   for (const creator of creators) {
+    // Out of scope for issue #2's fix: /tv still collapses "absent" and
+    // "unavailable" into "no profile" and therefore still shows an empty
+    // Farcaster slice when a read fails. lookupProfile() reproduces the
+    // previous behaviour exactly; giving /tv the three states is its own
+    // change, tracked separately.
     const profiles = creator.wallets
-      .map((wallet) => profilesByAddress[wallet.toLowerCase()])
+      .map((wallet) => lookupProfile(profilesByAddress[wallet.toLowerCase()]))
       .filter((profile): profile is FarcasterProfile => Boolean(profile));
 
     if (profiles.length === 0) continue;

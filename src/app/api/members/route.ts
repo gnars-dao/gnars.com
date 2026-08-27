@@ -1,6 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
-import { fetchFarcasterProfilesByAddress } from "@/services/farcaster";
+import { fetchFarcasterProfilesByAddress, lookupProfile } from "@/services/farcaster";
 import {
   fetchActiveVotesForVoters,
   fetchAllMembers,
@@ -50,7 +50,10 @@ const getCachedMembers = unstable_cache(
         activeVotes,
         attendancePct,
         likePct,
-        farcaster: farcasterProfiles[key] ?? null,
+        farcaster: lookupProfile(farcasterProfiles[key]),
+        // When the whole Promise.allSettled leg rejected we never asked at
+        // all, so the honest status is "unavailable", not "absent".
+        farcasterStatus: farcasterProfiles[key]?.status ?? "unavailable",
       };
     });
   },

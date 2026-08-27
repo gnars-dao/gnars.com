@@ -50,7 +50,37 @@ export type FarcasterNftHolding = {
   acquiredAt: string | null;
 };
 
-type FarcasterProfilesByAddress = Record<string, FarcasterProfile | null>;
+/**
+ * The answer for one address. THREE states, never two.
+ *
+ * `absent` means we asked Neynar and it has no account for this address.
+ * `unavailable` means we could not ask — no key, a rejected key, a non-2xx, a
+ * network error. Collapsing those two into `null` is what let a dead API key
+ * render as "Farcaster: Not linked" against 1050 members, which is a false
+ * statement about each of them rather than a missing value. See issue #2.
+ */
+export type FarcasterLookup =
+  | { status: "found"; profile: FarcasterProfile }
+  | { status: "absent" }
+  | { status: "unavailable"; reason: string };
+
+export type FarcasterLookupStatus = FarcasterLookup["status"];
+
+type FarcasterProfilesByAddress = Record<string, FarcasterLookup>;
+
+/** Convenience for callers that only need the profile (found) or nothing. */
+export function lookupProfile(lookup: FarcasterLookup | undefined): FarcasterProfile | null {
+  return lookup?.status === "found" ? lookup.profile : null;
+}
+
+/** Raised inside the cached path so a failure is NOT written to the cache: a
+ *  15-minute-cached outage would outlive the fix that ends it. */
+class FarcasterUnavailable extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "FarcasterUnavailable";
+  }
+}
 
 function normalizeAddress(address: string): string {
   return address.trim().toLowerCase();
@@ -108,9 +138,11 @@ async function fetchFarcasterProfilesChunk(
   addresses: string[],
 ): Promise<FarcasterProfilesByAddress> {
   const normalized = addresses.map(normalizeAddress);
-  const empty = Object.fromEntries(normalized.map((address) => [address, null]));
+  const unavailable = (reason: string): FarcasterProfilesByAddress =>
+    Object.fromEntries(normalized.map((address) => [address, { status: "unavailable", reason }]));
 
-  if (!apiKey || normalized.length === 0) return empty;
+  if (normalized.length === 0) return {};
+  if (!apiKey) return unavailable("NEYNAR_API_KEY is not set");
 
   try {
     const url = new URL("https://api.neynar.com/v2/farcaster/user/bulk-by-address");
@@ -123,8 +155,15 @@ async function fetchFarcasterProfilesChunk(
     });
 
     if (!res.ok) {
-      console.warn(`Neynar bulk-by-address failed: ${res.status} ${await res.text()}`);
-      return empty;
+      const body = await res.text();
+      console.warn(`Neynar bulk-by-address failed: ${res.status} ${body}`);
+      // 401/403 is the key itself — the guard that only checks the key EXISTS
+      // cannot see this, which is why an expired key went unnoticed.
+      const reason =
+        res.status === 401 || res.status === 403
+          ? `Neynar rejected the API key (HTTP ${res.status})`
+          : `Neynar returned HTTP ${res.status}`;
+      throw new FarcasterUnavailable(reason);
     }
 
     const response = (await res.json()) as Record<string, NeynarUser[]>;
@@ -132,12 +171,34 @@ async function fetchFarcasterProfilesChunk(
     for (const address of normalized) {
       const users = response[address] ?? [];
       const selected = selectBestUser(users, address);
-      result[address] = selected ? mapUserToProfile(selected) : null;
+      // Reached Neynar and it answered: an empty list here is a real "absent".
+      result[address] = selected
+        ? { status: "found", profile: mapUserToProfile(selected) }
+        : { status: "absent" };
     }
     return result;
   } catch (error) {
+    if (error instanceof FarcasterUnavailable) throw error;
     console.warn("Failed to fetch Farcaster profiles from Neynar", error);
-    return empty;
+    throw new FarcasterUnavailable(
+      error instanceof Error ? error.message : "Could not reach Neynar",
+    );
+  }
+}
+
+/** Run a chunk fetch and turn a thrown unavailability back into per-address
+ *  state. Kept OUTSIDE the cache so the failure is never stored. */
+async function settleChunk(
+  addresses: string[],
+  run: () => Promise<FarcasterProfilesByAddress>,
+): Promise<FarcasterProfilesByAddress> {
+  try {
+    return await run();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Could not reach Neynar";
+    return Object.fromEntries(
+      addresses.map((address) => [normalizeAddress(address), { status: "unavailable", reason }]),
+    );
   }
 }
 
@@ -150,7 +211,7 @@ export async function fetchFarcasterProfilesByAddressUncached(
   const results: FarcasterProfilesByAddress = {};
 
   for (const chunk of chunks) {
-    const chunkProfiles = await fetchFarcasterProfilesChunk(chunk);
+    const chunkProfiles = await settleChunk(chunk, () => fetchFarcasterProfilesChunk(chunk));
     Object.assign(results, chunkProfiles);
   }
 
@@ -178,7 +239,7 @@ export async function fetchFarcasterProfilesByAddress(
   const results: FarcasterProfilesByAddress = {};
 
   for (const chunk of chunks) {
-    const chunkProfiles = await fetchCachedFarcasterProfilesChunk(chunk);
+    const chunkProfiles = await settleChunk(chunk, () => fetchCachedFarcasterProfilesChunk(chunk));
     Object.assign(results, chunkProfiles);
   }
 
