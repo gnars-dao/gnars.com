@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FarcasterLookup } from "./farcaster";
-import { deriveFarcasterSliceState } from "./farcaster-tv-aggregator";
+import { buildFarcasterSliceReport, deriveFarcasterSliceState } from "./farcaster-tv-aggregator";
 
 /**
  * The /tv half of issue #2.
@@ -76,5 +76,60 @@ describe("deriveFarcasterSliceState", () => {
   it("reports the first failure's reason, not a generic one", () => {
     const state = deriveFarcasterSliceState([unavailable("socket hang up"), found(1)]);
     expect((state as { reason: string }).reason).toBe("socket hang up");
+  });
+});
+
+describe("buildFarcasterSliceReport — a failed read has no number to quote", () => {
+  const counts = { items: 12, creators: 3, coins: 9, nfts: 0 };
+
+  it("ok: the counts are present and unqualified", () => {
+    const report = buildFarcasterSliceReport({ status: "ok" }, counts);
+    expect(report).toEqual({ status: "ok", items: 12, creators: 3, coins: 9, nfts: 0 });
+  });
+
+  it("unavailable: there is NO count field at all", () => {
+    // This is the whole point. `report.coins ?? 0` cannot be written, because
+    // `coins` does not exist on this branch — there is nothing to default.
+    const report = buildFarcasterSliceReport({ status: "unavailable", reason: "key" }, counts);
+    expect(report).toEqual({ status: "unavailable", reason: "key" });
+    expect(Object.keys(report)).not.toContain("coins");
+    expect(Object.keys(report)).not.toContain("items");
+    expect(Object.keys(report)).not.toContain("creators");
+    expect(Object.keys(report)).not.toContain("nfts");
+  });
+
+  it("unavailable: the counts are dropped even when they are non-zero", () => {
+    // A partial fetch that then failed must not leak its partial numbers as
+    // though they were an answer.
+    const report = buildFarcasterSliceReport(
+      { status: "unavailable", reason: "socket hang up" },
+      { items: 99, creators: 99, coins: 99, nfts: 99 },
+    );
+    expect(JSON.stringify(report)).not.toContain("99");
+  });
+
+  it("incomplete: counts are present but named as a lower bound", () => {
+    const report = buildFarcasterSliceReport(
+      { status: "incomplete", reason: "key", unresolvedWallets: 2 },
+      counts,
+    );
+    // No bare `coins`/`items` that could be quoted as a total.
+    expect(Object.keys(report)).not.toContain("coins");
+    expect(Object.keys(report)).not.toContain("items");
+    expect(report).toMatchObject({
+      status: "incomplete",
+      unresolvedWallets: 2,
+      itemsSoFar: 12,
+      coinsSoFar: 9,
+    });
+  });
+
+  it("a real zero still renders as a zero", () => {
+    // The legitimate case must survive: we asked, nobody holds anything.
+    const report = buildFarcasterSliceReport(
+      { status: "ok" },
+      { items: 0, creators: 0, coins: 0, nfts: 0 },
+    );
+    expect(report).toEqual({ status: "ok", items: 0, creators: 0, coins: 0, nfts: 0 });
   });
 });

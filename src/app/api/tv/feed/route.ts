@@ -4,6 +4,7 @@ import { GNARS_CREATOR_COIN, GNARS_ZORA_HANDLE } from "@/lib/config";
 import { fetchGnarsPairedCoins } from "@/lib/zora-coins-subgraph";
 import { fetchDroposals } from "@/services/droposals";
 import {
+  buildFarcasterSliceReport,
   getFarcasterTVData,
   getQualifiedCreators,
   type QualifiedCreator,
@@ -513,15 +514,17 @@ export async function GET() {
           gnarsPaired: pairedCoins.length,
           droposals: droposalItems.length,
           creatorsCount: qualifiedCreators.length,
-          farcasterItems: farcasterItems.length,
-          farcasterCreators: farcasterData.stats.creators,
-          farcasterCoins: farcasterData.stats.coins,
-          farcasterNfts: farcasterData.stats.nfts,
-          // Read this BEFORE the four counts above. When it is not "ok" they
-          // are a lower bound, not a total: a Farcaster read that failed
-          // otherwise arrives here as a confident zero inside an aggregate
-          // that adds up, which is the kind of number nobody audits. See #2.
-          farcasterState: farcasterData.farcaster,
+          // One value instead of four bare counts. On a failed read there is
+          // no number here to quote — see buildFarcasterSliceReport. The four
+          // flat `farcasterCoins: 0`-style fields are gone deliberately: they
+          // were the confident zero inside an aggregate that adds up, which is
+          // the kind of number nobody audits. See issue #2.
+          farcaster: buildFarcasterSliceReport(farcasterData.farcaster, {
+            items: farcasterItems.length,
+            creators: farcasterData.stats.creators,
+            coins: farcasterData.stats.coins,
+            nfts: farcasterData.stats.nfts,
+          }),
         },
         fetchedAt: new Date().toISOString(),
         durationMs: elapsed,
