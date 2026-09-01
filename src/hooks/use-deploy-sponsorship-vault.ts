@@ -12,25 +12,48 @@
 // Safe regardless. The config is curator/allocator-gated, so it goes into one
 // Safe proposal — and because the connected EOA is a Safe owner, proposing also
 // lands the first of the two required confirmations. No server key involved.
-
 import { useCallback, useState } from "react";
-import { prepareTransaction, sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import {
-  createPublicClient, http, fallback,
-  encodeFunctionData, hashTypedData, parseEventLogs, toHex, keccak256, zeroAddress,
-  type Address, type Hex,
+  createPublicClient,
+  encodeFunctionData,
+  fallback,
+  hashTypedData,
+  http,
+  keccak256,
+  parseEventLogs,
+  toHex,
+  zeroAddress,
+  type Address,
+  type Hex,
 } from "viem";
 import { base as viemBase } from "viem/chains";
 import { useWriteAccount } from "@/hooks/use-write-account";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
-import { getThirdwebClient } from "@/lib/thirdweb";
+import { prepareTransaction } from "@/lib/builder-code";
 import {
-  CHAIN_ID, SOPA_SAFE, USDC, MOONWELL_USDC, VAULT_V2_FACTORY, ADAPTER_FACTORY,
-  PULL_SPLIT_FACTORY, MULTISEND_CALL_ONLY, SAFE_TX_SERVICE, SAFE_TX_TYPES,
-  vaultFactoryAbi, adapterFactoryAbi, splitFactoryAbi, splitParamsFor,
-  buildConfigCalls, encodeMultiSend, nextSafeNonce, safeQueueUrl, type SafeCall,
+  ADAPTER_FACTORY,
+  adapterFactoryAbi,
+  buildConfigCalls,
+  CHAIN_ID,
+  encodeMultiSend,
+  MOONWELL_USDC,
+  MULTISEND_CALL_ONLY,
+  nextSafeNonce,
+  PULL_SPLIT_FACTORY,
+  SAFE_TX_SERVICE,
+  SAFE_TX_TYPES,
+  safeQueueUrl,
+  SOPA_SAFE,
+  splitFactoryAbi,
+  splitParamsFor,
+  USDC,
+  VAULT_V2_FACTORY,
+  vaultFactoryAbi,
+  type SafeCall,
 } from "@/lib/sponsorship-vaults";
+import { getThirdwebClient } from "@/lib/thirdweb";
+import { ensureOnChain } from "@/lib/thirdweb-tx";
 
 export type DeployPhase = "idle" | "split" | "vault" | "adapter" | "propose" | "done" | "error";
 
@@ -43,10 +66,15 @@ export type DeployResult = {
   queueUrl: string;
 };
 
-const multiSendAbi = [{
-  name: "multiSend", type: "function", stateMutability: "payable",
-  inputs: [{ name: "transactions", type: "bytes" }], outputs: [],
-}] as const;
+const multiSendAbi = [
+  {
+    name: "multiSend",
+    type: "function",
+    stateMutability: "payable",
+    inputs: [{ name: "transactions", type: "bytes" }],
+    outputs: [],
+  },
+] as const;
 
 const rpc = createPublicClient({
   chain: viemBase,
@@ -69,7 +97,9 @@ async function waitForCode(address: Address, tries = 12): Promise<void> {
     try {
       const code = await rpc.getCode({ address });
       if (code && code !== "0x") return;
-    } catch { /* keep polling */ }
+    } catch {
+      /* keep polling */
+    }
     await sleep(1500);
   }
 }
@@ -81,10 +111,22 @@ export function useDeploySponsorshipVault() {
   const [result, setResult] = useState<DeployResult | null>(null);
 
   const deploy = useCallback(
-    async (athlete: Address, handle: string, existingSplit?: Address): Promise<DeployResult | null> => {
+    async (
+      athlete: Address,
+      handle: string,
+      existingSplit?: Address,
+    ): Promise<DeployResult | null> => {
       const client = getThirdwebClient();
-      if (!client) { setError("Thirdweb client not configured."); setPhase("error"); return null; }
-      if (!writer) { setError("Connect your wallet."); setPhase("error"); return null; }
+      if (!client) {
+        setError("Thirdweb client not configured.");
+        setPhase("error");
+        return null;
+      }
+      if (!writer) {
+        setError("Connect your wallet.");
+        setPhase("error");
+        return null;
+      }
       // The Safe proposal must be signed by a SOPA Safe OWNER (an EOA), not a
       // thirdweb smart account. Grab the underlying admin EOA when the wallet is
       // AA-wrapped; for a plain injected wallet writer.account already is it.
@@ -102,14 +144,28 @@ export function useDeploySponsorshipVault() {
         if (!split) {
           setPhase("split");
           const splitData = encodeFunctionData({
-            abi: splitFactoryAbi, functionName: "createSplit",
+            abi: splitFactoryAbi,
+            functionName: "createSplit",
             args: [splitParamsFor(athlete), SOPA_SAFE, account.address as Address],
           });
-          const splitTx = prepareTransaction({ client, chain: base, to: PULL_SPLIT_FACTORY, data: splitData });
-          const splitHash = (await sendTransaction({ account, transaction: splitTx })).transactionHash;
-          const splitReceipt = await waitForReceipt({ client, chain: base, transactionHash: splitHash });
-          split = parseEventLogs({ abi: splitFactoryAbi, eventName: "SplitCreated", logs: splitReceipt.logs })[0]
-            ?.args.split as Address | undefined;
+          const splitTx = prepareTransaction({
+            client,
+            chain: base,
+            to: PULL_SPLIT_FACTORY,
+            data: splitData,
+          });
+          const splitHash = (await sendTransaction({ account, transaction: splitTx }))
+            .transactionHash;
+          const splitReceipt = await waitForReceipt({
+            client,
+            chain: base,
+            transactionHash: splitHash,
+          });
+          split = parseEventLogs({
+            abi: splitFactoryAbi,
+            eventName: "SplitCreated",
+            logs: splitReceipt.logs,
+          })[0]?.args.split as Address | undefined;
           if (!split) throw new Error("Couldn't find the split address in the receipt.");
         }
 
@@ -117,13 +173,28 @@ export function useDeploySponsorshipVault() {
         setPhase("vault");
         const salt = keccak256(toHex(`gnars-sponsor-${handle}-${Date.now()}`));
         const vaultData = encodeFunctionData({
-          abi: vaultFactoryAbi, functionName: "createVaultV2", args: [SOPA_SAFE, USDC, salt],
+          abi: vaultFactoryAbi,
+          functionName: "createVaultV2",
+          args: [SOPA_SAFE, USDC, salt],
         });
-        const vaultTx = prepareTransaction({ client, chain: base, to: VAULT_V2_FACTORY, data: vaultData });
-        const vaultHash = (await sendTransaction({ account, transaction: vaultTx })).transactionHash;
-        const vaultReceipt = await waitForReceipt({ client, chain: base, transactionHash: vaultHash });
-        const vault = parseEventLogs({ abi: vaultFactoryAbi, eventName: "CreateVaultV2", logs: vaultReceipt.logs })[0]
-          ?.args.newVaultV2 as Address | undefined;
+        const vaultTx = prepareTransaction({
+          client,
+          chain: base,
+          to: VAULT_V2_FACTORY,
+          data: vaultData,
+        });
+        const vaultHash = (await sendTransaction({ account, transaction: vaultTx }))
+          .transactionHash;
+        const vaultReceipt = await waitForReceipt({
+          client,
+          chain: base,
+          transactionHash: vaultHash,
+        });
+        const vault = parseEventLogs({
+          abi: vaultFactoryAbi,
+          eventName: "CreateVaultV2",
+          logs: vaultReceipt.logs,
+        })[0]?.args.newVaultV2 as Address | undefined;
         if (!vault) throw new Error("Couldn't find the vault address in the receipt.");
 
         // 3. adapter -------------------------------------------------------
@@ -132,10 +203,17 @@ export function useDeploySponsorshipVault() {
         // wait for the code, then retry once if estimation still trips on it.
         await waitForCode(vault);
         const adapterData = encodeFunctionData({
-          abi: adapterFactoryAbi, functionName: "createMorphoVaultV1Adapter", args: [vault, MOONWELL_USDC],
+          abi: adapterFactoryAbi,
+          functionName: "createMorphoVaultV1Adapter",
+          args: [vault, MOONWELL_USDC],
         });
         const sendAdapter = async () => {
-          const adapterTx = prepareTransaction({ client, chain: base, to: ADAPTER_FACTORY, data: adapterData });
+          const adapterTx = prepareTransaction({
+            client,
+            chain: base,
+            to: ADAPTER_FACTORY,
+            data: adapterData,
+          });
           return (await sendTransaction({ account, transaction: adapterTx })).transactionHash;
         };
         let adapterHash: Hex;
@@ -145,37 +223,89 @@ export function useDeploySponsorshipVault() {
           await sleep(4000);
           adapterHash = await sendAdapter();
         }
-        const adapterReceipt = await waitForReceipt({ client, chain: base, transactionHash: adapterHash });
-        const adapter = parseEventLogs({ abi: adapterFactoryAbi, eventName: "CreateMorphoVaultV1Adapter", logs: adapterReceipt.logs })[0]
-          ?.args.morphoVaultV1Adapter as Address | undefined;
+        const adapterReceipt = await waitForReceipt({
+          client,
+          chain: base,
+          transactionHash: adapterHash,
+        });
+        const adapter = parseEventLogs({
+          abi: adapterFactoryAbi,
+          eventName: "CreateMorphoVaultV1Adapter",
+          logs: adapterReceipt.logs,
+        })[0]?.args.morphoVaultV1Adapter as Address | undefined;
         if (!adapter) throw new Error("Couldn't find the adapter address in the receipt.");
 
         // 4. propose config batch to the SOPA Safe -------------------------
         setPhase("propose");
         const calls: SafeCall[] = buildConfigCalls(vault, adapter, split, handle);
-        const msData = encodeFunctionData({ abi: multiSendAbi, functionName: "multiSend", args: [encodeMultiSend(calls)] });
+        const msData = encodeFunctionData({
+          abi: multiSendAbi,
+          functionName: "multiSend",
+          args: [encodeMultiSend(calls)],
+        });
         const nonce = await nextSafeNonce(SOPA_SAFE);
         const message = {
-          to: MULTISEND_CALL_ONLY, value: 0n, data: msData, operation: 1,
-          safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: zeroAddress, refundReceiver: zeroAddress,
+          to: MULTISEND_CALL_ONLY,
+          value: 0n,
+          data: msData,
+          operation: 1,
+          safeTxGas: 0n,
+          baseGas: 0n,
+          gasPrice: 0n,
+          gasToken: zeroAddress,
+          refundReceiver: zeroAddress,
           nonce: BigInt(nonce),
         } as const;
         const domain = { chainId: CHAIN_ID, verifyingContract: SOPA_SAFE } as const;
-        const safeTxHash = hashTypedData({ domain, types: SAFE_TX_TYPES, primaryType: "SafeTx", message });
-        const signature = await account.signTypedData({ domain, types: SAFE_TX_TYPES, primaryType: "SafeTx", message });
-
-        const res = await fetch(`${SAFE_TX_SERVICE}/api/v1/safes/${SOPA_SAFE}/multisig-transactions/`, {
-          method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({
-            to: MULTISEND_CALL_ONLY, value: "0", data: msData, operation: 1,
-            safeTxGas: "0", baseGas: "0", gasPrice: "0", gasToken: zeroAddress, refundReceiver: zeroAddress,
-            nonce, contractTransactionHash: safeTxHash, sender: account.address, signature,
-            origin: `Gnars sponsorship vault · ${handle}`,
-          }),
+        const safeTxHash = hashTypedData({
+          domain,
+          types: SAFE_TX_TYPES,
+          primaryType: "SafeTx",
+          message,
         });
-        if (!res.ok) throw new Error(`Safe API HTTP ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+        const signature = await account.signTypedData({
+          domain,
+          types: SAFE_TX_TYPES,
+          primaryType: "SafeTx",
+          message,
+        });
 
-        const out: DeployResult = { split, vault, adapter, safeTxHash, nonce, queueUrl: safeQueueUrl(SOPA_SAFE) };
+        const res = await fetch(
+          `${SAFE_TX_SERVICE}/api/v1/safes/${SOPA_SAFE}/multisig-transactions/`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+              to: MULTISEND_CALL_ONLY,
+              value: "0",
+              data: msData,
+              operation: 1,
+              safeTxGas: "0",
+              baseGas: "0",
+              gasPrice: "0",
+              gasToken: zeroAddress,
+              refundReceiver: zeroAddress,
+              nonce,
+              contractTransactionHash: safeTxHash,
+              sender: account.address,
+              signature,
+              origin: `Gnars sponsorship vault · ${handle}`,
+            }),
+          },
+        );
+        if (!res.ok)
+          throw new Error(
+            `Safe API HTTP ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`,
+          );
+
+        const out: DeployResult = {
+          split,
+          vault,
+          adapter,
+          safeTxHash,
+          nonce,
+          queueUrl: safeQueueUrl(SOPA_SAFE),
+        };
         setResult(out);
         setPhase("done");
         return out;
@@ -188,5 +318,11 @@ export function useDeploySponsorshipVault() {
     [writer],
   );
 
-  return { deploy, phase, error, result, isDeploying: phase !== "idle" && phase !== "done" && phase !== "error" };
+  return {
+    deploy,
+    phase,
+    error,
+    result,
+    isDeploying: phase !== "idle" && phase !== "done" && phase !== "error",
+  };
 }

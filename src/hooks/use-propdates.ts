@@ -2,11 +2,12 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { prepareTransaction, sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { encodeFunctionData, type Hex } from "viem";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareTransaction } from "@/lib/builder-code";
 import { EAS_CONTRACT_ADDRESS, easAbi } from "@/lib/eas";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain } from "@/lib/thirdweb-tx";

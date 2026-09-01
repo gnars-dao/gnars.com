@@ -2,18 +2,13 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  getContract,
-  prepareContractCall,
-  readContract,
-  sendTransaction,
-  waitForReceipt,
-} from "thirdweb";
+import { getContract, readContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { type Address, type Hex } from "viem";
 import { useSimulateContract } from "wagmi";
 import { base as wagmiBase } from "wagmi/chains";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";

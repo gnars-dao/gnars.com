@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
 import { Wallet } from "lucide-react";
 import { toast } from "sonner";
-import { getContract, prepareContractCall, sendTransaction } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { useActiveWalletChain, useConnectModal } from "thirdweb/react";
 import { useReadContract, useSimulateContract } from "wagmi";
@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAuctionTransaction } from "@/hooks/use-auction-transaction";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { CHAIN, DAO_ADDRESSES } from "@/lib/config";
 import { requestRevalidation } from "@/lib/request-revalidation";
 import { getThirdwebClient } from "@/lib/thirdweb";

@@ -19,7 +19,7 @@ import {
   setApiKey,
   type CreateCoinArgs,
 } from "@zoralabs/coins-sdk";
-import { prepareTransaction, sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import {
   decodeEventLog,
@@ -31,6 +31,7 @@ import {
 } from "viem";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareTransaction } from "@/lib/builder-code";
 import { GNARS_CREATOR_COIN, PLATFORM_REFERRER } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { generateVideoThumbnail } from "@/lib/video-thumbnail";

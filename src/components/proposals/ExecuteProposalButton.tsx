@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { useSimulateContract } from "wagmi";
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { CHAIN, DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";

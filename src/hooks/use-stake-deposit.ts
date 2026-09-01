@@ -9,7 +9,6 @@
 import { useCallback, useRef, useState } from "react";
 import {
   getContract,
-  prepareTransaction,
   readContract,
   sendTransaction,
   waitForReceipt,
@@ -27,6 +26,7 @@ import {
 } from "viem";
 import { base as viemBase } from "viem/chains";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareTransaction } from "@/lib/builder-code";
 import { CACHE_TAGS } from "@/lib/cache-tags";
 import { requestRevalidation } from "@/lib/request-revalidation";
 import { USDC } from "@/lib/sponsorship-vaults";

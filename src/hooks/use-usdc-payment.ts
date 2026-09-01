@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { parseUnits, type Address, type Hex } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { STORE_CHECKOUT } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain } from "@/lib/thirdweb-tx";

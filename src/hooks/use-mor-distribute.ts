@@ -8,20 +8,28 @@
 // The split address is deterministic and was set as the claim receiver at stake
 // time, so the MOR is already sitting there. distribute() is permissionless —
 // whoever clicks pays the (tiny) Arbitrum gas.
-
 import { useCallback, useRef, useState } from "react";
-import { prepareTransaction, sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction, waitForReceipt } from "thirdweb";
 import { arbitrum } from "thirdweb/chains";
 import { encodeFunctionData, type Address } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
-import { getThirdwebClient } from "@/lib/thirdweb";
-import { ARBITRUM_PUSH_SPLIT_FACTORY, MOR_TOKEN } from "@/lib/morpheus";
+import { prepareTransaction } from "@/lib/builder-code";
 import {
-  splitParamsFor, predictSplitAddress, isSplitDeployed,
-  pushSplitFactoryAbi, splitWalletAbi, SPLIT_OWNER, SPLIT_SALT,
-  SPLITS_WAREHOUSE, splitsWarehouseAbi, MULTICALL3, multicall3Abi,
+  isSplitDeployed,
+  MULTICALL3,
+  multicall3Abi,
+  predictSplitAddress,
+  pushSplitFactoryAbi,
+  SPLIT_OWNER,
+  SPLIT_SALT,
+  splitParamsFor,
+  SPLITS_WAREHOUSE,
+  splitsWarehouseAbi,
+  splitWalletAbi,
 } from "@/lib/mor-split";
+import { ARBITRUM_PUSH_SPLIT_FACTORY, MOR_TOKEN } from "@/lib/morpheus";
+import { getThirdwebClient } from "@/lib/thirdweb";
+import { ensureOnChain } from "@/lib/thirdweb-tx";
 
 export type DistributePhase = "idle" | "deploy" | "distribute" | "collect" | "done" | "error";
 
@@ -39,8 +47,16 @@ export function useMorDistribute() {
     async (athlete: Address): Promise<boolean> => {
       if (pending.current) return false;
       const client = getThirdwebClient();
-      if (!client) { setError("Thirdweb not configured."); setPhase("error"); return false; }
-      if (!writer) { setError("Connect your wallet."); setPhase("error"); return false; }
+      if (!client) {
+        setError("Thirdweb not configured.");
+        setPhase("error");
+        return false;
+      }
+      if (!writer) {
+        setError("Connect your wallet.");
+        setPhase("error");
+        return false;
+      }
       const account = writer.account;
       const staker = account.address as Address;
       const params = splitParamsFor(staker, athlete);
@@ -56,17 +72,24 @@ export function useMorDistribute() {
         if (!(await isSplitDeployed(staker, athlete))) {
           setPhase("deploy");
           const deployData = encodeFunctionData({
-            abi: pushSplitFactoryAbi, functionName: "createSplitDeterministic",
+            abi: pushSplitFactoryAbi,
+            functionName: "createSplitDeterministic",
             args: [params, SPLIT_OWNER, staker, SPLIT_SALT],
           });
-          const deployTx = prepareTransaction({ client, chain: arbitrum, to: ARBITRUM_PUSH_SPLIT_FACTORY, data: deployData });
+          const deployTx = prepareTransaction({
+            client,
+            chain: arbitrum,
+            to: ARBITRUM_PUSH_SPLIT_FACTORY,
+            data: deployData,
+          });
           const dHash = (await sendTransaction({ account, transaction: deployTx })).transactionHash;
           await waitForReceipt({ client, chain: arbitrum, transactionHash: dHash });
         }
 
         setPhase("distribute");
         const distData = encodeFunctionData({
-          abi: splitWalletAbi, functionName: "distribute",
+          abi: splitWalletAbi,
+          functionName: "distribute",
           args: [params, MOR_TOKEN, staker],
         });
         const distTx = prepareTransaction({ client, chain: arbitrum, to: split, data: distData });
@@ -97,8 +120,16 @@ export function useMorDistribute() {
     async (owners: Address[]): Promise<boolean> => {
       if (pending.current || owners.length === 0) return false;
       const client = getThirdwebClient();
-      if (!client) { setError("Thirdweb not configured."); setPhase("error"); return false; }
-      if (!writer) { setError("Connect your wallet."); setPhase("error"); return false; }
+      if (!client) {
+        setError("Thirdweb not configured.");
+        setPhase("error");
+        return false;
+      }
+      if (!writer) {
+        setError("Connect your wallet.");
+        setPhase("error");
+        return false;
+      }
       setError(null);
       pending.current = true;
       try {
@@ -107,11 +138,20 @@ export function useMorDistribute() {
         const calls = owners.map((owner) => ({
           target: SPLITS_WAREHOUSE,
           allowFailure: true,
-          callData: encodeFunctionData({ abi: splitsWarehouseAbi, functionName: "withdraw", args: [owner, MOR_TOKEN] }),
+          callData: encodeFunctionData({
+            abi: splitsWarehouseAbi,
+            functionName: "withdraw",
+            args: [owner, MOR_TOKEN],
+          }),
         }));
-        const data = encodeFunctionData({ abi: multicall3Abi, functionName: "aggregate3", args: [calls] });
+        const data = encodeFunctionData({
+          abi: multicall3Abi,
+          functionName: "aggregate3",
+          args: [calls],
+        });
         const tx = prepareTransaction({ client, chain: arbitrum, to: MULTICALL3, data });
-        const hash = (await sendTransaction({ account: writer.account, transaction: tx })).transactionHash;
+        const hash = (await sendTransaction({ account: writer.account, transaction: tx }))
+          .transactionHash;
         await waitForReceipt({ client, chain: arbitrum, transactionHash: hash });
         setPhase("done");
         return true;

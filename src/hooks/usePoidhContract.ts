@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { arbitrum, base, type Chain } from "thirdweb/chains";
 import { parseEther } from "viem";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount, type WriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { POIDH_ABI } from "@/lib/poidh/abi";
 import { POIDH_CONTRACTS } from "@/lib/poidh/config";
 import { getThirdwebClient } from "@/lib/thirdweb";

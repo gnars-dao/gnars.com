@@ -2,10 +2,11 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { isAddress, type Address, type Hex } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain } from "@/lib/thirdweb-tx";

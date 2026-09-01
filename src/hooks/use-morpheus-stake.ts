@@ -29,7 +29,6 @@
 import { useCallback, useRef, useState } from "react";
 import {
   getContract,
-  prepareTransaction,
   readContract,
   sendTransaction,
   waitForReceipt,
@@ -48,6 +47,7 @@ import {
 } from "viem";
 import { mainnet } from "viem/chains";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareTransaction } from "@/lib/builder-code";
 import { CACHE_TAGS } from "@/lib/cache-tags";
 import { predictSplitAddress } from "@/lib/mor-split";
 import {

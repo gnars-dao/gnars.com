@@ -6,13 +6,7 @@ import Image from "next/image";
 import { AlertTriangle, CheckCircle, ExternalLink, Info, Loader2 } from "lucide-react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import {
-  getContract,
-  prepareContractCall,
-  readContract,
-  sendTransaction,
-  waitForReceipt,
-} from "thirdweb";
+import { getContract, readContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { parseEventLogs } from "viem";
 import { Markdown } from "@/components/common/Markdown";
@@ -28,6 +22,7 @@ import { useProposalIndexing } from "@/hooks/use-proposal-indexing";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
+import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { ipfsToGatewayUrl } from "@/lib/pinata";
 import { encodeTransactions } from "@/lib/proposal-utils";
