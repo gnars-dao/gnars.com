@@ -78,7 +78,7 @@ export async function generateMetadata({
     // Farcaster mini app embed metadata
     other: {
       "fc:miniapp": JSON.stringify(MINIAPP_EMBED_CONFIG),
-      "base:app_id": "6920c9d87fdd1c48120364b3",
+      "base:app_id": "6a92ed52cfa2c998e36b554d",
     },
   };
 }
