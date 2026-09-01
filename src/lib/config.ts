@@ -163,3 +163,24 @@ export const STORE_CHECKOUT = {
 export const KEEPKEY_DROPSHIP_MODE: "test" | "live" = "live";
 
 export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.gnars.com";
+
+/**
+ * Base Builder Code — ERC-8021 transaction attribution.
+ *
+ * `BUILDER_CODE_SUFFIX` is the exact suffix issued by dashboard.base.org for
+ * `bc_r8lhotn0`. It is appended to the END of a transaction's calldata, where
+ * contracts ignore it (Solidity discards trailing bytes when ABI-decoding), so
+ * no contract change is needed on either side. Cost is 16 gas per non-zero byte.
+ *
+ * The 29 bytes read backwards from the end of the calldata:
+ *   8021 x 8   marker
+ *   00         version
+ *   0b         length of the code (11)
+ *   62..30     ASCII "bc_r8lhotn0"
+ *
+ * Copy the hex verbatim from the dashboard. Never re-derive it from the code
+ * string — the framing bytes are theirs to define, not ours to guess.
+ */
+export const BUILDER_CODE = "bc_r8lhotn0" as const;
+export const BUILDER_CODE_SUFFIX =
+  "0x62635f72386c686f746e300b0080218021802180218021802180218021" as const;
