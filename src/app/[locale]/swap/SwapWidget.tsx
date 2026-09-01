@@ -411,6 +411,9 @@ export function SwapWidget() {
   const [supportFee, setSupportFee] = React.useState(true);
 
   const [price, setPrice] = React.useState<ZeroExPriceResponse | null>(null);
+  // Distinct from `price === null`, which also means "nothing typed yet". Without
+  // this the widget reported a dead quote endpoint as "Enter an amount above".
+  const [priceError, setPriceError] = React.useState<string | null>(null);
   const [isFetching, setIsFetching] = React.useState(false);
   const [needsApproval, setNeedsApproval] = React.useState(false);
   const [approvalTarget, setApprovalTarget] = React.useState<Address | null>(null);
@@ -466,6 +469,8 @@ export function SwapWidget() {
   // quote — the issues.allowance / issues.balance fields will be meaningless
   // until they connect, and the effect re-runs once `address` populates.
   React.useEffect(() => {
+    setPriceError(null);
+
     const numeric = Number(sellAmount);
     if (!sellAmount || Number.isNaN(numeric) || numeric <= 0) {
       setPrice(null);
@@ -496,8 +501,20 @@ export function SwapWidget() {
         if (supportFee) params.set("fee", "1");
 
         const res = await fetch(`/api/0x/price?${params.toString()}`);
-        const data: ZeroExPriceResponse = await res.json();
+        const data: ZeroExPriceResponse & { error?: string } = await res.json();
         if (cancelled) return;
+
+        // `fetch` only rejects on network failure, so a 4xx/5xx lands here with
+        // an error body. Storing it as a price made every server-side failure —
+        // a missing API key included — look like the user hadn't typed anything.
+        if (!res.ok) {
+          console.error("[swap] price fetch failed", res.status, data?.error);
+          setPrice(null);
+          setPriceError(data?.error ?? `HTTP ${res.status}`);
+          setNeedsApproval(false);
+          setApprovalTarget(null);
+          return;
+        }
 
         setPrice(data);
         // Only trust allowance/balance signals when we have the real taker.
@@ -513,6 +530,7 @@ export function SwapWidget() {
         if (cancelled) return;
         console.error("[swap] price fetch failed", err);
         setPrice(null);
+        setPriceError(normalizeTxError(err).message);
       } finally {
         if (!cancelled) setIsFetching(false);
       }
@@ -708,13 +726,17 @@ export function SwapWidget() {
   }, [price, sellToken, buyToken]);
 
   // Sell-side caption: prefer error states, otherwise show the network fee.
-  const sellCaption = insufficientBalance
-    ? t("captions.insufficientBalance", { symbol: sellToken.symbol })
-    : price?.liquidityAvailable === false
-      ? t("captions.noLiquidity")
-      : networkFeeEth && price?.liquidityAvailable
-        ? t("captions.networkFee", { amount: networkFeeEth })
-        : t("captions.enterAmount");
+  // A failed quote outranks everything — it is the only state the user can't
+  // fix by typing, so saying "enter an amount" here would send them in circles.
+  const sellCaption = priceError
+    ? t("captions.quoteFailed")
+    : insufficientBalance
+      ? t("captions.insufficientBalance", { symbol: sellToken.symbol })
+      : price?.liquidityAvailable === false
+        ? t("captions.noLiquidity")
+        : networkFeeEth && price?.liquidityAvailable
+          ? t("captions.networkFee", { amount: networkFeeEth })
+          : t("captions.enterAmount");
 
   return (
     // `@container` makes the breakpoints below relative to this box rather

@@ -37,7 +37,8 @@
     "insufficientBalance": "Insufficient {symbol} balance",
     "noLiquidity": "No liquidity for this pair",
     "networkFee": "~{amount} ETH network fee",
-    "enterAmount": "Enter an amount above"
+    "enterAmount": "Enter an amount above",
+    "quoteFailed": "Quote unavailable — try again in a moment"
   },
   "buttons": {
     "connectToSwap": "Connect wallet to swap",
