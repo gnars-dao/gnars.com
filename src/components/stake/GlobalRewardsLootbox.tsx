@@ -18,5 +18,7 @@ import { usePathname } from "@/i18n/navigation";
 export function GlobalRewardsLootbox() {
   const pathname = usePathname();
   if (pathname === "/stake" || pathname.startsWith("/stake/")) return null;
+  // Not over the migration terminal either — it moves money on small screens.
+  if (pathname === "/migrate" || pathname.startsWith("/migrate/")) return null;
   return <MorLootbox showEnablePrompt />;
 }

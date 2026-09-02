@@ -120,7 +120,9 @@ export interface UpgraderPosition {
 
 export function useUpgraderPosition(): UpgraderPosition {
   const { address, saAddress, adminAddress, viewMode, canSwitchView } = useUserAddress();
-  const enabled = isMigrationDepositLive() && Boolean(address);
+  // Public facts (halted, launched, total) are read even with no wallet; the
+  // per-user reads then run against address(0) and are simply not shown.
+  const enabled = isMigrationDepositLive();
   const upgrader = UPGRADER_ADDRESS as Address;
   const id = MIGRATION_UPGRADE_ID as bigint;
   const user = (address ?? zeroAddress) as Address;

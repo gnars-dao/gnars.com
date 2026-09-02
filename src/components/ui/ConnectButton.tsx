@@ -24,12 +24,6 @@ export function ConnectButton() {
   const handleConnect = async () => {
     if (!client) return;
     try {
-      // Reset the persisted view-mode preference BEFORE connecting so the
-      // fresh session starts with the wallet-aware default (external → eoa,
-      // inApp → sa). A stale "sa"/"eoa" from a previous user/session would
-      // otherwise override the default and display the wrong address.
-      clearViewMode();
-
       const nextWallet = await connect({
         client,
         wallets: THIRDWEB_WALLETS,
@@ -37,6 +31,12 @@ export function ConnectButton() {
         size: "compact",
         title: t("wallet.connectToGnars"),
       });
+      // Only a completed connect resets the persisted view mode, so the fresh
+      // session starts with the wallet-aware default (external → eoa, inApp →
+      // sa). Clearing BEFORE the modal used to wipe a deliberate "sa" choice
+      // when the user merely opened and closed the modal — and with it the
+      // address their migration deposit sits under.
+      if (nextWallet) clearViewMode();
 
       // Clean up any stale wallets left in thirdweb's connection manager
       // from previous sessions. When users swap between social login and

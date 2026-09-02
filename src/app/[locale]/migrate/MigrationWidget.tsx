@@ -58,7 +58,7 @@ import { normalizeDecimalInput } from "@/lib/decimal-input";
 
 export function MigrationWidget() {
   const t = useTranslations("migrate");
-  const { address, isConnected } = useUserAddress();
+  const { address, isConnected, canSwitchView, viewMode, adminAddress } = useUserAddress();
   const { coins, isLoading, isError, refetch } = useMigratableCoins(address);
   const position = useUpgraderPosition();
 
@@ -93,11 +93,16 @@ export function MigrationWidget() {
   };
 
   if (!isConnected) {
+    // The migration's state and its risk disclosure are public facts; they
+    // must not sit behind the connect wall.
     return (
-      <Card className="flex flex-col items-center gap-4 p-10 text-center">
-        <p className="text-sm text-muted-foreground">{t("connectPrompt")}</p>
-        <ConnectButton />
-      </Card>
+      <div className="space-y-6">
+        <Card className="flex flex-col items-center gap-4 p-10 text-center">
+          <p className="text-sm text-muted-foreground">{t("connectPrompt")}</p>
+          <ConnectButton />
+        </Card>
+        <DepositSection position={position} connected={false} />
+      </div>
     );
   }
 
@@ -118,6 +123,14 @@ export function MigrationWidget() {
         coins={coins}
         isLoading={isLoading}
         isError={isError}
+        coinsElsewhereHint={
+          canSwitchView && viewMode === "sa" && adminAddress
+            ? t("coinsElsewhere", {
+                address: `${adminAddress.slice(0, 6)}…${adminAddress.slice(-4)}`,
+                button: t("deposit.switchButtonEoa"),
+              })
+            : undefined
+        }
         onRetry={() => void refetch()}
         selected={selected}
         onToggle={toggle}
@@ -141,7 +154,7 @@ export function MigrationWidget() {
         />
       )}
 
-      <DepositSection position={position} />
+      <DepositSection position={position} connected />
     </div>
   );
 }
@@ -303,7 +316,13 @@ function OldGnarsCard({
  * the contract address and the upgrade id are configured; a malformed config
  * renders as an error rather than as "opens at launch".
  */
-function DepositSection({ position }: { position: UpgraderPosition }) {
+function DepositSection({
+  position,
+  connected,
+}: {
+  position: UpgraderPosition;
+  connected: boolean;
+}) {
   const t = useTranslations("migrate");
   const live = isMigrationDepositLive();
   const how = t.raw("deposit.how") as string[];
@@ -322,8 +341,18 @@ function DepositSection({ position }: { position: UpgraderPosition }) {
         <ErrorNote>{t("deposit.configError", { error: MIGRATION_CONFIG_ERROR })}</ErrorNote>
       ) : !live ? (
         <p className="text-xs text-muted-foreground">{t("deposit.gatedHint")}</p>
-      ) : (
+      ) : connected ? (
         <DepositTerminal position={position} />
+      ) : (
+        <StatTile
+          label={t("deposit.totalDeposits")}
+          value={
+            position.totalDeposited === undefined
+              ? undefined
+              : `${formatCoinAmount(position.totalDeposited, 18, 4)} ETH`
+          }
+          loading={position.isLoading}
+        />
       )}
 
       <div className="space-y-2">
@@ -754,6 +783,7 @@ function HoldingsList({
   isLoading,
   isError,
   onRetry,
+  coinsElsewhereHint,
   selected,
   onToggle,
   onSelectAll,
@@ -763,6 +793,8 @@ function HoldingsList({
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
+  /** Shown with the empty state when this address's coins live at its other address. */
+  coinsElsewhereHint?: string;
   selected: Set<string>;
   onToggle: (addr: string) => void;
   onSelectAll: () => void;
@@ -796,7 +828,12 @@ function HoldingsList({
   }
 
   if (coins.length === 0) {
-    return <Card className="p-10 text-center text-sm text-muted-foreground">{t("noCoins")}</Card>;
+    return (
+      <Card className="space-y-2 p-10 text-center text-sm text-muted-foreground">
+        <p>{t("noCoins")}</p>
+        {coinsElsewhereHint && <p className="text-xs">{coinsElsewhereHint}</p>}
+      </Card>
+    );
   }
 
   return (

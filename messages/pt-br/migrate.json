@@ -155,5 +155,6 @@
     "noneSold": "Nenhuma das coins pôde ser vendida",
     "partial": "Vendidas {sold} de {total}. Não vendidas: {failed}. Elas continuam selecionadas — tente de novo quando quiser.",
     "depositAfterSellsFailed": "As vendas passaram, mas o depósito não. Cerca de {amount} ETH está na sua carteira — deposite pelo terminal."
-  }
+  },
+  "coinsElsewhere": "Você está vendo sua smart account, que não tem coins da Zora. Suas coins estão no seu endereço admin ({address}) — abra o menu da carteira e toque em \"{button}\"."
 }

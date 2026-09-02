@@ -155,5 +155,6 @@
     "noneSold": "None of the coins could be sold",
     "partial": "Sold {sold} of {total}. Not sold: {failed}. They stay selected — retry when ready.",
     "depositAfterSellsFailed": "The sells went through but the deposit did not. About {amount} ETH is in your wallet — deposit it from the terminal."
-  }
+  },
+  "coinsElsewhere": "Viewing as your smart account, which holds no Zora coins. Your coins are in your admin address ({address}) — open the wallet menu and press \"{button}\"."
 }

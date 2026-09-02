@@ -22,6 +22,9 @@ export function MiniTV() {
   const pathname = usePathname();
   const { heroTVVisible } = useMiniTVVisibility();
   const isOnTVPage = pathname.startsWith("/tv");
+  // /migrate moves money and is read on phones; two floating widgets over its
+  // deposit terminal are exactly the wrong company. Stay off it.
+  const isOnMigrate = pathname === "/migrate" || pathname.startsWith("/migrate/");
 
   // Feed is fetched on mount, but videoUrl only passed on hover
   const { items, creatorCoinImages } = useTVFeed({});
@@ -107,7 +110,9 @@ export function MiniTV() {
       tabIndex={0}
       aria-label={t("tv.openFullscreen")}
       className={`fixed bottom-4 left-4 z-40 h-[120px] w-[120px] cursor-pointer transition-opacity duration-700 ease-in-out ${
-        isLoaded && !heroTVVisible && !isOnTVPage ? "opacity-100" : "opacity-0 pointer-events-none"
+        isLoaded && !heroTVVisible && !isOnTVPage && !isOnMigrate
+          ? "opacity-100"
+          : "opacity-0 pointer-events-none"
       }`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
