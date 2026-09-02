@@ -39,11 +39,13 @@ import {
   type MigratableCoin,
   type RouteHop,
 } from "@/hooks/use-gnars-migration";
+import { useOldGnarsPosition } from "@/hooks/use-old-gnars-position";
 import { useUpgradeDeposit } from "@/hooks/use-upgrade-deposit";
 import { useUpgraderPosition, type UpgraderPosition } from "@/hooks/use-upgrader-position";
 import { useUserAddress } from "@/hooks/use-user-address";
 import {
   CHAIN,
+  GNARS_CREATOR_COIN,
   isMigrationDepositLive,
   MIGRATION_CONFIG_ERROR,
   UPGRADER_ADDRESS,
@@ -57,11 +59,18 @@ export function MigrationWidget() {
 
   // Selection is keyed by lowercase address.
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  // Old $gnars is not in the Zora list (it is the coin being migrated away
+  // from); the holder opts it into the sale explicitly from its own card.
+  const [includeOldGnars, setIncludeOldGnars] = React.useState(false);
+  const oldGnars = useOldGnarsPosition(address);
 
-  const selectedCoins = React.useMemo(
-    () => coins.filter((c) => selected.has(c.address.toLowerCase())),
-    [coins, selected],
-  );
+  const selectedCoins = React.useMemo(() => {
+    const picked = coins.filter((c) => selected.has(c.address.toLowerCase()));
+    if (includeOldGnars && oldGnars.balance !== undefined && oldGnars.balance > 0n) {
+      picked.push(oldGnarsAsCoin(oldGnars.balance));
+    }
+    return picked;
+  }, [coins, selected, includeOldGnars, oldGnars.balance]);
 
   const toggle = (addr: string) => {
     setSelected((prev) => {
@@ -73,7 +82,10 @@ export function MigrationWidget() {
     });
   };
   const selectAll = () => setSelected(new Set(coins.map((c) => c.address.toLowerCase())));
-  const clearAll = () => setSelected(new Set());
+  const clearAll = () => {
+    setSelected(new Set());
+    setIncludeOldGnars(false);
+  };
 
   if (!isConnected) {
     return (
@@ -90,6 +102,12 @@ export function MigrationWidget() {
         <ShieldCheck className="size-3.5 shrink-0" />
         {t("safetyHint")}
       </p>
+
+      <OldGnarsCard
+        position={oldGnars}
+        included={includeOldGnars}
+        onIncludedChange={setIncludeOldGnars}
+      />
 
       <HoldingsList
         coins={coins}
@@ -109,6 +127,7 @@ export function MigrationWidget() {
           onDeposited={() => {
             position.refetch();
             void refetch();
+            void oldGnars.refetchBalance();
             clearAll();
           }}
         />
@@ -116,6 +135,149 @@ export function MigrationWidget() {
 
       <DepositSection position={position} />
     </div>
+  );
+}
+
+/** Old $gnars shaped like a Zora coin so the quote and run paths treat it uniformly. */
+function oldGnarsAsCoin(balance: bigint): MigratableCoin {
+  return {
+    address: GNARS_CREATOR_COIN,
+    symbol: "$GNARS",
+    name: "Gnars (old)",
+    decimals: 18,
+    balance: balance.toString(),
+    displayBalance: formatEther(balance),
+    logoUrl: null,
+    usdValue: null,
+    marketCap: null,
+    pairedWith: { address: "0x1111111111166b7FE7bd91427724B487980aFc69", name: "ZORA" },
+  };
+}
+
+/**
+ * The sell leg for people who already hold old $gnars. ETH-only means the only
+ * way in for them is selling into the thin $gnars → ZORA → WETH pool, so this
+ * card quotes that sale first and shows the price impact as a number. It also
+ * says, in so many words, that holding and doing nothing is a legitimate choice.
+ */
+function OldGnarsCard({
+  position,
+  included,
+  onIncludedChange,
+}: {
+  position: ReturnType<typeof useOldGnarsPosition>;
+  included: boolean;
+  onIncludedChange: (v: boolean) => void;
+}) {
+  const t = useTranslations("migrate");
+
+  if (position.isBalanceLoading) {
+    return (
+      <Card className="p-4">
+        <Skeleton className="h-12 w-full" />
+      </Card>
+    );
+  }
+  if (position.isBalanceError) {
+    return (
+      <Card className="p-5">
+        <ErrorNote>
+          <span>{t("oldGnars.balanceError")}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto gap-1"
+            onClick={() => void position.refetchBalance()}
+          >
+            <RefreshCw className="size-3" /> {t("deposit.retry")}
+          </Button>
+        </ErrorNote>
+      </Card>
+    );
+  }
+  if (position.balance === undefined || position.balance === 0n) return null;
+
+  const impact = position.quote?.impactBps;
+  const impactPct = impact === null || impact === undefined ? null : impact / 100;
+  const impactTone =
+    impactPct === null
+      ? "text-muted-foreground"
+      : impactPct >= 10
+        ? "text-destructive"
+        : impactPct >= 3
+          ? "text-amber-700 dark:text-amber-400"
+          : "text-foreground";
+
+  return (
+    <Card className="space-y-4 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{t("oldGnars.title")}</div>
+          <p className="mt-1 text-xs text-muted-foreground">{t("oldGnars.body")}</p>
+        </div>
+        <Badge variant="secondary" className="shrink-0">
+          {t("oldGnars.notEligible")}
+        </Badge>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <StatTile
+          label={t("oldGnars.balance")}
+          value={`${formatCoinAmount(position.balance, 18, 0)} $GNARS`}
+          loading={false}
+        />
+        <StatTile
+          label={t("oldGnars.estimate")}
+          value={
+            position.isQuoteError
+              ? t("oldGnars.noRoute")
+              : position.quote
+                ? `${formatCoinAmount(position.quote.out, 18, 6)} ETH`
+                : undefined
+          }
+          loading={position.isQuoting}
+        />
+        <div className="rounded-lg border p-2 text-center">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {t("oldGnars.impact")}
+          </div>
+          <div className={`mt-0.5 text-sm font-semibold ${impactTone}`}>
+            {position.isQuoting ? (
+              <Skeleton className="mx-auto h-4 w-12" />
+            ) : impactPct === null ? (
+              t("oldGnars.impactUnknown")
+            ) : (
+              `−${impactPct.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`
+            )}
+          </div>
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">{t("oldGnars.impactHint")}</p>
+
+      <div className="space-y-2 rounded-lg border p-3">
+        <label className="flex cursor-pointer items-start gap-3">
+          <Checkbox
+            checked={included}
+            disabled={position.isQuoteError || !position.quote}
+            onCheckedChange={(v) => onIncludedChange(v === true)}
+            className="mt-0.5"
+          />
+          <span className="text-sm">
+            <span className="font-medium">{t("oldGnars.include")}</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {t("oldGnars.includeHint")}
+            </span>
+          </span>
+        </label>
+        <Separator />
+        <div className="text-sm">
+          <span className="font-medium">{t("oldGnars.holdTitle")}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {t("oldGnars.holdBody")}
+          </span>
+        </div>
+      </div>
+    </Card>
   );
 }
 

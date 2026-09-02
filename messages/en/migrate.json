@@ -93,5 +93,21 @@
   "editorial": {
     "tagline": "One token, one shared entry",
     "body": "Fragmented Zora dust becomes ETH, and ETH becomes one deep, ETH-paired $gnars on Clanker — with everyone entering at the same price through the migration."
+  },
+  "oldGnars": {
+    "title": "Your old $gnars",
+    "body": "The contract does not accept old $gnars. To enter with it, it has to be sold to ETH first — through the thin $gnars → ZORA → WETH pool, at the price below.",
+    "notEligible": "Not eligible as a deposit",
+    "balance": "You hold",
+    "estimate": "Sells for (est.)",
+    "impact": "Price impact",
+    "impactUnknown": "unknown",
+    "noRoute": "No route",
+    "impactHint": "Price impact is how much worse the price of selling everything is compared with selling a small amount — the cost of this sale's size, not a warning about something else. Selling is not free.",
+    "include": "Sell my old $gnars to ETH along with the coins above",
+    "includeHint": "Adds it to the sell preview below. It is quoted and sold like any other coin.",
+    "holdTitle": "Or hold it and do nothing",
+    "holdBody": "A legitimate choice. Old $gnars stays a tradable Zora creator coin; it just does not enter the migration.",
+    "balanceError": "Couldn't read your old $gnars balance. Nothing is assumed — try again."
   }
 }

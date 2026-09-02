@@ -93,5 +93,21 @@
   "editorial": {
     "tagline": "Um token, uma entrada única",
     "body": "A poeira fragmentada da Zora vira ETH, e o ETH vira um só $gnars profundo e pareado com ETH na Clanker — com todo mundo entrando ao mesmo preço pela migração."
+  },
+  "oldGnars": {
+    "title": "Seu $gnars antigo",
+    "body": "O contrato não aceita $gnars antigo. Para entrar com ele, é preciso vendê-lo por ETH primeiro — pelo pool raso $gnars → ZORA → WETH, ao preço abaixo.",
+    "notEligible": "Não elegível como depósito",
+    "balance": "Você tem",
+    "estimate": "Vende por (est.)",
+    "impact": "Impacto no preço",
+    "impactUnknown": "desconhecido",
+    "noRoute": "Sem rota",
+    "impactHint": "Impacto no preço é quanto pior fica o preço vendendo tudo em comparação com vender uma quantia pequena — o custo do tamanho desta venda, não um aviso sobre outra coisa. Vender não é de graça.",
+    "include": "Vender meu $gnars antigo por ETH junto com as coins acima",
+    "includeHint": "Adiciona ele à prévia da venda abaixo. É cotado e vendido como qualquer outra coin.",
+    "holdTitle": "Ou segurar e não fazer nada",
+    "holdBody": "Uma escolha legítima. O $gnars antigo continua sendo uma creator coin da Zora negociável; ele só não entra na migração.",
+    "balanceError": "Não foi possível ler seu saldo de $gnars antigo. Nada é presumido — tente de novo."
   }
 }
