@@ -5,12 +5,15 @@ import { useQuery } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isAllowedMediaHost } from "@/lib/poidh/media-hosts";
 
 interface MediaInfo {
   contentType: string;
   isVideo: boolean;
   isImage: boolean;
   isAttachment: boolean;
+  /** Set when `url` was a metadata JSON — the media it points at. */
+  resolvedUrl?: string;
   error?: string;
 }
 
@@ -22,8 +25,11 @@ interface MediaEmbedProps {
 
 export function MediaEmbed({ url, alt = "", className = "" }: MediaEmbedProps) {
   const t = useTranslations("bounties");
+  // Untrusted host — the API would reject it anyway, so skip the round trip.
+  const canInspect = isAllowedMediaHost(url);
   const { data, isLoading } = useQuery<MediaInfo>({
     queryKey: ["media-type", url],
+    enabled: canInspect,
     queryFn: async () => {
       const res = await fetch(`/api/media-type?url=${encodeURIComponent(url)}`);
       return res.json();
@@ -31,7 +37,7 @@ export function MediaEmbed({ url, alt = "", className = "" }: MediaEmbedProps) {
     staleTime: 60 * 60 * 1000, // 1 hour — content type doesn't change
   });
 
-  if (isLoading) {
+  if (canInspect && isLoading) {
     return <Skeleton className={`h-20 w-full ${className}`} />;
   }
 
@@ -50,10 +56,12 @@ export function MediaEmbed({ url, alt = "", className = "" }: MediaEmbedProps) {
     );
   }
 
+  const src = data.resolvedUrl ?? url;
+
   if (data.isVideo) {
     return (
       <video
-        src={url}
+        src={src}
         className={`rounded-md max-w-full h-auto max-h-64 ${className}`}
         controls
         playsInline
@@ -69,7 +77,7 @@ export function MediaEmbed({ url, alt = "", className = "" }: MediaEmbedProps) {
       <DialogTrigger asChild>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={url}
+          src={src}
           alt={alt}
           className={`rounded-md max-w-full h-auto max-h-64 object-cover cursor-pointer hover:opacity-90 transition-opacity ${className}`}
           loading="lazy"
@@ -77,7 +85,7 @@ export function MediaEmbed({ url, alt = "", className = "" }: MediaEmbedProps) {
       </DialogTrigger>
       <DialogContent className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-transparent">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={alt} className="w-full h-auto max-h-[95vh] object-contain" />
+        <img src={src} alt={alt} className="w-full h-auto max-h-[95vh] object-contain" />
       </DialogContent>
     </Dialog>
   );
