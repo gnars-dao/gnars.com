@@ -4,17 +4,7 @@
   "connectPrompt": "Conecte sua carteira para ver suas coins da Zora e migrá-las para $gnars.",
   "tabs": {
     "consolidate": "Consolidar",
-    "get": "Obter $GNARS",
     "guide": "Guia"
-  },
-  "getGnars": {
-    "title": "Obtenha o $gnars antigo com ETH",
-    "subtitle": "Compre o $gnars antigo diretamente (ETH → ZORA → $gnars). Usa o roteador da Zora — o mesmo do zora.co — por isso funciona onde a Matcha/0x não consegue.",
-    "connectPrompt": "Conecte sua carteira para comprar $gnars.",
-    "amountLabel": "Valor a gastar",
-    "buyCta": "Comprar $gnars",
-    "buying": "Comprando $gnars…",
-    "slippageNote": "O pool de $gnars é raso, então compras maiores movem o preço. Comece pequeno e confira quanto você recebe."
   },
   "guide": {
     "title": "Como funciona a migração do $gnars",

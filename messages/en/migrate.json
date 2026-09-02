@@ -4,17 +4,7 @@
   "connectPrompt": "Connect your wallet to see your Zora coins and migrate them into $gnars.",
   "tabs": {
     "consolidate": "Consolidate",
-    "get": "Get $GNARS",
     "guide": "Guide"
-  },
-  "getGnars": {
-    "title": "Get old $gnars with ETH",
-    "subtitle": "Buy old $gnars directly (ETH → ZORA → $gnars). This uses Zora's router — the same one zora.co uses — which is why it works where Matcha/0x can't.",
-    "connectPrompt": "Connect your wallet to buy $gnars.",
-    "amountLabel": "Amount to spend",
-    "buyCta": "Buy $gnars",
-    "buying": "Buying $gnars…",
-    "slippageNote": "The $gnars pool is thin, so larger buys move the price. Start small and check the amount you receive."
   },
   "guide": {
     "title": "How the $gnars migration works",
