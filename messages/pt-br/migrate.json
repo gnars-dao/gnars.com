@@ -1,80 +1,97 @@
 {
-  "title": "Migração Gnars",
-  "subtitle": "Consolide suas coins da Zora espalhadas em $gnars. Selecione várias coins de uma vez e troque todas por $gnars em um único fluxo — roteado via ZORA nos bastidores.",
-  "connectPrompt": "Conecte sua carteira para ver suas coins da Zora e migrá-las para $gnars.",
+  "title": "Migre para o novo $gnars",
+  "subtitle": "Um só lar para o $gnars na Clanker. Venda suas coins espalhadas da Zora por ETH, deposite o ETH na migração e resgate seu novo $gnars após o lançamento. ETH é a única porta de entrada.",
+  "connectPrompt": "Conecte sua carteira para ver suas coins da Zora e entrar na migração.",
   "tabs": {
-    "consolidate": "Consolidar",
+    "consolidate": "Entrar",
     "guide": "Guia"
   },
   "guide": {
-    "title": "Como funciona a migração do $gnars",
-    "intro": "Há duas formas de participar — converter suas coins da Zora em $gnars, ou trazer ETH novo para o lançamento. As duas te colocam no novo $gnars quando a DAO rodar o upgrade.",
+    "title": "Como a migração funciona",
+    "intro": "Isto é uma entrada compartilhada no novo token, não uma ferramenta pública de swap. Todo mundo deposita ETH; no lançamento, todos os depósitos entram numa única compra em lote, e todos entram pelo mesmo preço. ETH é o único ativo que o contrato aceita — $gnars antigo, ZORA e USDC são rejeitados on-chain.",
     "steps": [
       {
-        "title": "Escolha como participar",
-        "body": "Converta suas coins da Zora em $gnars antigo (aba Consolidar), compre com ETH (aba Obter $GNARS), ou separe ETH para contribuir direto no lançamento. ETH novo é a contribuição mais forte — vira liquidez real que sustenta o novo token, algo que coins espalhadas não conseguem."
+        "title": "Transforme coins da Zora em ETH",
+        "body": "Selecione de uma vez suas content e creator coins espalhadas da Zora. Cada uma é vendida direto por ETH numa única troca; pools rasos movem o preço, e a estimativa que você vê já reflete isso. Já tem $gnars antigo? Ele também precisa ser vendido por ETH — ou simplesmente mantido. As duas escolhas são legítimas."
       },
       {
-        "title": "Deposite quando o upgrade abrir",
-        "body": "Quando a DAO abrir o upgrade, deposite seu $gnars antigo e/ou ETH no portal (ele vai aparecer aqui). Não há prazo fixo on-chain — acompanhe os canais oficiais da Gnars para a data."
+        "title": "Deposite ETH na migração",
+        "body": "Seu ETH vai para o contrato UpgraderEth, no seu próprio endereço. Você pode sacar a qualquer momento até o operador executar o lançamento. Nenhuma data de encerramento foi anunciada, então a janela pode fechar sem aviso."
       },
       {
-        "title": "O upgrade roda — um preço único",
-        "body": "Em uma única transação, todos os depósitos são vendidos, o novo $gnars é lançado na Clanker (pareado com ETH), e todos entram pelo mesmo preço à prova de sniper. Seu ETH é o que coloca liquidez real no novo pool."
+        "title": "Uma compra em lote no lançamento (TGE)",
+        "body": "Numa única transação o operador usa todos os depósitos para comprar o novo $gnars, lançado na Clanker e pareado com ETH. Todos entram pelo mesmo preço."
       },
       {
         "title": "Resgate seu novo $gnars",
-        "body": "Depois que o upgrade rodar, resgate seu novo $gnars — alocado proporcionalmente ao que você contribuiu. Esse é o token daqui pra frente: ETH ↔ $gnars ↔ content coins."
+        "body": "Depois que o lote roda, resgate seu novo $gnars aqui — alocado proporcionalmente ao que você depositou. Esse é o token daqui pra frente: ETH ↔ $gnars ↔ content coins."
       }
     ],
-    "footnote": "O pré-venda em ETH é o que dá lastro real ao novo token — migrar poeira é opcional e mais simbólico. Os valores dependem da liquidez ao vivo e podem mudar; contribua só com o que se sentir confortável e sempre verifique os links nos canais oficiais da Gnars."
+    "footnote": "Os termos do lançamento são definidos pelo operador (Onchain Inc / kompreni) e não são legíveis no contrato, por isso não os mostramos aqui — eles serão publicados no anúncio de lançamento. As estimativas dependem da liquidez ao vivo e podem mudar; sempre verifique os links nos canais oficiais da Gnars."
   },
   "noCoins": "Nenhuma coin da Zora migrável encontrada nesta carteira.",
+  "holdingsError": "Não foi possível carregar suas coins da Zora. Nada é presumido — tente de novo.",
   "safetyHint": "Apenas coins da Zora verificadas são exibidas — tokens não-Zora e de golpe/airdrop são filtrados.",
   "holdingsTitle": "Suas coins da Zora ({count})",
   "selectAll": "Selecionar tudo",
   "clear": "Limpar",
   "route": {
-    "title": "Rota da migração",
-    "viaCreator": "via {creator}",
-    "directNote": "Pareada diretamente com $gnars — um único salto.",
-    "groupContent": "Content coins → {creator}",
-    "groupCreator": "Creator coins → ZORA",
-    "hopHint": "Cada coin passa pelo seu par de pool. A troca acontece em uma única transação — estes são os saltos nos bastidores."
+    "title": "Rota de venda",
+    "hopHint": "Cada coin passa pelo seu par de pool até virar ETH. Uma troca por coin — estes são os saltos nos bastidores."
   },
   "preview": {
-    "title": "Prévia da migração",
+    "title": "Prévia da venda",
     "selected": "Coins selecionadas",
-    "routable": "Com rota para $gnars",
+    "routable": "Com rota",
     "unroutable": "{count} sem liquidez",
     "youReceive": "Você recebe (estimado)",
-    "slippageWarning": "O pool de $gnars é raso — migrações grandes movem o preço. As estimativas incluem slippage e podem mudar antes da confirmação da transação.",
-    "migrateCta": "Migrar {count} coins para {token}",
-    "executing": "Migrando…",
-    "executionNote": "Faz uma troca por coin — aprove cada uma na sua carteira. Dica: teste primeiro com uma coin de baixo valor.",
-    "receiveAs": "Receber como",
-    "targetGnars": "$GNARS",
-    "targetEth": "ETH"
+    "slippageNote": "Pools rasos movem o preço em vendas grandes — a estimativa já inclui até 5% de slippage e pode mudar antes da confirmação da transação.",
+    "leftoverNote": "O depósito usa o mínimo garantido da cotação. O que vier acima disso fica na sua carteira como ETH — dá pra depositar pelo terminal abaixo.",
+    "migrateAndDepositCta": "Vender {count} coins e depositar",
+    "consolidateOnly": "Só vender por ETH — deixar na minha carteira",
+    "migrateCta": "Vender {count} coins por ETH",
+    "executing": "Processando…",
+    "batchNote": "Uma assinatura: todas as vendas e o depósito rodam numa única transação com gas patrocinado.",
+    "sequentialNote": "Sua carteira vai pedir {count} assinaturas, uma por etapa, e o gas é por sua conta."
+  },
+  "deposit": {
+    "title": "Depósito da migração",
+    "live": "No ar",
+    "opensAtLaunch": "Abre no lançamento",
+    "halted": "Pausado pelo operador",
+    "executed": "Lançado",
+    "misconfigured": "Mal configurado",
+    "readFailed": "Falha na leitura",
+    "gatedHint": "O terminal de depósito liga aqui assim que o contrato e o id do upgrade forem confirmados. Venda por ETH agora se quiser ficar pronto — o ETH fica na sua carteira até lá.",
+    "configError": "O terminal de depósito está mal configurado e foi desativado: {error}",
+    "readError": "Não foi possível ler seu depósito no contrato. Nada é presumido — seu depósito não aparece como zero.",
+    "retry": "Tentar de novo",
+    "yourDeposit": "Seu depósito",
+    "totalDeposits": "Todos os depósitos",
+    "closeLabel": "Depósitos fecham",
+    "closeValue": "Sem aviso — pode encerrar a qualquer momento",
+    "closeValueClosed": "Encerrado — o lançamento já rodou",
+    "howTitle": "O que acontece quando você deposita",
+    "how": [
+      "Seu ETH fica no contrato UpgraderEth, no seu endereço. Você pode sacar até o operador executar o lançamento.",
+      "No lançamento (TGE) todos os depósitos entram numa única compra em lote do novo $gnars, a um preço único.",
+      "Você resgata o novo $gnars aqui, proporcional à sua parte dos depósitos."
+    ],
+    "amountLabel": "Valor",
+    "walletBalance": "Carteira: {amount} ETH — usar tudo",
+    "walletBalanceUnavailable": "Não foi possível ler o saldo da sua carteira.",
+    "fillDeposited": "Sacar tudo",
+    "depositCta": "Depositar",
+    "withdrawCta": "Sacar",
+    "withdrawHint": "O saque devolve o ETH para este mesmo endereço. Funciona até o operador executar o lançamento, e não depois.",
+    "claimTitle": "Seu novo $gnars",
+    "claimed": "Resgatado — confira sua carteira.",
+    "claimCta": "Resgatar novo $gnars",
+    "ownerNote": "O contrato é operado pela Onchain Inc (kompreni), não pela Gnars DAO. O dono dele pode pausar depósitos e retirar tokens do contrato. O saque é a saída que está no seu controle.",
+    "contractLink": "Contrato UpgraderEth na Basescan"
   },
   "editorial": {
-    "tagline": "Um token, mais liquidez",
-    "body": "Cada coin da Zora que você migra é consolidada em $gnars. O resultado: poeira fragmentada vira liquidez concentrada e mais saudável em $gnars."
-  },
-  "smart": {
-    "button": "Seleção inteligente ✨",
-    "title": "Plano de migração inteligente",
-    "hint": "Cotamos cada coin e roteamos para o melhor destino — $gnars quando há rota, ETH caso contrário, e ignoramos as coins sem rota.",
-    "toGnars": "Para $GNARS",
-    "toEth": "Para ETH",
-    "skipped": "Ignoradas (sem rota)",
-    "migrateCta": "Migrar {count} coins",
-    "checking": "Verificando…",
-    "noRoute": "Sem rota",
-    "reason": {
-      "gnars": "pareada com $gnars",
-      "eth-not-paired": "não pareada com $gnars → melhor via ETH",
-      "eth-fallback": "pool de $gnars raso demais → ETH",
-      "none": "sem rota"
-    }
+    "tagline": "Um token, uma entrada única",
+    "body": "A poeira fragmentada da Zora vira ETH, e o ETH vira um só $gnars profundo e pareado com ETH na Clanker — com todo mundo entrando ao mesmo preço pela migração."
   }
 }

@@ -1,52 +1,58 @@
 "use client";
 
 /**
- * Gnars Migration — execution.
+ * Gnars Migration — execution: sell Zora coins to ETH, optionally straight into
+ * the UpgraderEth deposit.
  *
- * Converts the selected Zora coins into old $gnars, the pre-Clanker end state
- * (holding old $gnars is the ticket into the Upgrader deposit later). Routing is
- * per coin, matching the preview quotes:
+ * Two modes, picked by what the signing account can do:
  *
- *   gnars-paired coin → tradeCoin(coin → $gnars)   (one hop)
- *   everything else   → tradeCoin(coin → ZORA), then one tradeCoin(ΣZORA → $gnars)
+ *   batch      — smart account (sponsored gas). ONE signature for the whole run:
+ *                per coin [coin.approve(PERMIT2), PERMIT2.approve(coin, router),
+ *                router.execute(swap)] and then deposit{value: minOut}. The
+ *                router call is Zora's own quote with its PERMIT2_PERMIT command
+ *                removed, since the allowance is granted onchain instead of
+ *                signed. Validated on a Base fork: scripts/sim-migrate-batch.ts.
  *
- * Sequential (one signature per step) — correct and testable. Atomic one-tx
- * batching (thirdweb SA sendBatchTransaction) is a later optimization. Signs via
- * useWriteAccount (EOA for external wallets — where the funds are), same Zora
- * SDK path as use-trade-creator-coin.ts.
+ *   sequential — plain EOA. One wallet prompt per coin (the Zora SDK signs a
+ *                Permit2 permit and sends the swap), then one more for the
+ *                deposit. Same outcome, more clicks. The UI is told which mode
+ *                ran so nobody mistakes the fallback for the batch.
+ *
+ * The deposit amount is the router's guaranteed minimum (quote × (1 − slippage)),
+ * because the exact ETH received is not known inside a batch. Anything received
+ * above that stays in the wallet as ETH and can be deposited from the terminal.
  */
 import { useState } from "react";
-import { setApiKey, tradeCoin, type TradeParameters } from "@zoralabs/coins-sdk";
+import { createTradeCall, setApiKey, tradeCoin, type TradeParameters } from "@zoralabs/coins-sdk";
 import { toast } from "sonner";
+import { getContract, sendBatchTransaction, sendTransaction, waitForReceipt } from "thirdweb";
 import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
-import { erc20Abi, type Address, type PublicClient, type WalletClient } from "viem";
-import type { MigrationTarget } from "@/hooks/use-gnars-migration";
+import { zeroAddress, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { MIGRATION_SLIPPAGE } from "@/hooks/use-gnars-migration";
+import { UPGRADER_DEPOSIT_METHOD } from "@/hooks/use-upgrade-deposit";
 import { useWriteAccount } from "@/hooks/use-write-account";
-import { GNARS_CREATOR_COIN, ZORA_TOKEN_BASE } from "@/lib/config";
+import { prepareContractCall, prepareTransaction } from "@/lib/builder-code";
+import {
+  isMigrationDepositLive,
+  MIGRATION_UPGRADE_ID,
+  PERMIT2_ADDRESS,
+  UPGRADER_ADDRESS,
+} from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { normalizeTxError } from "@/lib/thirdweb-tx";
+import { stripPermitFromRouterCall } from "@/lib/zora-router-call";
 
 if (typeof window !== "undefined") {
   const key = process.env.NEXT_PUBLIC_ZORA_API_KEY;
   if (key) setApiKey(key);
 }
 
-const GNARS_LOWER = GNARS_CREATOR_COIN.toLowerCase();
-
 export interface CoinToMigrate {
   address: Address;
   symbol: string;
   /** Raw balance (BigInt-safe string). */
   balance: string;
-  /** Pool pairing address — used to pick the route (direct to $gnars vs via ZORA). */
-  pairedWith: string | null;
-  /**
-   * Per-coin target. When set (Smart Select), this coin routes to its own
-   * target regardless of the batch default — enabling a mixed batch where some
-   * coins go to $gnars and others to ETH. Falls back to the batch `target`.
-   */
-  target?: MigrationTarget;
 }
 
 export type StepStatus = "pending" | "active" | "done" | "failed";
@@ -56,20 +62,48 @@ export interface MigrationStep {
   status: StepStatus;
 }
 
+export type ExecutionMode = "batch" | "sequential";
+
+export interface ExecuteOptions {
+  /** Deposit the ETH proceeds into the migration in the same run. */
+  depositIntoMigration: boolean;
+  slippage?: number;
+}
+
+export interface ExecuteResult {
+  ok: boolean;
+  mode: ExecutionMode;
+  /** ETH (wei) deposited into the migration, when requested. */
+  deposited: bigint;
+}
+
+/** How much of a quote the router guarantees, and what the batch deposits. */
+export function minOutOf(amountOut: bigint, slippage: number): bigint {
+  const bps = BigInt(Math.round(slippage * 10_000));
+  return (amountOut * (10_000n - bps)) / 10_000n;
+}
+
+const ERC20_APPROVE = "function approve(address spender, uint256 amount) returns (bool)" as const;
+const PERMIT2_APPROVE =
+  "function approve(address token, address spender, uint160 amount, uint48 expiration)" as const;
+/** Permit2 allowance lifetime for the batch — long enough to mine, short enough to be harmless. */
+const PERMIT2_EXPIRY_SECONDS = 30 * 60;
+
 export function useExecuteMigration() {
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState<MigrationStep[]>([]);
-  // useWriteAccount honors the user's view mode: for an external wallet in EOA
-  // view it signs from the EOA (where the funds are), not the sponsored smart
-  // account. Using useActiveAccount would always resolve to the SA under AA and
-  // spend from an empty smart wallet → OutOfFunds.
+  const [lastMode, setLastMode] = useState<ExecutionMode | null>(null);
+  // Honors the user's view mode: an external wallet in EOA view signs from the
+  // EOA (where the funds are); SA view (or an in-app wallet) signs from the SA.
   const writer = useWriteAccount();
+
+  /** True when the signer can bundle every call into one sponsored userop. */
+  const canBatch = Boolean(writer?.account.sendBatchTransaction);
 
   const execute = async (
     coins: CoinToMigrate[],
-    target: MigrationTarget = "gnars",
-    slippage = 0.15,
-  ) => {
+    { depositIntoMigration, slippage = MIGRATION_SLIPPAGE }: ExecuteOptions,
+  ): Promise<ExecuteResult | undefined> => {
     if (coins.length === 0) return;
     if (!writer) {
       toast.error("Please connect your wallet");
@@ -80,133 +114,242 @@ export function useExecuteMigration() {
       toast.error("Thirdweb client not configured");
       return;
     }
-    const { account, wallet } = writer;
+    if (depositIntoMigration && !isMigrationDepositLive()) {
+      toast.error("The migration deposit is not open");
+      return;
+    }
 
+    const mode: ExecutionMode = writer.account.sendBatchTransaction ? "batch" : "sequential";
+    setLastMode(mode);
     setIsRunning(true);
 
-    // Route per coin using its own target (Smart Select) or the batch default.
-    // ETH: coin sells straight to ETH (SDK routes content→creator→ZORA→ETH), no
-    // consolidation hop. $gnars: gnars-paired coins go straight to $gnars (one
-    // hop); the rest go to ZORA, then a single consolidated ZORA→$gnars hop.
-    const plan = coins.map((c) => {
-      const toEth = (c.target ?? target) === "eth";
-      return { coin: c, toEth, direct: !toEth && c.pairedWith?.toLowerCase() === GNARS_LOWER };
-    });
-    const hasViaZora = plan.some((p) => !p.toEth && !p.direct);
-
     const initial: MigrationStep[] = [
-      ...plan.map((p) => ({
-        label: `${p.coin.symbol} → ${p.toEth ? "ETH" : p.direct ? "$GNARS" : "ZORA"}`,
-        status: "pending" as StepStatus,
-      })),
-      ...(hasViaZora ? [{ label: "ZORA → $GNARS", status: "pending" as StepStatus }] : []),
+      ...coins.map((c) => ({ label: `${c.symbol} → ETH`, status: "pending" as StepStatus })),
+      ...(depositIntoMigration
+        ? [{ label: "ETH → migration deposit", status: "pending" as StepStatus }]
+        : []),
     ];
     setSteps(initial);
-    const finalIdx = hasViaZora ? plan.length : -1;
+    const depositIdx = depositIntoMigration ? coins.length : -1;
     const setStatus = (i: number, status: StepStatus) =>
       setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, status } : s)));
+    const setAll = (status: StepStatus, only?: (i: number) => boolean) =>
+      setSteps((prev) => prev.map((s, i) => (!only || only(i) ? { ...s, status } : s)));
 
-    // viemAdapter clients are typed against thirdweb's bundled viem; cast via
-    // unknown so the Zora SDK (project viem types) accepts them — same as
-    // use-trade-creator-coin.ts. Structurally identical at runtime.
-    const walletClient = viemAdapter.wallet.toViem({
-      wallet,
-      chain: base,
-      client,
-    }) as unknown as WalletClient;
-    const publicClient = viemAdapter.publicClient.toViem({
-      chain: base,
-      client,
-    }) as unknown as PublicClient;
-    const sender = account.address as Address;
+    const sender = writer.account.address as Address;
+    const toastId = toast.loading(
+      depositIntoMigration ? "Consolidating and depositing…" : "Consolidating to ETH…",
+    );
 
-    const readZora = async (): Promise<bigint> => {
-      try {
-        return (await publicClient.readContract({
-          address: ZORA_TOKEN_BASE,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [sender],
-        })) as bigint;
-      } catch {
-        return 0n;
-      }
-    };
-
-    const allEth = plan.every((p) => p.toEth);
-    const allGnars = plan.every((p) => !p.toEth);
-    const targetLabel = allEth ? "ETH" : allGnars ? "$gnars" : "$gnars + ETH";
-    const toastId = toast.loading(`Migrating into ${targetLabel}…`);
     try {
-      const zoraBefore = hasViaZora ? await readZora() : 0n;
-
-      // Sell each coin toward its immediate target: ETH, direct $gnars, or ZORA.
-      let anyViaZoraSold = false;
-      let anyTerminalDone = false; // reached the final asset (ETH or $gnars) directly
-      for (let i = 0; i < plan.length; i++) {
-        setStatus(i, "active");
-        try {
-          const buy: TradeParameters["buy"] = plan[i].toEth
-            ? { type: "eth" }
-            : {
-                type: "erc20",
-                address: plan[i].direct ? (GNARS_CREATOR_COIN as Address) : ZORA_TOKEN_BASE,
-              };
-          await tradeCoin({
-            tradeParameters: {
-              sell: { type: "erc20", address: plan[i].coin.address },
-              buy,
-              amountIn: BigInt(plan[i].coin.balance),
-              slippage,
+      const result =
+        mode === "batch"
+          ? await runBatch({
+              coins,
+              account: writer.account,
               sender,
-            },
-            walletClient,
-            account: walletClient.account!,
-            publicClient,
-          });
-          setStatus(i, "done");
-          if (plan[i].toEth || plan[i].direct) anyTerminalDone = true;
-          else anyViaZoraSold = true;
-        } catch (err) {
-          console.error(`[migration] swap failed for ${plan[i].coin.symbol}`, err);
-          setStatus(i, "failed");
-        }
-      }
+              slippage,
+              depositIntoMigration,
+              setAll,
+            })
+          : await runSequential({
+              coins,
+              writer,
+              client,
+              sender,
+              slippage,
+              depositIntoMigration,
+              depositIdx,
+              setStatus,
+            });
 
-      // $gnars target only: consolidate the ZORA gained from non-direct coins.
-      if (hasViaZora) {
-        if (!anyViaZoraSold) throw new Error("None of the coins could be sold to ZORA");
-        setStatus(finalIdx, "active");
-        const gained = (await readZora()) - zoraBefore;
-        if (gained <= 0n) throw new Error("No ZORA received from the sells");
-        await tradeCoin({
-          tradeParameters: {
-            sell: { type: "erc20", address: ZORA_TOKEN_BASE },
-            buy: { type: "erc20", address: GNARS_CREATOR_COIN as Address },
-            amountIn: gained,
-            slippage,
-            sender,
-          },
-          walletClient,
-          account: walletClient.account!,
-          publicClient,
-        });
-        setStatus(finalIdx, "done");
-      } else if (!anyTerminalDone) {
-        throw new Error("No coins could be migrated");
-      }
-
-      toast.success(`Migrated into ${targetLabel}!`, { id: toastId });
-      return true;
+      toast.success(
+        depositIntoMigration
+          ? "Consolidated and deposited into the migration"
+          : "Consolidated into ETH",
+        { id: toastId },
+      );
+      return { ok: true, mode, deposited: result.deposited };
     } catch (err) {
-      if (finalIdx >= 0) setStatus(finalIdx, "failed");
       const { message } = normalizeTxError(err);
       toast.error(message || "Migration failed", { id: toastId });
-      return false;
+      return { ok: false, mode, deposited: 0n };
     } finally {
       setIsRunning(false);
     }
   };
 
-  return { execute, isRunning, steps };
+  /** Sell the coins and deposit the proceeds — the presale entry, in one run. */
+  const swapAndDeposit = (coins: CoinToMigrate[], slippage?: number) =>
+    execute(coins, { depositIntoMigration: true, slippage });
+
+  return { execute, swapAndDeposit, isRunning, steps, canBatch, lastMode };
+}
+
+type WriterAccount = NonNullable<ReturnType<typeof useWriteAccount>>;
+
+async function quoteToEth(coin: CoinToMigrate, sender: Address, slippage: number) {
+  const params: TradeParameters = {
+    sell: { type: "erc20", address: coin.address },
+    buy: { type: "eth" },
+    amountIn: BigInt(coin.balance),
+    slippage,
+    sender,
+  };
+  const quote = await createTradeCall(params);
+  if (!quote?.success || !quote.quote?.amountOut) {
+    throw new Error(`No route to ETH for ${coin.symbol}`);
+  }
+  return quote;
+}
+
+async function runBatch({
+  coins,
+  account,
+  sender,
+  slippage,
+  depositIntoMigration,
+  setAll,
+}: {
+  coins: CoinToMigrate[];
+  account: WriterAccount["account"];
+  sender: Address;
+  slippage: number;
+  depositIntoMigration: boolean;
+  setAll: (status: StepStatus, only?: (i: number) => boolean) => void;
+}): Promise<{ deposited: bigint }> {
+  const client = getThirdwebClient()!;
+  const expiration = Math.floor(Date.now() / 1000) + PERMIT2_EXPIRY_SECONDS;
+  const transactions = [];
+  let minOut = 0n;
+
+  setAll("active");
+  for (const coin of coins) {
+    const amountIn = BigInt(coin.balance);
+    const quote = await quoteToEth(coin, sender, slippage);
+    const router = quote.call.target as Address;
+    const stripped = stripPermitFromRouterCall(quote.call.data as Hex);
+    minOut += minOutOf(BigInt(quote.quote.amountOut), slippage);
+
+    const coinContract = getContract({ client, chain: base, address: coin.address });
+    transactions.push(
+      prepareContractCall({
+        contract: coinContract,
+        method: ERC20_APPROVE,
+        params: [PERMIT2_ADDRESS, amountIn],
+      }),
+      prepareContractCall({
+        contract: getContract({ client, chain: base, address: PERMIT2_ADDRESS }),
+        method: PERMIT2_APPROVE,
+        params: [coin.address, router, amountIn, expiration],
+      }),
+      prepareTransaction({
+        client,
+        chain: base,
+        to: router,
+        data: stripped.data,
+        value: BigInt(quote.call.value),
+      }),
+    );
+  }
+
+  if (depositIntoMigration) {
+    transactions.push(
+      prepareContractCall({
+        contract: getContract({ client, chain: base, address: UPGRADER_ADDRESS as Address }),
+        method: UPGRADER_DEPOSIT_METHOD,
+        params: [MIGRATION_UPGRADE_ID as bigint, sender, zeroAddress, minOut],
+        value: minOut,
+      }),
+    );
+  }
+
+  // The account is the smart account: the whole list becomes one userop.
+  try {
+    const result = await sendBatchTransaction({ account, transactions });
+    await waitForReceipt({ client, chain: base, transactionHash: result.transactionHash });
+  } catch (err) {
+    setAll("failed");
+    throw err;
+  }
+  setAll("done");
+  return { deposited: depositIntoMigration ? minOut : 0n };
+}
+
+async function runSequential({
+  coins,
+  writer,
+  client,
+  sender,
+  slippage,
+  depositIntoMigration,
+  depositIdx,
+  setStatus,
+}: {
+  coins: CoinToMigrate[];
+  writer: WriterAccount;
+  client: NonNullable<ReturnType<typeof getThirdwebClient>>;
+  sender: Address;
+  slippage: number;
+  depositIntoMigration: boolean;
+  depositIdx: number;
+  setStatus: (i: number, status: StepStatus) => void;
+}): Promise<{ deposited: bigint }> {
+  // viemAdapter clients are typed against thirdweb's bundled viem; cast via
+  // unknown so the Zora SDK (project viem types) accepts them.
+  const walletClient = viemAdapter.wallet.toViem({
+    wallet: writer.wallet,
+    chain: base,
+    client,
+  }) as unknown as WalletClient;
+  const publicClient = viemAdapter.publicClient.toViem({
+    chain: base,
+    client,
+  }) as unknown as PublicClient;
+
+  let minOut = 0n;
+  let soldAny = false;
+  for (let i = 0; i < coins.length; i++) {
+    setStatus(i, "active");
+    try {
+      const quote = await quoteToEth(coins[i], sender, slippage);
+      await tradeCoin({
+        tradeParameters: {
+          sell: { type: "erc20", address: coins[i].address },
+          buy: { type: "eth" },
+          amountIn: BigInt(coins[i].balance),
+          slippage,
+          sender,
+        },
+        walletClient,
+        account: walletClient.account!,
+        publicClient,
+      });
+      minOut += minOutOf(BigInt(quote.quote.amountOut), slippage);
+      soldAny = true;
+      setStatus(i, "done");
+    } catch (err) {
+      console.error(`[migration] swap failed for ${coins[i].symbol}`, err);
+      setStatus(i, "failed");
+    }
+  }
+  if (!soldAny) throw new Error("None of the coins could be sold to ETH");
+  if (!depositIntoMigration) return { deposited: 0n };
+
+  setStatus(depositIdx, "active");
+  try {
+    const transaction = prepareContractCall({
+      contract: getContract({ client, chain: base, address: UPGRADER_ADDRESS as Address }),
+      method: UPGRADER_DEPOSIT_METHOD,
+      params: [MIGRATION_UPGRADE_ID as bigint, sender, zeroAddress, minOut],
+      value: minOut,
+    });
+    const result = await sendTransaction({ account: writer.account, transaction });
+    await waitForReceipt({ client, chain: base, transactionHash: result.transactionHash });
+    setStatus(depositIdx, "done");
+  } catch (err) {
+    setStatus(depositIdx, "failed");
+    throw err;
+  }
+  return { deposited: minOut };
 }

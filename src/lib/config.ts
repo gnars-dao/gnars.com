@@ -1,3 +1,5 @@
+import { parseMigrationEnv } from "@/lib/migration-config";
+
 // Development mode flag - use NEXT_PUBLIC prefix so it's available in browser
 // This allows runtime checking instead of build-time replacement
 export const IS_DEV = process.env.NODE_ENV === "development";
@@ -39,15 +41,6 @@ export const GNARS_ZORA_HANDLE = "gnars" as const;
 // and ZORA → $gnars is a supported creator-coin trade. Verified on-chain (symbol "ZORA").
 export const ZORA_TOKEN_BASE = "0x1111111111166b7FE7bd91427724B487980aFc69" as const;
 
-// Burn sink for the migration fee. Each migration skims a small % of the
-// output $gnars and sends it here (buy-and-burn) to tighten $gnars supply.
-// Standard EVM burn address — tokens sent here are unrecoverable.
-export const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD" as const;
-
-// Migration fee, in basis points, taken from the $gnars output and burned.
-// 100 bps = 1%. Keep modest so migrating stays worthwhile for users.
-export const MIGRATION_BURN_BPS = 100 as const;
-
 // Interim operational signer for the migration. During the migration the DAO
 // uses a temporary multisig (fast, no per-step governance proposal) to receive
 // migration proceeds, the Clanker founder-vault allocation, and collected fees.
@@ -59,6 +52,35 @@ export const MIGRATION_BURN_BPS = 100 as const;
 // beneficiary. Overridable via NEXT_PUBLIC_MIGRATION_MULTISIG.
 export const MIGRATION_MULTISIG = (process.env.NEXT_PUBLIC_MIGRATION_MULTISIG ||
   "0xBe6C3D651d2F6e9eFA562b5a7CDf411304cad076") as `0x${string}`;
+
+// --- UpgraderEth: deposit / withdraw / claim (operated by Onchain Inc / kompreni) ---
+// ETH is the ONLY eligible lane. Verified on-chain 2026-09-01 by simulating
+// deposit(): old $gnars, ZORA and USDC revert "Token not eligible"; address(0)
+// (native ETH) is the single entry in getTokens(0).
+//
+// Both values are env-driven and EMPTY by default, on purpose. The operator
+// offered an on-chain deadline that requires a redeploy — a new address AND a
+// new upgradeId — so nothing here is final until Vlad gives the go. Production
+// flips on by setting both envs on Vercel; a malformed value renders as a
+// configuration error in the UI, never as "opens at launch".
+//
+// Current deployment, subject to that redeploy (Base 8453):
+//   UpgraderEth 0x064fd3d95f322909489dc085bb0044a343191ad3 · upgradeId 0
+const migrationEnv = parseMigrationEnv({
+  upgraderAddress: process.env.NEXT_PUBLIC_UPGRADER_ADDRESS,
+  upgradeId: process.env.NEXT_PUBLIC_MIGRATION_UPGRADE_ID,
+});
+export const UPGRADER_ADDRESS = migrationEnv.upgraderAddress;
+export const MIGRATION_UPGRADE_ID = migrationEnv.upgradeId;
+export const MIGRATION_CONFIG_ERROR = migrationEnv.error;
+
+/** Deposit / withdraw / claim UI is live only with a contract AND an upgrade id. */
+export const isMigrationDepositLive = () =>
+  UPGRADER_ADDRESS !== null && MIGRATION_UPGRADE_ID !== null;
+
+// Uniswap Permit2 (canonical, same address on every chain). The smart-account
+// batch grants the router its allowance here onchain instead of signing a permit.
+export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const;
 
 // Trade referrer for the migration/buy swaps — earns a share of the Zora trade
 // fee, claimable in Zora by this account. Set to haxixe.eth (Vlad's personal

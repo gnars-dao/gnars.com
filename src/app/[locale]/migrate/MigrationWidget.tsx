@@ -2,12 +2,27 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { ArrowDown, Check, ChevronRight, ShieldCheck, Sparkles, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  Info,
+  Lock,
+  RefreshCw,
+  ShieldCheck,
+  Wallet,
+  X,
+} from "lucide-react";
+import { formatEther, parseEther } from "viem";
+import { useBalance } from "wagmi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConnectButton } from "@/components/ui/ConnectButton";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -20,24 +35,28 @@ import {
   buildRoute,
   formatCoinAmount,
   useCoinQuotes,
-  useGnarsOutputQuote,
   useMigratableCoins,
-  useSmartPlan,
   type MigratableCoin,
-  type MigrationTarget,
   type RouteHop,
 } from "@/hooks/use-gnars-migration";
+import { useUpgradeDeposit } from "@/hooks/use-upgrade-deposit";
+import { useUpgraderPosition, type UpgraderPosition } from "@/hooks/use-upgrader-position";
 import { useUserAddress } from "@/hooks/use-user-address";
+import {
+  CHAIN,
+  isMigrationDepositLive,
+  MIGRATION_CONFIG_ERROR,
+  UPGRADER_ADDRESS,
+} from "@/lib/config";
 
 export function MigrationWidget() {
   const t = useTranslations("migrate");
   const { address, isConnected } = useUserAddress();
-  const { coins, isLoading } = useMigratableCoins(address);
+  const { coins, isLoading, isError, refetch } = useMigratableCoins(address);
+  const position = useUpgraderPosition();
 
   // Selection is keyed by lowercase address.
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const [target, setTarget] = React.useState<MigrationTarget>("gnars");
-  const [smartMode, setSmartMode] = React.useState(false);
 
   const selectedCoins = React.useMemo(
     () => coins.filter((c) => selected.has(c.address.toLowerCase())),
@@ -67,237 +86,311 @@ export function MigrationWidget() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <ShieldCheck className="size-3.5 shrink-0" />
-          {t("safetyHint")}
-        </p>
-        {coins.length > 0 && (
-          <Button
-            variant={smartMode ? "default" : "outline"}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setSmartMode((m) => !m)}
-          >
-            <Sparkles className="size-4" />
-            {t("smart.button")}
-          </Button>
-        )}
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <ShieldCheck className="size-3.5 shrink-0" />
+        {t("safetyHint")}
+      </p>
+
+      <HoldingsList
+        coins={coins}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => void refetch()}
+        selected={selected}
+        onToggle={toggle}
+        onSelectAll={selectAll}
+        onClearAll={clearAll}
+      />
+      {selectedCoins.length > 0 && <RouteMap coins={selectedCoins} />}
+      {selectedCoins.length > 0 && (
+        <MigrationPreview
+          coins={selectedCoins}
+          sender={address}
+          onDeposited={() => {
+            position.refetch();
+            void refetch();
+            clearAll();
+          }}
+        />
+      )}
+
+      <DepositSection position={position} />
+    </div>
+  );
+}
+
+/**
+ * The migration deposit terminal — deposit ETH, withdraw it while the window is
+ * open, claim the new $gnars after the operator runs execute(). Gated until both
+ * the contract address and the upgrade id are configured; a malformed config
+ * renders as an error rather than as "opens at launch".
+ */
+function DepositSection({ position }: { position: UpgraderPosition }) {
+  const t = useTranslations("migrate");
+  const live = isMigrationDepositLive();
+  const how = t.raw("deposit.how") as string[];
+
+  return (
+    <Card className="space-y-4 p-5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-sm font-medium">
+          {live ? <Wallet className="size-4" /> : <Lock className="size-4 text-muted-foreground" />}
+          {t("deposit.title")}
+        </span>
+        <DepositStatusBadge live={live} position={position} />
       </div>
 
-      {smartMode ? (
-        <SmartMigratePanel coins={coins} sender={address} />
+      {MIGRATION_CONFIG_ERROR ? (
+        <ErrorNote>{t("deposit.configError", { error: MIGRATION_CONFIG_ERROR })}</ErrorNote>
+      ) : !live ? (
+        <p className="text-xs text-muted-foreground">{t("deposit.gatedHint")}</p>
       ) : (
-        <>
-          <HoldingsList
-            coins={coins}
-            isLoading={isLoading}
-            selected={selected}
-            onToggle={toggle}
-            onSelectAll={selectAll}
-            onClearAll={clearAll}
-          />
-          {selectedCoins.length > 0 && <RouteMap coins={selectedCoins} />}
-          {selectedCoins.length > 0 && (
-            <MigrationPreview
-              coins={selectedCoins}
-              sender={address}
-              target={target}
-              onTargetChange={setTarget}
-            />
+        <DepositTerminal position={position} />
+      )}
+
+      <div className="space-y-2">
+        <div className="text-xs font-medium">{t("deposit.howTitle")}</div>
+        <ol className="space-y-1.5">
+          {how.map((line, i) => (
+            <li key={i} className="flex gap-2 text-xs text-muted-foreground">
+              <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                {i + 1}
+              </span>
+              <span>{line}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+        <Info className="mt-px size-3.5 shrink-0" />
+        <span>{t("deposit.ownerNote")}</span>
+      </p>
+
+      {UPGRADER_ADDRESS && (
+        <a
+          href={`https://basescan.org/address/${UPGRADER_ADDRESS}`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          {t("deposit.contractLink")} <ExternalLink className="size-3" />
+        </a>
+      )}
+    </Card>
+  );
+}
+
+function DepositStatusBadge({ live, position }: { live: boolean; position: UpgraderPosition }) {
+  const t = useTranslations("migrate");
+  if (MIGRATION_CONFIG_ERROR)
+    return <Badge variant="destructive">{t("deposit.misconfigured")}</Badge>;
+  if (!live) return <Badge variant="secondary">{t("deposit.opensAtLaunch")}</Badge>;
+  if (position.isError) return <Badge variant="destructive">{t("deposit.readFailed")}</Badge>;
+  if (position.halted) return <Badge variant="destructive">{t("deposit.halted")}</Badge>;
+  if (position.executed) return <Badge>{t("deposit.executed")}</Badge>;
+  return (
+    <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">{t("deposit.live")}</Badge>
+  );
+}
+
+/** The live terminal: position, deposit, withdraw, claim. */
+function DepositTerminal({ position }: { position: UpgraderPosition }) {
+  const t = useTranslations("migrate");
+  const { address } = useUserAddress();
+  const { deposit, withdraw, claim, running } = useUpgradeDeposit();
+  const [amount, setAmount] = React.useState("");
+  const wallet = useBalance({ address: address as `0x${string}` | undefined, chainId: CHAIN.id });
+
+  const parsed = React.useMemo(() => {
+    if (amount.trim() === "") return null;
+    try {
+      const v = parseEther(amount.trim());
+      return v > 0n ? v : null;
+    } catch {
+      return null;
+    }
+  }, [amount]);
+
+  const afterWrite = () => {
+    setAmount("");
+    position.refetch();
+    void wallet.refetch();
+  };
+
+  if (position.isError) {
+    return (
+      <ErrorNote>
+        <span>{t("deposit.readError")}</span>
+        <Button variant="outline" size="sm" className="ml-auto gap-1" onClick={position.refetch}>
+          <RefreshCw className="size-3" /> {t("deposit.retry")}
+        </Button>
+      </ErrorNote>
+    );
+  }
+
+  const busy = running !== null;
+  const closed = position.executed === true || position.halted === true;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2">
+        <StatTile
+          label={t("deposit.yourDeposit")}
+          value={
+            position.deposited === undefined
+              ? undefined
+              : `${formatCoinAmount(position.deposited, 18, 6)} ETH`
+          }
+          loading={position.isLoading}
+        />
+        <StatTile
+          label={t("deposit.totalDeposits")}
+          value={
+            position.totalDeposited === undefined
+              ? undefined
+              : `${formatCoinAmount(position.totalDeposited, 18, 4)} ETH`
+          }
+          loading={position.isLoading}
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+        <span className="text-muted-foreground">{t("deposit.closeLabel")}</span>
+        <span className="font-medium text-amber-700 dark:text-amber-400">
+          {position.executed ? t("deposit.closeValueClosed") : t("deposit.closeValue")}
+        </span>
+      </div>
+
+      {position.executed ? (
+        <div className="space-y-2 rounded-lg bg-accent/50 p-4">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+            {t("deposit.claimTitle")}
+          </div>
+          <div className="text-2xl font-bold">
+            {position.claimable === undefined ? "…" : formatCoinAmount(position.claimable, 18, 2)}{" "}
+            <span className="text-base">$GNARS</span>
+          </div>
+          {position.claimed ? (
+            <p className="text-xs text-muted-foreground">{t("deposit.claimed")}</p>
+          ) : (
+            <Button
+              className="w-full"
+              size="lg"
+              disabled={busy || !position.claimable || position.claimable === 0n}
+              onClick={() => void claim().then((ok) => ok && afterWrite())}
+            >
+              {running === "claim" ? <Spinner className="size-4" /> : t("deposit.claimCta")}
+            </Button>
           )}
-        </>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <label className="text-xs text-muted-foreground" htmlFor="migration-eth-amount">
+            {t("deposit.amountLabel")}
+          </label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="migration-eth-amount"
+              inputMode="decimal"
+              placeholder="0.0"
+              value={amount}
+              disabled={busy || closed}
+              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            />
+            <span className="text-sm font-medium text-muted-foreground">ETH</span>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            {wallet.data ? (
+              <button
+                type="button"
+                className="cursor-pointer underline-offset-2 hover:underline"
+                onClick={() => setAmount(formatEther(wallet.data!.value))}
+              >
+                {t("deposit.walletBalance", {
+                  amount: formatCoinAmount(wallet.data.value, 18, 6),
+                })}
+              </button>
+            ) : wallet.isError ? (
+              <span>{t("deposit.walletBalanceUnavailable")}</span>
+            ) : (
+              <span />
+            )}
+            {position.deposited !== undefined && position.deposited > 0n && (
+              <button
+                type="button"
+                className="cursor-pointer underline-offset-2 hover:underline"
+                onClick={() => setAmount(formatEther(position.deposited!))}
+              >
+                {t("deposit.fillDeposited")}
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="lg"
+              disabled={busy || closed || !parsed}
+              onClick={() =>
+                parsed && void deposit({ amount: parsed }).then((ok) => ok && afterWrite())
+              }
+            >
+              {running === "deposit" ? <Spinner className="size-4" /> : t("deposit.depositCta")}
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              disabled={
+                busy ||
+                closed ||
+                !parsed ||
+                position.deposited === undefined ||
+                parsed > position.deposited
+              }
+              onClick={() =>
+                parsed && void withdraw({ amount: parsed }).then((ok) => ok && afterWrite())
+              }
+            >
+              {running === "withdraw" ? <Spinner className="size-4" /> : t("deposit.withdrawCta")}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">{t("deposit.withdrawHint")}</p>
+        </div>
       )}
     </div>
   );
 }
 
-/**
- * Quote-verified Smart Select: quotes every coin and routes each to its best
- * destination ($gnars where it routes, ETH otherwise, skip if neither), then
- * migrates them as one mixed batch with per-coin targets.
- */
-function SmartMigratePanel({
-  coins,
-  sender,
-}: {
-  coins: MigratableCoin[];
-  sender: string | undefined;
-}) {
-  const t = useTranslations("migrate");
-  const { assignments, isLoading } = useSmartPlan(coins, sender);
-  const { execute, isRunning, steps } = useExecuteMigration();
-
-  const byAddr = new Map(coins.map((c) => [c.address.toLowerCase(), c]));
-  const assignByAddr = new Map(assignments.map((a) => [a.address.toLowerCase(), a]));
-  const toGnars = assignments.filter((a) => a.target === "gnars");
-  const toEth = assignments.filter((a) => a.target === "eth");
-  const skipped = assignments.filter((a) => !a.target);
-  const gnarsOut = toGnars.reduce((s, a) => s + a.out, 0n);
-  const ethOut = toEth.reduce((s, a) => s + a.out, 0n);
-
-  const migrateCoins: CoinToMigrate[] = [];
-  for (const a of [...toGnars, ...toEth]) {
-    const c = byAddr.get(a.address.toLowerCase());
-    if (!c || !a.target) continue;
-    migrateCoins.push({
-      address: c.address,
-      symbol: c.symbol,
-      balance: c.balance,
-      pairedWith: c.pairedWith?.address ?? null,
-      target: a.target,
-    });
-  }
-
+function StatTile({ label, value, loading }: { label: string; value?: string; loading: boolean }) {
   return (
-    <Card className="space-y-4 p-5">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">{t("smart.title")}</span>
-        {isLoading && <Spinner className="size-4" />}
+    <div className="rounded-lg border p-2 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold">
+        {value ?? (loading ? <Skeleton className="mx-auto h-4 w-16" /> : "—")}
       </div>
-      <p className="text-xs text-muted-foreground">{t("smart.hint")}</p>
-
-      {/* Per-coin breakdown — every coin stays visible with its verdict. */}
-      <ul className="max-h-[360px] divide-y overflow-y-auto rounded-lg border">
-        {coins.map((coin) => {
-          const a = assignByAddr.get(coin.address.toLowerCase());
-          return (
-            <li key={coin.address} className="flex items-center gap-3 p-3">
-              <CoinAvatar src={coin.logoUrl} symbol={coin.symbol} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{coin.symbol}</div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {formatCoinAmount(BigInt(coin.balance), coin.decimals)} {coin.symbol}
-                </div>
-              </div>
-              <div className="shrink-0 text-right">
-                {!a ? (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Spinner className="size-3" /> {t("smart.checking")}
-                  </span>
-                ) : a.target === "gnars" ? (
-                  <>
-                    <Badge className="bg-primary/15 text-primary">→ $GNARS</Badge>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      ≈ {formatCoinAmount(a.out)}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground/80">
-                      {t(`smart.reason.${a.reason}`)}
-                    </div>
-                  </>
-                ) : a.target === "eth" ? (
-                  <>
-                    <Badge variant="secondary">→ ETH</Badge>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      ≈ {formatCoinAmount(a.out, 18, 6)}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground/80">
-                      {t(`smart.reason.${a.reason}`)}
-                    </div>
-                  </>
-                ) : (
-                  <span className="text-xs text-muted-foreground">{t("smart.noRoute")}</span>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      <Separator />
-
-      <div className="space-y-2 text-sm">
-        <SmartRow
-          label={t("smart.toGnars")}
-          count={toGnars.length}
-          amount={`${formatCoinAmount(gnarsOut)} $GNARS`}
-        />
-        <SmartRow
-          label={t("smart.toEth")}
-          count={toEth.length}
-          amount={`${formatCoinAmount(ethOut, 18, 6)} ETH`}
-        />
-        {skipped.length > 0 && <SmartRow label={t("smart.skipped")} count={skipped.length} muted />}
-      </div>
-
-      {steps.length > 0 && <StepList steps={steps} />}
-
-      <Button
-        className="w-full"
-        size="lg"
-        disabled={isLoading || isRunning || migrateCoins.length === 0}
-        onClick={() => execute(migrateCoins)}
-      >
-        {isRunning ? t("preview.executing") : t("smart.migrateCta", { count: migrateCoins.length })}
-      </Button>
-      <p className="text-center text-[11px] text-muted-foreground">{t("preview.executionNote")}</p>
-    </Card>
-  );
-}
-
-function SmartRow({
-  label,
-  count,
-  amount,
-  muted,
-}: {
-  label: string;
-  count: number;
-  amount?: string;
-  muted?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className={muted ? "text-muted-foreground" : ""}>
-        {label} · {count}
-      </span>
-      {amount && <span className="text-muted-foreground">{amount}</span>}
     </div>
   );
 }
 
-/** Segmented toggle for the migration target ($GNARS vs ETH). */
-function TargetToggle({
-  target,
-  onChange,
-}: {
-  target: MigrationTarget;
-  onChange: (t: MigrationTarget) => void;
-}) {
-  const t = useTranslations("migrate");
+function ErrorNote({ children }: { children: React.ReactNode }) {
   return (
-    <div className="inline-flex rounded-lg border p-0.5">
-      {(["gnars", "eth"] as const).map((opt) => (
-        <button
-          key={opt}
-          type="button"
-          onClick={() => onChange(opt)}
-          className={`cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-            target === opt ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-          }`}
-        >
-          {opt === "gnars" ? t("preview.targetGnars") : t("preview.targetEth")}
-        </button>
-      ))}
-    </div>
+    <p className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+      <AlertTriangle className="size-3.5 shrink-0" />
+      {children}
+    </p>
   );
 }
 
 /**
- * Step-by-step route map: groups the selected coins by their first hop
- * (content coins funnel through their creator coin; creator coins go straight
- * to ZORA; Gnars content coins go straight to $gnars), then shows the shared
- * tail into $gnars. Purely explanatory — the swap is still one trade.
+ * Step-by-step route map: groups the selected coins by their first hop, then
+ * shows the shared tail into ETH. Purely explanatory — each coin is one trade.
  */
 function RouteMap({ coins }: { coins: MigratableCoin[] }) {
   const t = useTranslations("migrate");
 
-  // Group by the intermediate label the coins share.
   const groups = React.useMemo(() => {
     const map = new Map<string, { via: RouteHop; tail: RouteHop[]; sources: MigratableCoin[] }>();
     for (const coin of coins) {
       const { hops } = buildRoute(coin);
-      // hops[0] is the coin itself; hops[1] is the first destination.
       const via = hops[1];
       const key = `${via.kind}:${via.label}`;
       const existing = map.get(key);
@@ -333,11 +426,11 @@ function RouteMap({ coins }: { coins: MigratableCoin[] }) {
   );
 }
 
-/** Renders a routing path as connected chips: coin → creator → ZORA → $GNARS. */
+/** Renders a routing path as connected chips: coin → creator → ZORA → ETH. */
 function RouteChips({ hops, className }: { hops: RouteHop[]; className?: string }) {
   const chipClass = (kind: RouteHop["kind"]) => {
     switch (kind) {
-      case "gnars":
+      case "eth":
         return "bg-primary/15 text-primary font-semibold";
       case "zora":
         return "bg-accent text-foreground";
@@ -391,6 +484,8 @@ function CoinAvatar({ src, symbol }: { src: string | null; symbol: string }) {
 function HoldingsList({
   coins,
   isLoading,
+  isError,
+  onRetry,
   selected,
   onToggle,
   onSelectAll,
@@ -398,6 +493,8 @@ function HoldingsList({
 }: {
   coins: MigratableCoin[];
   isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
   selected: Set<string>;
   onToggle: (addr: string) => void;
   onSelectAll: () => void;
@@ -413,6 +510,19 @@ function HoldingsList({
             <Skeleton key={i} className="h-12 w-full" />
           ))}
         </div>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="p-5">
+        <ErrorNote>
+          <span>{t("holdingsError")}</span>
+          <Button variant="outline" size="sm" className="ml-auto gap-1" onClick={onRetry}>
+            <RefreshCw className="size-3" /> {t("deposit.retry")}
+          </Button>
+        </ErrorNote>
       </Card>
     );
   }
@@ -473,63 +583,42 @@ function HoldingsList({
 function MigrationPreview({
   coins,
   sender,
-  target,
-  onTargetChange,
+  onDeposited,
 }: {
   coins: MigratableCoin[];
   sender: string | undefined;
-  target: MigrationTarget;
-  onTargetChange: (t: MigrationTarget) => void;
+  onDeposited: () => void;
 }) {
   const t = useTranslations("migrate");
-  const {
-    quotes,
-    totalZoraOut,
-    directGnarsOut,
-    totalEthOut,
-    isLoading: quotesLoading,
-  } = useCoinQuotes(coins, sender, target);
-  const { totalGnars, isLoading: gnarsLoading } = useGnarsOutputQuote(
-    totalZoraOut,
-    directGnarsOut,
-    sender,
-  );
-
-  const isEth = target === "eth";
-  const total = isEth ? totalEthOut : totalGnars;
-  const unit = isEth ? "ETH" : "$GNARS";
-
-  const { execute, isRunning, steps } = useExecuteMigration();
+  const { quotes, totalEthOut, isLoading: loading } = useCoinQuotes(coins, sender);
+  const { execute, swapAndDeposit, isRunning, steps, canBatch } = useExecuteMigration();
+  const live = isMigrationDepositLive();
 
   const routableCount = quotes.filter((q) => q.routable).length;
   const unroutableCount = quotes.filter((q) => !q.routable).length;
-  const loading = quotesLoading || gnarsLoading;
 
   // Only migrate coins that actually have a route (skip the dead-pool ones).
   const routableAddrs = new Set(
     quotes.filter((q) => q.routable).map((q) => q.address.toLowerCase()),
   );
-  const routableCoins = coins
+  const routableCoins: CoinToMigrate[] = coins
     .filter((c) => routableAddrs.has(c.address.toLowerCase()))
-    .map((c) => ({
-      address: c.address,
-      symbol: c.symbol,
-      balance: c.balance,
-      pairedWith: c.pairedWith?.address ?? null,
-    }));
+    .map((c) => ({ address: c.address, symbol: c.symbol, balance: c.balance }));
 
-  const onMigrate = () => execute(routableCoins, target);
+  const signatureCount = routableCount + (live ? 1 : 0);
+
+  const run = async (deposit: boolean) => {
+    const result = deposit
+      ? await swapAndDeposit(routableCoins)
+      : await execute(routableCoins, { depositIntoMigration: false });
+    if (result?.ok && deposit) onDeposited();
+  };
 
   return (
     <Card className="space-y-4 p-5">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">{t("preview.title")}</span>
         {loading && <Spinner className="size-4" />}
-      </div>
-
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-muted-foreground">{t("preview.receiveAs")}</span>
-        <TargetToggle target={target} onChange={onTargetChange} />
       </div>
 
       <div className="flex items-center justify-between text-sm">
@@ -559,31 +648,56 @@ function MigrationPreview({
           {t("preview.youReceive")}
         </div>
         <div className="mt-1 text-2xl font-bold">
-          {loading ? "…" : formatCoinAmount(total, 18, isEth ? 6 : 4)}{" "}
-          <span className="text-base">{unit}</span>
+          {loading ? "…" : formatCoinAmount(totalEthOut, 18, 6)}{" "}
+          <span className="text-base">ETH</span>
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">{t("preview.slippageWarning")}</p>
+      <p className="text-xs text-muted-foreground">{t("preview.slippageNote")}</p>
+      {live && <p className="text-xs text-muted-foreground">{t("preview.leftoverNote")}</p>}
 
       {steps.length > 0 && <StepList steps={steps} />}
 
-      <Button
-        className="w-full"
-        size="lg"
-        disabled={loading || isRunning || routableCount === 0}
-        onClick={onMigrate}
-      >
-        {isRunning
-          ? t("preview.executing")
-          : t("preview.migrateCta", { count: routableCount, token: unit })}
-      </Button>
-      <p className="text-center text-[11px] text-muted-foreground">{t("preview.executionNote")}</p>
+      {live ? (
+        <>
+          <Button
+            className="w-full"
+            size="lg"
+            disabled={loading || isRunning || routableCount === 0}
+            onClick={() => void run(true)}
+          >
+            {isRunning
+              ? t("preview.executing")
+              : t("preview.migrateAndDepositCta", { count: routableCount })}
+          </Button>
+          <Button
+            className="w-full"
+            variant="ghost"
+            size="sm"
+            disabled={loading || isRunning || routableCount === 0}
+            onClick={() => void run(false)}
+          >
+            {t("preview.consolidateOnly")}
+          </Button>
+        </>
+      ) : (
+        <Button
+          className="w-full"
+          size="lg"
+          disabled={loading || isRunning || routableCount === 0}
+          onClick={() => void run(false)}
+        >
+          {isRunning ? t("preview.executing") : t("preview.migrateCta", { count: routableCount })}
+        </Button>
+      )}
+      <p className="text-center text-[11px] text-muted-foreground">
+        {canBatch ? t("preview.batchNote") : t("preview.sequentialNote", { count: signatureCount })}
+      </p>
     </Card>
   );
 }
 
-/** Per-step progress for the sequential migration (one row per swap). */
+/** Per-step progress for the run (one row per swap, plus the deposit). */
 function StepList({ steps }: { steps: MigrationStep[] }) {
   return (
     <ol className="space-y-1.5 rounded-lg border p-3">
