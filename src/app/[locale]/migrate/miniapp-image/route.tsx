@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { MINIAPP_SIZE, OG_COLORS, OG_FONTS } from "@/lib/og-utils";
 
-export const alt = "Migrate your Zora coins into $gnars";
+export const alt = "Sell your Zora coins to ETH and enter the new $gnars migration";
 export const size = MINIAPP_SIZE;
 export const contentType = "image/png";
 export const runtime = "edge";
@@ -72,7 +72,7 @@ export async function GET() {
               lineHeight: 1,
             }}
           >
-            ZORA COINS → GNARS
+            ZORA COINS → ETH → NEW GNARS
           </div>
           <div
             style={{
@@ -83,7 +83,8 @@ export async function GET() {
               marginTop: "12px",
             }}
           >
-            Consolidate your scattered Zora coins into $gnars — one token, deeper liquidity.
+            Sell your scattered Zora coins to ETH, deposit, and claim the new $gnars — ETH is the
+            only way in.
           </div>
         </div>
 

@@ -18,9 +18,12 @@
  *                deposit. Same outcome, more clicks. The UI is told which mode
  *                ran so nobody mistakes the fallback for the batch.
  *
- * The deposit amount is the router's guaranteed minimum (quote × (1 − slippage)),
- * because the exact ETH received is not known inside a batch. Anything received
- * above that stays in the wallet as ETH and can be deposited from the terminal.
+ * The deposit amount is the router's guaranteed minimum, because the exact ETH
+ * received is not known inside a batch. The minimum is per route: each coin's
+ * slippage is a margin derived from its measured price impact (a 1% slice vs the
+ * full balance — src/lib/route-margin.ts), so a deep route leaves ~0.5% in the
+ * wallet and a shallow one up to 5%. Whatever arrives above the minimum stays in
+ * the wallet as ETH and can be deposited from the terminal.
  */
 import { useState } from "react";
 import { createTradeCall, setApiKey, tradeCoin, type TradeParameters } from "@zoralabs/coins-sdk";
@@ -28,9 +31,8 @@ import { toast } from "sonner";
 import { getContract, sendBatchTransaction, sendTransaction, waitForReceipt } from "thirdweb";
 import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
-import { zeroAddress, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { MIGRATION_SLIPPAGE } from "@/hooks/use-gnars-migration";
-import { UPGRADER_DEPOSIT_METHOD } from "@/hooks/use-upgrade-deposit";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall, prepareTransaction } from "@/lib/builder-code";
 import {
@@ -39,8 +41,11 @@ import {
   PERMIT2_ADDRESS,
   UPGRADER_ADDRESS,
 } from "@/lib/config";
+import { referenceSlice } from "@/lib/price-impact";
+import { minOutAtMargin, routeMarginFromQuotes } from "@/lib/route-margin";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { normalizeTxError } from "@/lib/thirdweb-tx";
+import { depositCall } from "@/lib/upgrader-calls";
 import { stripPermitFromRouterCall } from "@/lib/zora-router-call";
 
 if (typeof window !== "undefined") {
@@ -75,12 +80,6 @@ export interface ExecuteResult {
   mode: ExecutionMode;
   /** ETH (wei) deposited into the migration, when requested. */
   deposited: bigint;
-}
-
-/** How much of a quote the router guarantees, and what the batch deposits. */
-export function minOutOf(amountOut: bigint, slippage: number): bigint {
-  const bps = BigInt(Math.round(slippage * 10_000));
-  return (amountOut * (10_000n - bps)) / 10_000n;
 }
 
 const ERC20_APPROVE = "function approve(address spender, uint256 amount) returns (bool)" as const;
@@ -188,19 +187,45 @@ export function useExecuteMigration() {
 
 type WriterAccount = NonNullable<ReturnType<typeof useWriteAccount>>;
 
-async function quoteToEth(coin: CoinToMigrate, sender: Address, slippage: number) {
-  const params: TradeParameters = {
+/**
+ * Quote a coin to ETH at a slippage derived from its own route: a 1% slice for
+ * the marginal price, the full balance for the realised one, then the final
+ * quote (whose calldata carries the router's amountOutMin) at that margin.
+ * `maxSlippage` caps the margin; the route-margin floor/ceiling apply inside.
+ */
+async function quoteToEth(coin: CoinToMigrate, sender: Address, maxSlippage: number) {
+  const amountIn = BigInt(coin.balance);
+  const params = (amount: bigint, slippage: number): TradeParameters => ({
     sell: { type: "erc20", address: coin.address },
     buy: { type: "eth" },
-    amountIn: BigInt(coin.balance),
+    amountIn: amount,
     slippage,
     sender,
-  };
-  const quote = await createTradeCall(params);
+  });
+  const ref = referenceSlice(amountIn);
+  const [full, small] = await Promise.all([
+    createTradeCall(params(amountIn, maxSlippage)),
+    ref === amountIn ? null : createTradeCall(params(ref, maxSlippage)).catch(() => null),
+  ]);
+  if (!full?.success || !full.quote?.amountOut) {
+    throw new Error(`No route to ETH for ${coin.symbol}`);
+  }
+  const fullOut = BigInt(full.quote.amountOut);
+  const refOut = small?.success && small.quote?.amountOut ? BigInt(small.quote.amountOut) : 0n;
+  const maxBps = Math.round(maxSlippage * 10_000);
+  const marginBps = Math.min(maxBps, routeMarginFromQuotes(ref, refOut, amountIn, fullOut));
+  const slippage = marginBps / 10_000;
+  // Re-quote at the route's margin so the calldata's amountOutMin matches it.
+  const quote = marginBps === maxBps ? full : await createTradeCall(params(amountIn, slippage));
   if (!quote?.success || !quote.quote?.amountOut) {
     throw new Error(`No route to ETH for ${coin.symbol}`);
   }
-  return quote;
+  return {
+    quote,
+    slippage,
+    marginBps,
+    minOut: minOutAtMargin(BigInt(quote.quote.amountOut), marginBps),
+  };
 }
 
 async function runBatch({
@@ -226,10 +251,10 @@ async function runBatch({
   setAll("active");
   for (const coin of coins) {
     const amountIn = BigInt(coin.balance);
-    const quote = await quoteToEth(coin, sender, slippage);
+    const { quote, minOut: coinMinOut } = await quoteToEth(coin, sender, slippage);
     const router = quote.call.target as Address;
     const stripped = stripPermitFromRouterCall(quote.call.data as Hex);
-    minOut += minOutOf(BigInt(quote.quote.amountOut), slippage);
+    minOut += coinMinOut;
 
     const coinContract = getContract({ client, chain: base, address: coin.address });
     transactions.push(
@@ -257,9 +282,7 @@ async function runBatch({
     transactions.push(
       prepareContractCall({
         contract: getContract({ client, chain: base, address: UPGRADER_ADDRESS as Address }),
-        method: UPGRADER_DEPOSIT_METHOD,
-        params: [MIGRATION_UPGRADE_ID as bigint, sender, zeroAddress, minOut],
-        value: minOut,
+        ...depositCall(MIGRATION_UPGRADE_ID as bigint, sender, minOut),
       }),
     );
   }
@@ -312,20 +335,20 @@ async function runSequential({
   for (let i = 0; i < coins.length; i++) {
     setStatus(i, "active");
     try {
-      const quote = await quoteToEth(coins[i], sender, slippage);
+      const routeQuote = await quoteToEth(coins[i], sender, slippage);
       await tradeCoin({
         tradeParameters: {
           sell: { type: "erc20", address: coins[i].address },
           buy: { type: "eth" },
           amountIn: BigInt(coins[i].balance),
-          slippage,
+          slippage: routeQuote.slippage,
           sender,
         },
         walletClient,
         account: walletClient.account!,
         publicClient,
       });
-      minOut += minOutOf(BigInt(quote.quote.amountOut), slippage);
+      minOut += routeQuote.minOut;
       soldAny = true;
       setStatus(i, "done");
     } catch (err) {
@@ -340,9 +363,7 @@ async function runSequential({
   try {
     const transaction = prepareContractCall({
       contract: getContract({ client, chain: base, address: UPGRADER_ADDRESS as Address }),
-      method: UPGRADER_DEPOSIT_METHOD,
-      params: [MIGRATION_UPGRADE_ID as bigint, sender, zeroAddress, minOut],
-      value: minOut,
+      ...depositCall(MIGRATION_UPGRADE_ID as bigint, sender, minOut),
     });
     const result = await sendTransaction({ account: writer.account, transaction });
     await waitForReceipt({ client, chain: base, transactionHash: result.transactionHash });

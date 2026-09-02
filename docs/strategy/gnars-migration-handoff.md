@@ -7,12 +7,12 @@ Status as of 2026-09-01. Companion: `gnars-token-spec.md` (tokenomics, allocatio
 Contract `UpgraderEth` at `0x064fd3d95f322909489dc085bb0044a343191ad3` (owner `0xb5a5…b6a2`, Onchain Inc / kompreni).
 Simulated `eth_call` per candidate token, caller = depositing user:
 
-| token | contract response | reading |
-| --- | --- | --- |
-| `0x0000…0000` native ETH | "No ETH sent" | eligible (the only lane) |
-| `0x4200…0006` WETH | passes eligibility | eligible |
+| token                      | contract response    | reading                          |
+| -------------------------- | -------------------- | -------------------------------- |
+| `0x0000…0000` native ETH   | "No ETH sent"        | eligible (the only lane)         |
+| `0x4200…0006` WETH         | passes eligibility   | eligible                         |
 | old `$gnars` `0x0cf0…b23b` | "Token not eligible" | **rejected — ETH-only is final** |
-| ZORA, USDC | "Token not eligible" | rejected |
+| ZORA, USDC                 | "Token not eligible" | rejected                         |
 
 - `deposit(uint256 upgradeId, address user, address token, uint256 quantity) payable` — **four** args, no `bool donation`.
 - `deposit` reverts "Not authorized" when `msg.sender != user`, unless the user registered the caller via `addDelegate`. The authorization check runs before the token check.
@@ -35,11 +35,12 @@ Terms (1% fee · 30% treasury · 7-day vesting) are confirmed by kompreni but no
 2. **Execute** — `useExecuteMigration`:
    - `batch` (smart account, sponsored gas, one signature): per coin `coin.approve(PERMIT2)` → `PERMIT2.approve(coin, router)` → `router.execute(...)` with Zora's `PERMIT2_PERMIT` command stripped (`src/lib/zora-router-call.ts`), then `deposit{value: minOut}`. Validated on a Base fork: `scripts/sim-migrate-batch.ts`.
    - `sequential` (plain EOA): the Zora SDK signs a Permit2 permit per coin, then one deposit tx. The UI states the signature count; the fallback is never silent.
-   - The deposit is the router's guaranteed minimum (quote × 0.95). Anything above stays in the wallet as ETH and can be deposited from the terminal.
+   - Each coin's slippage — and so the router's `amountOutMin` and the deposit — is a per-route margin derived from the measured price impact (`src/lib/route-margin.ts`, 0.5%–5%). Anything received above the minimum stays in the wallet as ETH and can be deposited from the terminal.
 3. **Terminal** — `useUpgraderPosition` reads `getUserDeposit / getUserClaim / getUserClaimed / getBuyToken / getTotalDeposit / isHalted` with wagmi; a failed read renders as a failure with retry, never as zero. `useUpgradeDeposit` writes deposit / withdraw / claim through `useWriteAccount` and `@/lib/builder-code`.
 
 ## Open
 
 - Sell leg for existing old-$gnars holders (`$gnars → ZORA → WETH`, V4 hook `0xd61A…9040`): quote, show price impact as a number, and say that holding is a legitimate choice. Not built yet.
-- A periphery zap that deposits the exact received amount (instead of `minOut`) needs `addDelegate(zap)` per user and would bake the Upgrader address + id into its constructor — one more reason not to deploy anything before the redeploy question is settled.
+- Zap: decided against (`gnars-migration-zap.md`). The batch deposits the per-route guaranteed minimum instead.
+- Confirm with kompreni whether `withdraw` on the ETH lane pays out ETH or WETH — a fork test suggested WETH.
 - Notice period before `execute()`: asked, unanswered.

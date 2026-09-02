@@ -20,19 +20,15 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
-import { zeroAddress, type Address, type Hex } from "viem";
+import { type Address, type Hex } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall } from "@/lib/builder-code";
 import { isMigrationDepositLive, MIGRATION_UPGRADE_ID, UPGRADER_ADDRESS } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import { claimCall, depositCall, withdrawCall } from "@/lib/upgrader-calls";
 
-export const UPGRADER_DEPOSIT_METHOD =
-  "function deposit(uint256 upgradeId, address user, address token, uint256 quantity) payable" as const;
-export const UPGRADER_WITHDRAW_METHOD =
-  "function withdraw(uint256 upgradeId, address user, address token, uint256 quantity) payable" as const;
-export const UPGRADER_CLAIM_METHOD =
-  "function claim(uint256 upgradeId, address user) returns (uint256)" as const;
+export { UPGRADER_DEPOSIT_METHOD } from "@/lib/upgrader-calls";
 
 export interface DepositArgs {
   /** ETH amount in wei. */
@@ -78,25 +74,15 @@ export function useUpgradeDeposit() {
         const contract = getContract({ client, chain: base, address: UPGRADER_ADDRESS as Address });
         const id = MIGRATION_UPGRADE_ID as bigint;
 
+        // `user` is always the signing account (msg.sender) — the contract
+        // checks that before anything else. src/lib/upgrader-calls.ts pins the
+        // encoding; the test there is the regression guard.
         const transaction =
           action === "deposit"
-            ? prepareContractCall({
-                contract,
-                method: UPGRADER_DEPOSIT_METHOD,
-                params: [id, user, zeroAddress, amount],
-                value: amount,
-              })
+            ? prepareContractCall({ contract, ...depositCall(id, user, amount) })
             : action === "withdraw"
-              ? prepareContractCall({
-                  contract,
-                  method: UPGRADER_WITHDRAW_METHOD,
-                  params: [id, user, zeroAddress, amount],
-                })
-              : prepareContractCall({
-                  contract,
-                  method: UPGRADER_CLAIM_METHOD,
-                  params: [id, user],
-                });
+              ? prepareContractCall({ contract, ...withdrawCall(id, user, amount) })
+              : prepareContractCall({ contract, ...claimCall(id, user) });
 
         const result = await sendTransaction({ account: writer.account, transaction });
         const hash = result.transactionHash as Hex;

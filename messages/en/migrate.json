@@ -45,14 +45,14 @@
     "routable": "With a route",
     "unroutable": "{count} no liquidity",
     "youReceive": "You receive (estimated)",
-    "slippageNote": "Thin pools move the price on large sells — the estimate already includes up to 5% slippage and can change before the transaction confirms.",
-    "leftoverNote": "The deposit uses the guaranteed minimum from the quote. Anything received above it stays in your wallet as ETH — you can deposit it from the terminal below.",
+    "slippageNote": "Thin pools move the price on large sells. Each coin gets its own slippage margin, 0.5% to 5%, set from how much its route moves when it is sold in full — and the estimate can change before the transaction confirms.",
+    "leftoverNote": "The deposit is the guaranteed minimum from each route's quote. Anything received above it stays in your wallet as ETH — you can deposit it from the terminal below.",
     "migrateAndDepositCta": "Sell {count} coins & deposit",
     "consolidateOnly": "Sell to ETH only — keep it in my wallet",
     "migrateCta": "Sell {count} coins to ETH",
     "executing": "Working…",
     "batchNote": "One signature: every sell and the deposit run as a single sponsored transaction.",
-    "sequentialNote": "Your wallet will ask for {count} signatures, one per step, and you pay the gas."
+    "sequentialNote": "Your wallet will ask for {count} signatures, one per step, and you pay the gas. Between the sells and the deposit the ETH sits in your wallet — the deposit is its own transaction."
   },
   "deposit": {
     "title": "Migration deposit",
@@ -83,12 +83,19 @@
     "fillDeposited": "Withdraw everything",
     "depositCta": "Deposit",
     "withdrawCta": "Withdraw",
-    "withdrawHint": "Withdraw returns ETH to this same address. It works until the operator runs the launch, and not after.",
+    "withdrawHint": "You are acting as {address}. Withdraw returns ETH to this same address and works until the operator runs the launch, not after. Withdraw and claim need the same mode you deposited in.",
     "claimTitle": "Your new $gnars",
     "claimed": "Claimed — check your wallet.",
     "claimCta": "Claim new $gnars",
     "ownerNote": "The contract is operated by Onchain Inc (kompreni), not by the Gnars DAO. Its owner can halt deposits and move tokens out of the contract. Withdraw is the exit you control.",
-    "contractLink": "UpgraderEth contract on Basescan"
+    "contractLink": "UpgraderEth contract on Basescan",
+    "modeSa": "Smart account (sponsored)",
+    "modeEoa": "Wallet (EOA)",
+    "otherAddressDeposit": "You have {amount} ETH deposited from your other address ({address}).",
+    "otherAddressClaim": "Your other address ({address}) has new $gnars to claim.",
+    "otherAddressHint": "Withdraw and claim must be signed by the address that deposited. Switch to \"{mode}\" in the wallet menu to act on it.",
+    "amountEcho": "You will send:",
+    "exceedsWallet": "more than your wallet holds"
   },
   "editorial": {
     "tagline": "One token, one shared entry",

@@ -50,6 +50,7 @@ import {
   MIGRATION_CONFIG_ERROR,
   UPGRADER_ADDRESS,
 } from "@/lib/config";
+import { normalizeDecimalInput } from "@/lib/decimal-input";
 
 export function MigrationWidget() {
   const t = useTranslations("migrate");
@@ -393,6 +394,9 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
 
   const busy = running !== null;
   const closed = position.executed === true || position.halted === true;
+  // Three states, on purpose: a readable balance caps the deposit; an
+  // unreadable one must never block a legitimate deposit.
+  const exceedsWallet = Boolean(wallet.data && parsed !== null && parsed > wallet.data.value);
 
   return (
     <div className="space-y-4">
@@ -416,6 +420,8 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
           loading={position.isLoading}
         />
       </div>
+
+      <OtherAddressNotice position={position} />
 
       <div className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
         <span className="text-muted-foreground">{t("deposit.closeLabel")}</span>
@@ -458,7 +464,7 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
               placeholder="0.0"
               value={amount}
               disabled={busy || closed}
-              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              onChange={(e) => setAmount(normalizeDecimalInput(e.target.value))}
             />
             <span className="text-sm font-medium text-muted-foreground">ETH</span>
           </div>
@@ -488,10 +494,19 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
               </button>
             )}
           </div>
+          {parsed !== null && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">{t("deposit.amountEcho")} </span>
+              <span className="font-semibold tabular-nums">{formatEther(parsed)} ETH</span>
+              {exceedsWallet && (
+                <span className="ml-2 text-destructive">{t("deposit.exceedsWallet")}</span>
+              )}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <Button
               size="lg"
-              disabled={busy || closed || !parsed}
+              disabled={busy || closed || !parsed || exceedsWallet}
               onClick={() =>
                 parsed && void deposit({ amount: parsed }).then((ok) => ok && afterWrite())
               }
@@ -515,9 +530,45 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
               {running === "withdraw" ? <Spinner className="size-4" /> : t("deposit.withdrawCta")}
             </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground">{t("deposit.withdrawHint")}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {t("deposit.withdrawHint", {
+              address: position.activeAddress
+                ? `${position.activeAddress.slice(0, 6)}…${position.activeAddress.slice(-4)}`
+                : "—",
+            })}
+          </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * One person, two addresses. When the wallet's other view mode holds a deposit
+ * (or a claim), say so and name the mode to switch to — withdraw and claim must
+ * be signed by the address that deposited, and a silent "0 ETH" here would read
+ * as a lost deposit.
+ */
+function OtherAddressNotice({ position }: { position: UpgraderPosition }) {
+  const t = useTranslations("migrate");
+  const other = position.other;
+  if (!other) return null;
+  const hasDeposit = other.deposited !== undefined && other.deposited > 0n;
+  const hasClaim = other.claimable !== undefined && other.claimable > 0n && other.claimed === false;
+  if (!hasDeposit && !hasClaim) return null;
+  const short = `${other.address.slice(0, 6)}…${other.address.slice(-4)}`;
+  const modeLabel = t(other.mode === "sa" ? "deposit.modeSa" : "deposit.modeEoa");
+  return (
+    <div className="space-y-1 rounded-md border border-primary/40 bg-primary/5 p-3 text-xs">
+      <div className="font-medium">
+        {hasDeposit
+          ? t("deposit.otherAddressDeposit", {
+              amount: formatCoinAmount(other.deposited!, 18, 6),
+              address: short,
+            })
+          : t("deposit.otherAddressClaim", { address: short })}
+      </div>
+      <p className="text-muted-foreground">{t("deposit.otherAddressHint", { mode: modeLabel })}</p>
     </div>
   );
 }
@@ -712,12 +763,22 @@ function HoldingsList({
           const isChecked = selected.has(key);
           return (
             <li key={key}>
-              <button
-                type="button"
+              {/* A div, not a button: the Checkbox is itself a button and buttons
+                  cannot nest. Keyboard reachable via tabIndex + Enter/Space. */}
+              <div
+                role="button"
+                tabIndex={0}
+                aria-pressed={isChecked}
                 onClick={() => onToggle(coin.address)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onToggle(coin.address);
+                  }
+                }}
                 className="flex w-full cursor-pointer items-center gap-3 p-3 text-left transition-colors hover:bg-accent"
               >
-                <Checkbox checked={isChecked} className="pointer-events-none" />
+                <Checkbox checked={isChecked} tabIndex={-1} className="pointer-events-none" />
                 <CoinAvatar src={coin.logoUrl} symbol={coin.symbol} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{coin.name}</div>
@@ -733,7 +794,7 @@ function HoldingsList({
                     </div>
                   )}
                 </div>
-              </button>
+              </div>
             </li>
           );
         })}

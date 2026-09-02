@@ -14,11 +14,11 @@ export function MigrateTabs() {
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="consolidate" className="gap-1.5">
           <ArrowRightLeft className="size-4" />
-          <span className="hidden sm:inline">{t("tabs.consolidate")}</span>
+          <span>{t("tabs.consolidate")}</span>
         </TabsTrigger>
         <TabsTrigger value="guide" className="gap-1.5">
           <BookOpen className="size-4" />
-          <span className="hidden sm:inline">{t("tabs.guide")}</span>
+          <span>{t("tabs.guide")}</span>
         </TabsTrigger>
       </TabsList>
 

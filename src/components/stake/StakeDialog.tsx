@@ -12,6 +12,7 @@ import { useMorpheusStake } from "@/hooks/use-morpheus-stake";
 import { useStakeDeposit } from "@/hooks/use-stake-deposit";
 import { useVaultEarned, useVaultPosition } from "@/hooks/use-vault-total";
 import { Link } from "@/i18n/navigation";
+import { normalizeDecimalInput } from "@/lib/decimal-input";
 import { getRider } from "@/lib/gnars-vaults";
 import { claimLockEndFor, LOCK_OPTIONS, multiplierForYears } from "@/lib/lock-multiplier";
 import { riderCustomLine } from "@/lib/rider-lines";
@@ -465,7 +466,7 @@ export function StakeDialog({
                 >
                   <input
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                    onChange={(e) => setAmount(normalizeDecimalInput(e.target.value))}
                     inputMode="decimal"
                     className="min-w-0 flex-1 border-none bg-transparent text-2xl font-extrabold tracking-tight text-white outline-none"
                   />

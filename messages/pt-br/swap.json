@@ -38,7 +38,8 @@
     "noLiquidity": "Sem liquidez para esse par",
     "networkFee": "~{amount} ETH de fee de rede",
     "enterAmount": "Insira uma quantia acima",
-    "quoteFailed": "Cotação indisponível — tente de novo em instantes"
+    "quoteFailed": "Cotação indisponível — tente de novo em instantes",
+    "oldGnars": "Atenção: este é o $gnars ANTIGO. Ele está sendo migrado para um token novo e a migração só aceita ETH — o $gnars antigo comprado aqui vai precisar ser vendido de novo para entrar. <link>Veja a migração</link>."
   },
   "buttons": {
     "connectToSwap": "Conectar wallet para fazer swap",

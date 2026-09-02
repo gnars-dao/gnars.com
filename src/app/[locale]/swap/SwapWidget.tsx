@@ -23,7 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { Link } from "@/i18n/navigation";
 import { prepareContractCall, prepareTransaction } from "@/lib/builder-code";
+import { DAO_ADDRESSES } from "@/lib/config";
 import { ipfsToHttp } from "@/lib/ipfs";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
@@ -728,6 +730,13 @@ export function SwapWidget() {
   // Sell-side caption: prefer error states, otherwise show the network fee.
   // A failed quote outranks everything — it is the only state the user can't
   // fix by typing, so saying "enter an amount" here would send them in circles.
+  // Old $gnars is on its way out: the UpgraderEth migration rejects it, so a
+  // swap into it today is a swap into a token that cannot enter. Say so, and
+  // point at /migrate, rather than silently dropping it from the list.
+  const OLD_GNARS = DAO_ADDRESSES.gnarsErc20.toLowerCase();
+  const involvesOldGnars =
+    sellToken.address.toLowerCase() === OLD_GNARS || buyToken.address.toLowerCase() === OLD_GNARS;
+
   const sellCaption = priceError
     ? t("captions.quoteFailed")
     : insufficientBalance
@@ -820,6 +829,17 @@ export function SwapWidget() {
                 sellCaption
               )}
             </p>
+            {involvesOldGnars && (
+              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                {t.rich("captions.oldGnars", {
+                  link: (chunks) => (
+                    <Link href="/migrate" className="font-medium underline underline-offset-2">
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            )}
           </div>
 
           {/* CENTER — flip arrow with springy easing */}

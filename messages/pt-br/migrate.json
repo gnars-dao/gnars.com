@@ -45,14 +45,14 @@
     "routable": "Com rota",
     "unroutable": "{count} sem liquidez",
     "youReceive": "Você recebe (estimado)",
-    "slippageNote": "Pools rasos movem o preço em vendas grandes — a estimativa já inclui até 5% de slippage e pode mudar antes da confirmação da transação.",
-    "leftoverNote": "O depósito usa o mínimo garantido da cotação. O que vier acima disso fica na sua carteira como ETH — dá pra depositar pelo terminal abaixo.",
+    "slippageNote": "Pools rasos movem o preço em vendas grandes. Cada coin tem sua própria margem de slippage, de 0,5% a 5%, definida por quanto a rota se move ao vender tudo — e a estimativa pode mudar antes da confirmação da transação.",
+    "leftoverNote": "O depósito é o mínimo garantido da cotação de cada rota. O que vier acima disso fica na sua carteira como ETH — dá pra depositar pelo terminal abaixo.",
     "migrateAndDepositCta": "Vender {count} coins e depositar",
     "consolidateOnly": "Só vender por ETH — deixar na minha carteira",
     "migrateCta": "Vender {count} coins por ETH",
     "executing": "Processando…",
     "batchNote": "Uma assinatura: todas as vendas e o depósito rodam numa única transação com gas patrocinado.",
-    "sequentialNote": "Sua carteira vai pedir {count} assinaturas, uma por etapa, e o gas é por sua conta."
+    "sequentialNote": "Sua carteira vai pedir {count} assinaturas, uma por etapa, e o gas é por sua conta. Entre as vendas e o depósito o ETH fica na sua carteira — o depósito é uma transação à parte."
   },
   "deposit": {
     "title": "Depósito da migração",
@@ -83,12 +83,19 @@
     "fillDeposited": "Sacar tudo",
     "depositCta": "Depositar",
     "withdrawCta": "Sacar",
-    "withdrawHint": "O saque devolve o ETH para este mesmo endereço. Funciona até o operador executar o lançamento, e não depois.",
+    "withdrawHint": "Você está agindo como {address}. O saque devolve o ETH para este mesmo endereço e funciona até o operador executar o lançamento, não depois. Saque e resgate precisam do mesmo modo em que você depositou.",
     "claimTitle": "Seu novo $gnars",
     "claimed": "Resgatado — confira sua carteira.",
     "claimCta": "Resgatar novo $gnars",
     "ownerNote": "O contrato é operado pela Onchain Inc (kompreni), não pela Gnars DAO. O dono dele pode pausar depósitos e retirar tokens do contrato. O saque é a saída que está no seu controle.",
-    "contractLink": "Contrato UpgraderEth na Basescan"
+    "contractLink": "Contrato UpgraderEth na Basescan",
+    "modeSa": "Smart account (patrocinada)",
+    "modeEoa": "Carteira (EOA)",
+    "otherAddressDeposit": "Você tem {amount} ETH depositados pelo seu outro endereço ({address}).",
+    "otherAddressClaim": "Seu outro endereço ({address}) tem $gnars novo para resgatar.",
+    "otherAddressHint": "Saque e resgate precisam ser assinados pelo endereço que depositou. Troque para \"{mode}\" no menu da carteira para agir sobre ele.",
+    "amountEcho": "Você vai enviar:",
+    "exceedsWallet": "mais do que sua carteira tem"
   },
   "editorial": {
     "tagline": "Um token, uma entrada única",
