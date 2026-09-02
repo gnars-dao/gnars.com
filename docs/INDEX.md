@@ -42,6 +42,7 @@ This is the canonical entry point for project documentation. Everything below sh
 - `docs/strategy/gnars-token-spec.md` — $gnars token product spec: goal, current state, new-token tokenomics, allocations, migration mechanics, addresses, phases, open decisions
 - `docs/strategy/gnars-migration-handoff.md` — how /migrate is wired to UpgraderEth: on-chain facts (ETH-only, 4-arg deposit, withdraw, owner powers), env-gated config, batch vs sequential execution, what is still open
 - `docs/strategy/gnars-migration-zap.md` — the swap→deposit zap contract: design kept for the record, and the three reasons it was decided against (redeploy expiry, trust cost, Zora recipient calldata)
+- `docs/strategy/gnars-migration-announcement-draft.md` — launch announcement draft (EN + PT-BR) carrying the 1% / 30% / 7-day terms attributed to kompreni, since the contract cannot report them; close-date paragraph left open
 - `scripts/README-campaign-baseline.md` — "Stake or Die" measurement procedure: what the pre-campaign baseline captures, why it could not wait, and the re-collection steps for 27/08, 28/08 and 01/09
 
 ## Specs
