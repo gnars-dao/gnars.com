@@ -52,7 +52,11 @@
     "migrateCta": "Vender {count} coins por ETH",
     "executing": "Processando…",
     "batchNote": "Uma assinatura: todas as vendas e o depósito rodam numa única transação com gas patrocinado.",
-    "sequentialNote": "Sua carteira vai pedir {count} assinaturas, uma por etapa, e o gas é por sua conta. Entre as vendas e o depósito o ETH fica na sua carteira — o depósito é uma transação à parte."
+    "sequentialNote": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin, depois o depósito), e o gas é por sua conta. Entre as vendas e o depósito o ETH fica na sua carteira — o depósito é uma transação à parte.",
+    "quoteFailed": "{count} cotações falharam — o serviço de cotação não respondeu. Isso não é \"sem liquidez\"; tente de novo.",
+    "depositFailedAfterSells": "As vendas passaram, mas o depósito não. Cerca de {amount} ETH delas está na sua carteira — deposite pelo terminal abaixo.",
+    "batchNoteSellOnly": "Uma assinatura: todas as vendas rodam numa única transação com gas patrocinado.",
+    "sequentialNoteSellOnly": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin), e o gas é por sua conta."
   },
   "deposit": {
     "title": "Depósito da migração",
@@ -89,13 +93,19 @@
     "claimCta": "Resgatar novo $gnars",
     "ownerNote": "O contrato é operado pela Onchain Inc (kompreni), não pela Gnars DAO. O dono dele pode pausar depósitos e retirar tokens do contrato. O saque é a saída que está no seu controle.",
     "contractLink": "Contrato UpgraderEth na Basescan",
-    "modeSa": "Smart account (patrocinada)",
-    "modeEoa": "Carteira (EOA)",
+    "modeSa": "Wallet (gasless)",
+    "modeEoa": "Admin",
     "otherAddressDeposit": "Você tem {amount} ETH depositados pelo seu outro endereço ({address}).",
     "otherAddressClaim": "Seu outro endereço ({address}) tem $gnars novo para resgatar.",
-    "otherAddressHint": "Saque e resgate precisam ser assinados pelo endereço que depositou. Troque para \"{mode}\" no menu da carteira para agir sobre ele.",
+    "otherAddressHint": "Saque e resgate precisam ser assinados pelo endereço que depositou. Abra o menu da carteira e toque em \"{button}\" para agir como {mode}.",
     "amountEcho": "Você vai enviar:",
-    "exceedsWallet": "mais do que sua carteira tem"
+    "exceedsWallet": "mais do que sua carteira tem",
+    "checking": "Verificando…",
+    "switchButtonSa": "Mudar para wallet",
+    "switchButtonEoa": "Mudar para admin",
+    "ethElsewhere": "Esta smart account não tem ETH. Seu ETH está no seu endereço admin ({address}) — abra o menu da carteira e toque em \"{button}\" para depositar a partir dele, ou envie ETH para esta conta antes.",
+    "lastTxConfirmed": "Última transação confirmada:",
+    "lastTxPending": "Última transação enviada, confirmação pendente:"
   },
   "editorial": {
     "tagline": "Um token, uma entrada única",
@@ -116,5 +126,34 @@
     "holdTitle": "Ou segurar e não fazer nada",
     "holdBody": "Uma escolha legítima. O $gnars antigo continua sendo uma creator coin da Zora negociável; ele só não entra na migração.",
     "balanceError": "Não foi possível ler seu saldo de $gnars antigo. Nada é presumido — tente de novo."
+  },
+  "steps": {
+    "deposit": "ETH → depósito da migração"
+  },
+  "toasts": {
+    "notOpen": "O depósito da migração não está aberto",
+    "connect": "Conecte sua carteira primeiro",
+    "enterAmount": "Informe um valor",
+    "clientMissing": "Serviço de carteira não configurado",
+    "signerMismatch": "A conta que assina não é o endereço exibido. Recarregue a página e reconecte antes de enviar qualquer coisa.",
+    "cancelled": "Cancelado na sua carteira — nada foi enviado",
+    "depositLoading": "Depositando ETH na migração…",
+    "depositSuccess": "Depositado na migração",
+    "depositFailed": "O depósito falhou",
+    "withdrawLoading": "Sacando seu ETH…",
+    "withdrawSuccess": "Sacado da migração",
+    "withdrawFailed": "O saque falhou",
+    "claimLoading": "Resgatando seu novo $gnars…",
+    "claimSuccess": "Novo $gnars resgatado!",
+    "claimFailed": "O resgate falhou",
+    "sentPending": "Transação enviada — confirmação pendente. Ela não se perdeu: confira o hash abaixo e atualize.",
+    "runDepositLoading": "Vendendo e depositando…",
+    "runSellLoading": "Vendendo por ETH…",
+    "runDepositSuccess": "Vendido e depositado na migração",
+    "runSellSuccess": "Vendido por ETH",
+    "runFailed": "A execução não começou",
+    "noneSold": "Nenhuma das coins pôde ser vendida",
+    "partial": "Vendidas {sold} de {total}. Não vendidas: {failed}. Elas continuam selecionadas — tente de novo quando quiser.",
+    "depositAfterSellsFailed": "As vendas passaram, mas o depósito não. Cerca de {amount} ETH está na sua carteira — deposite pelo terminal."
   }
 }

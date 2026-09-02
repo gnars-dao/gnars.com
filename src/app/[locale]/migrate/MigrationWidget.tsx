@@ -27,8 +27,11 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  EOA_GAS_RESERVE,
+  SEQUENTIAL_PROMPTS_PER_COIN,
   useExecuteMigration,
   type CoinToMigrate,
+  type ExecuteResult,
   type MigrationStep,
 } from "@/hooks/use-execute-migration";
 import {
@@ -43,6 +46,7 @@ import { useOldGnarsPosition } from "@/hooks/use-old-gnars-position";
 import { useUpgradeDeposit } from "@/hooks/use-upgrade-deposit";
 import { useUpgraderPosition, type UpgraderPosition } from "@/hooks/use-upgrader-position";
 import { useUserAddress } from "@/hooks/use-user-address";
+import { useWriteAccount } from "@/hooks/use-write-account";
 import {
   CHAIN,
   GNARS_CREATOR_COIN,
@@ -125,11 +129,14 @@ export function MigrationWidget() {
         <MigrationPreview
           coins={selectedCoins}
           sender={address}
-          onDeposited={() => {
+          onRun={(result) => {
+            // Anything that ran changed balances: refresh regardless of outcome.
             position.refetch();
             void refetch();
             void oldGnars.refetchBalance();
-            clearAll();
+            // Keep the failed coins selected so the retry is one click, and
+            // keep the step list on screen as the record of what failed.
+            if (result.ok) clearAll();
           }}
         />
       )}
@@ -196,7 +203,15 @@ function OldGnarsCard({
       </Card>
     );
   }
-  if (position.balance === undefined || position.balance === 0n) return null;
+  // Unknown is not zero: keep the skeleton until the balance has been read.
+  if (position.balance === undefined) {
+    return (
+      <Card className="p-4">
+        <Skeleton className="h-12 w-full" />
+      </Card>
+    );
+  }
+  if (position.balance === 0n) return null;
 
   const impact = position.quote?.impactBps;
   const impactPct = impact === null || impact === undefined ? null : impact / 100;
@@ -350,6 +365,9 @@ function DepositStatusBadge({ live, position }: { live: boolean; position: Upgra
     return <Badge variant="destructive">{t("deposit.misconfigured")}</Badge>;
   if (!live) return <Badge variant="secondary">{t("deposit.opensAtLaunch")}</Badge>;
   if (position.isError) return <Badge variant="destructive">{t("deposit.readFailed")}</Badge>;
+  // Not read yet is not "live". Say so until the contract has answered.
+  if (position.isLoading || position.halted === undefined || position.executed === undefined)
+    return <Badge variant="secondary">{t("deposit.checking")}</Badge>;
   if (position.halted) return <Badge variant="destructive">{t("deposit.halted")}</Badge>;
   if (position.executed) return <Badge>{t("deposit.executed")}</Badge>;
   return (
@@ -360,8 +378,9 @@ function DepositStatusBadge({ live, position }: { live: boolean; position: Upgra
 /** The live terminal: position, deposit, withdraw, claim. */
 function DepositTerminal({ position }: { position: UpgraderPosition }) {
   const t = useTranslations("migrate");
-  const { address } = useUserAddress();
-  const { deposit, withdraw, claim, running } = useUpgradeDeposit();
+  const { address, viewMode, canSwitchView, adminAddress } = useUserAddress();
+  const writer = useWriteAccount();
+  const { deposit, withdraw, claim, running, lastTx } = useUpgradeDeposit();
   const [amount, setAmount] = React.useState("");
   const wallet = useBalance({ address: address as `0x${string}` | undefined, chainId: CHAIN.id });
 
@@ -375,10 +394,14 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
     }
   }, [amount]);
 
-  const afterWrite = () => {
-    setAmount("");
-    position.refetch();
-    void wallet.refetch();
+  const afterWrite = (outcome: "confirmed" | "sent" | "failed" | "cancelled" | "refused") => {
+    // "sent" is a landed broadcast whose receipt we could not see: treat it as
+    // done on our side (clear the input, refetch) — never as a failure.
+    if (outcome === "confirmed" || outcome === "sent") {
+      setAmount("");
+      position.refetch();
+      void wallet.refetch();
+    }
   };
 
   if (position.isError) {
@@ -393,10 +416,21 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
   }
 
   const busy = running !== null;
-  const closed = position.executed === true || position.halted === true;
+  // Fail safe: until both flags have been READ as false, the window is not
+  // known to be open and the buttons stay off.
+  const closed = position.executed !== false || position.halted !== false;
+  // An EOA pays its own gas: "use all" must leave a reserve or the deposit
+  // itself cannot be mined. A sponsored smart account keeps the whole balance.
+  const gasReserve = writer?.isEoaSigner ? EOA_GAS_RESERVE : 0n;
+  const usableWallet =
+    wallet.data && wallet.data.value > gasReserve ? wallet.data.value - gasReserve : 0n;
+  // External wallet viewing as its smart account: the ETH is almost always in
+  // the admin EOA, not here. Say where it is instead of "more than you hold".
+  const ethElsewhere =
+    canSwitchView && viewMode === "sa" && wallet.data !== undefined && wallet.data.value === 0n;
   // Three states, on purpose: a readable balance caps the deposit; an
   // unreadable one must never block a legitimate deposit.
-  const exceedsWallet = Boolean(wallet.data && parsed !== null && parsed > wallet.data.value);
+  const exceedsWallet = Boolean(wallet.data && parsed !== null && parsed > usableWallet);
 
   return (
     <div className="space-y-4">
@@ -446,7 +480,7 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
               className="w-full"
               size="lg"
               disabled={busy || !position.claimable || position.claimable === 0n}
-              onClick={() => void claim().then((ok) => ok && afterWrite())}
+              onClick={() => void claim().then(afterWrite)}
             >
               {running === "claim" ? <Spinner className="size-4" /> : t("deposit.claimCta")}
             </Button>
@@ -454,6 +488,15 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
         </div>
       ) : (
         <div className="space-y-2">
+          {ethElsewhere && adminAddress && (
+            <p className="rounded-md border border-primary/40 bg-primary/5 p-2 text-xs text-muted-foreground">
+              {t("deposit.ethElsewhere", {
+                address: `${adminAddress.slice(0, 6)}…${adminAddress.slice(-4)}`,
+                mode: t("deposit.modeEoa"),
+                button: t("deposit.switchButtonEoa"),
+              })}
+            </p>
+          )}
           <label className="text-xs text-muted-foreground" htmlFor="migration-eth-amount">
             {t("deposit.amountLabel")}
           </label>
@@ -473,7 +516,7 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
               <button
                 type="button"
                 className="cursor-pointer underline-offset-2 hover:underline"
-                onClick={() => setAmount(formatEther(wallet.data!.value))}
+                onClick={() => setAmount(formatEther(usableWallet))}
               >
                 {t("deposit.walletBalance", {
                   amount: formatCoinAmount(wallet.data.value, 18, 6),
@@ -507,9 +550,7 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
             <Button
               size="lg"
               disabled={busy || closed || !parsed || exceedsWallet}
-              onClick={() =>
-                parsed && void deposit({ amount: parsed }).then((ok) => ok && afterWrite())
-              }
+              onClick={() => parsed && void deposit({ amount: parsed }).then(afterWrite)}
             >
               {running === "deposit" ? <Spinner className="size-4" /> : t("deposit.depositCta")}
             </Button>
@@ -523,13 +564,24 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
                 position.deposited === undefined ||
                 parsed > position.deposited
               }
-              onClick={() =>
-                parsed && void withdraw({ amount: parsed }).then((ok) => ok && afterWrite())
-              }
+              onClick={() => parsed && void withdraw({ amount: parsed }).then(afterWrite)}
             >
               {running === "withdraw" ? <Spinner className="size-4" /> : t("deposit.withdrawCta")}
             </Button>
           </div>
+          {lastTx && (
+            <p className="text-[11px] text-muted-foreground">
+              {lastTx.confirmed ? t("deposit.lastTxConfirmed") : t("deposit.lastTxPending")}{" "}
+              <a
+                href={`https://basescan.org/tx/${lastTx.hash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono underline underline-offset-2"
+              >
+                {lastTx.hash.slice(0, 10)}…{lastTx.hash.slice(-6)}
+              </a>
+            </p>
+          )}
           <p className="text-[11px] text-muted-foreground">
             {t("deposit.withdrawHint", {
               address: position.activeAddress
@@ -558,6 +610,7 @@ function OtherAddressNotice({ position }: { position: UpgraderPosition }) {
   if (!hasDeposit && !hasClaim) return null;
   const short = `${other.address.slice(0, 6)}…${other.address.slice(-4)}`;
   const modeLabel = t(other.mode === "sa" ? "deposit.modeSa" : "deposit.modeEoa");
+  const buttonLabel = t(other.mode === "sa" ? "deposit.switchButtonSa" : "deposit.switchButtonEoa");
   return (
     <div className="space-y-1 rounded-md border border-primary/40 bg-primary/5 p-3 text-xs">
       <div className="font-medium">
@@ -568,7 +621,9 @@ function OtherAddressNotice({ position }: { position: UpgraderPosition }) {
             })
           : t("deposit.otherAddressClaim", { address: short })}
       </div>
-      <p className="text-muted-foreground">{t("deposit.otherAddressHint", { mode: modeLabel })}</p>
+      <p className="text-muted-foreground">
+        {t("deposit.otherAddressHint", { mode: modeLabel, button: buttonLabel })}
+      </p>
     </div>
   );
 }
@@ -806,19 +861,27 @@ function HoldingsList({
 function MigrationPreview({
   coins,
   sender,
-  onDeposited,
+  onRun,
 }: {
   coins: MigratableCoin[];
   sender: string | undefined;
-  onDeposited: () => void;
+  onRun: (result: ExecuteResult) => void;
 }) {
   const t = useTranslations("migrate");
-  const { quotes, totalEthOut, isLoading: loading } = useCoinQuotes(coins, sender);
-  const { execute, swapAndDeposit, isRunning, steps, canBatch } = useExecuteMigration();
+  const {
+    quotes,
+    totalEthOut,
+    isLoading: loading,
+    failedCount,
+    refetchFailed,
+  } = useCoinQuotes(coins, sender);
+  const { execute, swapAndDeposit, isRunning, steps, canBatch, lastResult } = useExecuteMigration();
   const live = isMigrationDepositLive();
 
   const routableCount = quotes.filter((q) => q.routable).length;
-  const unroutableCount = quotes.filter((q) => !q.routable).length;
+  // "No liquidity" means the pool is dead; a failed quote means the service
+  // is — they are counted apart and only the first one is called illiquid.
+  const unroutableCount = quotes.filter((q) => q.status === "no-route").length;
 
   // Only migrate coins that actually have a route (skip the dead-pool ones).
   const routableAddrs = new Set(
@@ -828,13 +891,15 @@ function MigrationPreview({
     .filter((c) => routableAddrs.has(c.address.toLowerCase()))
     .map((c) => ({ address: c.address, symbol: c.symbol, balance: c.balance }));
 
-  const signatureCount = routableCount + (live ? 1 : 0);
+  // Sequential: the Zora SDK may prompt up to three times per coin (approve,
+  // permit signature, swap), then once for the deposit.
+  const signatureCount = routableCount * SEQUENTIAL_PROMPTS_PER_COIN + (live ? 1 : 0);
 
   const run = async (deposit: boolean) => {
     const result = deposit
       ? await swapAndDeposit(routableCoins)
       : await execute(routableCoins, { depositIntoMigration: false });
-    if (result?.ok && deposit) onDeposited();
+    if (result) onRun(result);
   };
 
   return (
@@ -876,10 +941,26 @@ function MigrationPreview({
         </div>
       </div>
 
+      {failedCount > 0 && (
+        <ErrorNote>
+          <span>{t("preview.quoteFailed", { count: failedCount })}</span>
+          <Button variant="outline" size="sm" className="ml-auto gap-1" onClick={refetchFailed}>
+            <RefreshCw className="size-3" /> {t("deposit.retry")}
+          </Button>
+        </ErrorNote>
+      )}
+
       <p className="text-xs text-muted-foreground">{t("preview.slippageNote")}</p>
       {live && <p className="text-xs text-muted-foreground">{t("preview.leftoverNote")}</p>}
 
       {steps.length > 0 && <StepList steps={steps} />}
+      {lastResult?.depositFailed && (
+        <ErrorNote>
+          <span>
+            {t("preview.depositFailedAfterSells", { amount: formatEther(lastResult.received) })}
+          </span>
+        </ErrorNote>
+      )}
 
       {live ? (
         <>
@@ -914,7 +995,13 @@ function MigrationPreview({
         </Button>
       )}
       <p className="text-center text-[11px] text-muted-foreground">
-        {canBatch ? t("preview.batchNote") : t("preview.sequentialNote", { count: signatureCount })}
+        {canBatch
+          ? live
+            ? t("preview.batchNote")
+            : t("preview.batchNoteSellOnly")
+          : live
+            ? t("preview.sequentialNote", { count: signatureCount })
+            : t("preview.sequentialNoteSellOnly", { count: signatureCount })}
       </p>
     </Card>
   );

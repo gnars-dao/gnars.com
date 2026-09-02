@@ -9,18 +9,22 @@
  *   claim(uint256 upgradeId, address user) returns (uint256)
  *
  * ETH is the only eligible token: `token` is address(0) and the ETH rides as
- * msg.value. `user` must equal msg.sender (or a delegate the user registered via
- * addDelegate), so every call here is made by the signing account for itself.
+ * msg.value. `user` must equal msg.sender, so every call is made by the signing
+ * account for itself — and the hook refuses to run if the account that signs is
+ * not the address the terminal is reading, instead of letting the contract
+ * revert with a generic "Not authorized".
  *
- * The swap → deposit batch lives in use-execute-migration.ts; this hook is the
- * plain terminal for ETH already in the wallet, plus the exit (withdraw, allowed
- * until the operator runs execute) and the claim afterwards.
+ * A transaction that was broadcast is never reported as failed: if the receipt
+ * watch times out or the RPC drops, the hash is kept and shown, the position
+ * is refetched, and the toast says "sent, confirmation pending".
  */
 import { useCallback, useState } from "react";
+import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
-import { type Address, type Hex } from "viem";
+import { isAddressEqual, type Address, type Hex } from "viem";
+import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall } from "@/lib/builder-code";
 import { isMigrationDepositLive, MIGRATION_UPGRADE_ID, UPGRADER_ADDRESS } from "@/lib/config";
@@ -37,46 +41,53 @@ export interface DepositArgs {
 
 type Action = "deposit" | "withdraw" | "claim";
 
+/** What happened to the last write. `sent` = broadcast, receipt not seen. */
+export type WriteOutcome = "confirmed" | "sent" | "failed" | "cancelled" | "refused";
+
 export function useUpgradeDeposit() {
+  const t = useTranslations("migrate");
   const writer = useWriteAccount();
+  const { address: readAddress } = useUserAddress();
   const [running, setRunning] = useState<Action | null>(null);
-  const [txHash, setTxHash] = useState<Hex | undefined>(undefined);
+  const [lastTx, setLastTx] = useState<{ hash: Hex; action: Action; confirmed: boolean } | null>(
+    null,
+  );
 
   const run = useCallback(
-    async (
-      action: Action,
-      amount: bigint,
-      copy: { loading: string; success: string; failed: string },
-    ): Promise<boolean> => {
+    async (action: Action, amount: bigint): Promise<WriteOutcome> => {
       if (!isMigrationDepositLive()) {
-        toast.error("The migration deposit is not open");
-        return false;
+        toast.error(t("toasts.notOpen"));
+        return "refused";
       }
       if (!writer) {
-        toast.error("Please connect your wallet");
-        return false;
+        toast.error(t("toasts.connect"));
+        return "refused";
       }
       if (action !== "claim" && amount <= 0n) {
-        toast.error("Enter an amount");
-        return false;
+        toast.error(t("toasts.enterAmount"));
+        return "refused";
       }
       const client = getThirdwebClient();
       if (!client) {
-        toast.error("Thirdweb client not configured");
-        return false;
+        toast.error(t("toasts.clientMissing"));
+        return "refused";
+      }
+      // The invariant: the address the terminal reads for MUST be the account
+      // that signs. If thirdweb's wallet state and the view mode ever disagree
+      // (a wallet-side disconnect, a stale tab), refuse loudly here.
+      const user = writer.account.address as Address;
+      if (!readAddress || !isAddressEqual(user, readAddress as Address)) {
+        toast.error(t("toasts.signerMismatch"));
+        return "refused";
       }
 
       setRunning(action);
-      const toastId = toast.loading(copy.loading);
+      const toastId = toast.loading(t(`toasts.${action}Loading`));
+      let hash: Hex | undefined;
       try {
         await ensureOnChain(writer.wallet, base);
-        const user = writer.account.address as Address;
         const contract = getContract({ client, chain: base, address: UPGRADER_ADDRESS as Address });
         const id = MIGRATION_UPGRADE_ID as bigint;
-
-        // `user` is always the signing account (msg.sender) — the contract
-        // checks that before anything else. src/lib/upgrader-calls.ts pins the
-        // encoding; the test there is the regression guard.
         const transaction =
           action === "deposit"
             ? prepareContractCall({ contract, ...depositCall(id, user, amount) })
@@ -85,51 +96,44 @@ export function useUpgradeDeposit() {
               : prepareContractCall({ contract, ...claimCall(id, user) });
 
         const result = await sendTransaction({ account: writer.account, transaction });
-        const hash = result.transactionHash as Hex;
-        setTxHash(hash);
-        await waitForReceipt({ client, chain: base, transactionHash: hash });
-        toast.success(copy.success, { id: toastId });
-        return true;
+        hash = result.transactionHash as Hex;
+        setLastTx({ hash, action, confirmed: false });
       } catch (err) {
-        const { message } = normalizeTxError(err);
-        toast.error(message || copy.failed, { id: toastId });
-        return false;
+        const { message, category } = normalizeTxError(err);
+        if (category === "user-rejected") {
+          toast.info(t("toasts.cancelled"), { id: toastId });
+          return "cancelled";
+        }
+        toast.error(t(`toasts.${action}Failed`), { id: toastId, description: message });
+        return "failed";
+      } finally {
+        if (!hash) setRunning(null);
+      }
+
+      // Broadcast happened. From here on nothing is a failure of the deposit —
+      // only of our ability to see it.
+      try {
+        await waitForReceipt({ client, chain: base, transactionHash: hash });
+        setLastTx({ hash, action, confirmed: true });
+        toast.success(t(`toasts.${action}Success`), { id: toastId });
+        return "confirmed";
+      } catch {
+        toast.warning(t("toasts.sentPending"), {
+          id: toastId,
+          description: hash,
+          duration: 15_000,
+        });
+        return "sent";
       } finally {
         setRunning(null);
       }
     },
-    [writer],
+    [writer, readAddress, t],
   );
 
-  const deposit = useCallback(
-    ({ amount }: DepositArgs) =>
-      run("deposit", amount, {
-        loading: "Depositing ETH into the migration…",
-        success: "Deposited into the migration",
-        failed: "Deposit failed",
-      }),
-    [run],
-  );
+  const deposit = useCallback(({ amount }: DepositArgs) => run("deposit", amount), [run]);
+  const withdraw = useCallback(({ amount }: DepositArgs) => run("withdraw", amount), [run]);
+  const claim = useCallback(() => run("claim", 0n), [run]);
 
-  const withdraw = useCallback(
-    ({ amount }: DepositArgs) =>
-      run("withdraw", amount, {
-        loading: "Withdrawing your ETH…",
-        success: "Withdrawn from the migration",
-        failed: "Withdraw failed",
-      }),
-    [run],
-  );
-
-  const claim = useCallback(
-    () =>
-      run("claim", 0n, {
-        loading: "Claiming your new $gnars…",
-        success: "Claimed your new $gnars!",
-        failed: "Claim failed",
-      }),
-    [run],
-  );
-
-  return { deposit, withdraw, claim, running, isRunning: running !== null, txHash };
+  return { deposit, withdraw, claim, running, isRunning: running !== null, lastTx };
 }

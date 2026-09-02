@@ -182,8 +182,15 @@ export function useMigratableCoins(address: string | undefined) {
   };
 }
 
+export type QuoteStatus = "routable" | "no-route" | "quote-failed";
+
 export interface CoinQuote {
   address: Address;
+  /**
+   * Three states, kept apart on purpose: a dead pool ("no-route") and a quote
+   * service that fell over ("quote-failed") must never look the same.
+   */
+  status: QuoteStatus;
   /** True when the router found a route to ETH. */
   routable: boolean;
   /** Estimated ETH out (wei). */
@@ -214,12 +221,20 @@ export function useCoinQuotes(
         try {
           const resp = await createTradeCall(params);
           if (!resp?.success || !resp.quote?.amountOut) {
-            return { address: coin.address, routable: false, out: 0n };
+            return { address: coin.address, status: "no-route", routable: false, out: 0n };
           }
-          return { address: coin.address, routable: true, out: BigInt(resp.quote.amountOut) };
-        } catch (err) {
           return {
             address: coin.address,
+            status: "routable",
+            routable: true,
+            out: BigInt(resp.quote.amountOut),
+          };
+        } catch (err) {
+          // A thrown quote is the service failing, not the coin: report it as
+          // such so the UI can offer a retry instead of "no liquidity".
+          return {
+            address: coin.address,
+            status: "quote-failed",
             routable: false,
             out: 0n,
             error: err instanceof Error ? err.message : String(err),
@@ -238,8 +253,14 @@ export function useCoinQuotes(
     () => quotes.reduce((sum, q) => sum + (q.routable ? q.out : 0n), 0n),
     [quotes],
   );
+  const failedCount = quotes.filter((q) => q.status === "quote-failed").length;
+  const refetchFailed = () => {
+    results.forEach((r) => {
+      if (r.data?.status === "quote-failed") void r.refetch();
+    });
+  };
 
-  return { quotes, totalEthOut, isLoading };
+  return { quotes, totalEthOut, isLoading, failedCount, refetchFailed };
 }
 
 /** Format a raw amount for display (trims to a sane precision). */
