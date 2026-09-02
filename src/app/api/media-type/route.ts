@@ -9,20 +9,29 @@ interface Headers {
   contentDisposition: string;
 }
 
-async function headOf(url: string): Promise<Headers | null> {
-  const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
-  if (!res.ok) return null;
-  return {
-    contentType: res.headers.get("content-type") || "",
-    contentDisposition: res.headers.get("content-disposition") || "",
-  };
+/** IPFS gateways drop requests often enough that a single timeout would demote a real
+ *  image to a link for the rest of the visitor's session — so give it one more try. */
+async function headOf(url: string, attempts = 2): Promise<Headers | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      return {
+        contentType: res.headers.get("content-type") || "",
+        contentDisposition: res.headers.get("content-disposition") || "",
+      };
+    } catch {
+      if (i === attempts - 1) throw new Error("HEAD failed");
+    }
+  }
+  return null;
 }
 
 /** poidh stores the claim's tokenURI (ERC-721 metadata JSON) in claim.url, not the media
  *  itself. Read the JSON and hand back the `image` / `animation_url` it points at. */
 async function resolveMetadataMedia(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     const length = Number(res.headers.get("content-length") || 0);
     if (length > MAX_METADATA_BYTES) return null;

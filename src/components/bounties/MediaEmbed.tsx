@@ -32,7 +32,10 @@ export function MediaEmbed({ url, alt = "", className = "" }: MediaEmbedProps) {
     enabled: canInspect,
     queryFn: async () => {
       const res = await fetch(`/api/media-type?url=${encodeURIComponent(url)}`);
-      return res.json();
+      const info: MediaInfo = await res.json();
+      // A flaky gateway must not cache "not media" for an hour — throw so it retries.
+      if (info.error) throw new Error(info.error);
+      return info;
     },
     staleTime: 60 * 60 * 1000, // 1 hour — content type doesn't change
   });
