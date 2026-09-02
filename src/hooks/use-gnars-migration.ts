@@ -20,6 +20,8 @@ import {
 } from "@zoralabs/coins-sdk";
 import { formatUnits, type Address } from "viem";
 import { GNARS_CREATOR_COIN, ZORA_TOKEN_BASE } from "@/lib/config";
+import { kyberQuoteToEth } from "@/lib/kyber-quote";
+import { expectedFromZoraQuote } from "@/lib/route-margin";
 
 const BASE_CHAIN_ID = 8453;
 const GNARS = GNARS_CREATOR_COIN.toLowerCase();
@@ -183,9 +185,12 @@ export function useMigratableCoins(address: string | undefined) {
 }
 
 export type QuoteStatus = "routable" | "no-route" | "quote-failed";
+export type QuoteProvider = "zora" | "kyber";
 
 export interface CoinQuote {
   address: Address;
+  /** Which router answered. Zora is asked first; Kyber when Zora fails or has no route. */
+  provider?: QuoteProvider;
   /**
    * Three states, kept apart on purpose: a dead pool ("no-route") and a quote
    * service that fell over ("quote-failed") must never look the same.
@@ -193,7 +198,7 @@ export interface CoinQuote {
   status: QuoteStatus;
   /** True when the router found a route to ETH. */
   routable: boolean;
-  /** Estimated ETH out (wei). */
+  /** Expected ETH out (wei), before slippage. */
   out: bigint;
   error?: string;
 }
@@ -211,28 +216,30 @@ export function useCoinQuotes(
       staleTime: 30_000,
       retry: false,
       queryFn: async (): Promise<CoinQuote> => {
+        const amountIn = BigInt(coin.balance);
         const params: TradeParameters = {
           sell: { type: "erc20", address: coin.address },
           buy: { type: "eth" },
-          amountIn: BigInt(coin.balance),
+          amountIn,
           slippage,
           sender: sender as Address,
         };
+        let zora: CoinQuote;
         try {
           const resp = await createTradeCall(params);
-          if (!resp?.success || !resp.quote?.amountOut) {
-            return { address: coin.address, status: "no-route", routable: false, out: 0n };
-          }
-          return {
-            address: coin.address,
-            status: "routable",
-            routable: true,
-            out: BigInt(resp.quote.amountOut),
-          };
+          zora =
+            !resp?.success || !resp.quote?.amountOut
+              ? { address: coin.address, status: "no-route", routable: false, out: 0n }
+              : {
+                  address: coin.address,
+                  provider: "zora",
+                  status: "routable",
+                  routable: true,
+                  // Zora returns the post-slippage minimum; show what is expected.
+                  out: expectedFromZoraQuote(BigInt(resp.quote.amountOut), slippage),
+                };
         } catch (err) {
-          // A thrown quote is the service failing, not the coin: report it as
-          // such so the UI can offer a retry instead of "no liquidity".
-          return {
+          zora = {
             address: coin.address,
             status: "quote-failed",
             routable: false,
@@ -240,6 +247,25 @@ export function useCoinQuotes(
             error: err instanceof Error ? err.message : String(err),
           };
         }
+        if (zora.routable) return zora;
+        // Second opinion: Kyber routes the same v4 hook pools. A Kyber answer
+        // upgrades "no route" to a real quote; a Kyber failure changes nothing —
+        // the Zora verdict (dead pool vs. service down) stands.
+        try {
+          const k = await kyberQuoteToEth(coin.address, amountIn);
+          if (k) {
+            return {
+              address: coin.address,
+              provider: "kyber",
+              status: "routable",
+              routable: true,
+              out: k.amountOut,
+            };
+          }
+        } catch {
+          // keep Zora's verdict
+        }
+        return zora;
       },
     })),
   });

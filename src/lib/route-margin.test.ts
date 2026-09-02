@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { minOutAtMargin, routeMarginBps, routeMarginFromQuotes } from "./route-margin";
+import {
+  expectedFromZoraQuote,
+  minOutAtMargin,
+  routeMarginBps,
+  routeMarginFromQuotes,
+} from "./route-margin";
 
 const E = 10n ** 18n;
 
@@ -28,5 +33,16 @@ describe("routeMarginFromQuotes / minOutAtMargin", () => {
   it("computes the router minimum", () => {
     expect(minOutAtMargin(10_000n, 250)).toBe(9_750n);
     expect(minOutAtMargin(10_000n, 500)).toBe(9_500n);
+  });
+});
+
+describe("expectedFromZoraQuote", () => {
+  it("divides the slippage back out of Zora's post-slippage amountOut", () => {
+    // 0.95 × 10_000 = 9_500 → expected 10_000.
+    expect(expectedFromZoraQuote(9_500n, 0.05)).toBe(10_000n);
+    expect(expectedFromZoraQuote(9_900n, 0.01)).toBe(10_000n);
+  });
+  it("is the identity at zero slippage", () => {
+    expect(expectedFromZoraQuote(1_234n, 0)).toBe(1_234n);
   });
 });

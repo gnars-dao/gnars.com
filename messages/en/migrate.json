@@ -56,7 +56,8 @@
     "quoteFailed": "{count} quotes failed — the quote service did not answer. That is not \"no liquidity\"; retry.",
     "depositFailedAfterSells": "The sells went through but the deposit did not. About {amount} ETH from them is in your wallet — deposit it from the terminal below.",
     "batchNoteSellOnly": "One signature: every sell runs as a single sponsored transaction.",
-    "sequentialNoteSellOnly": "Your wallet may ask for up to {count} signatures (approve, permit and swap per coin), and you pay the gas."
+    "sequentialNoteSellOnly": "Your wallet may ask for up to {count} signatures (approve, permit and swap per coin), and you pay the gas.",
+    "viaKyber": "{count} of these coins Zora could not route; KyberSwap can, and will be used for them."
   },
   "deposit": {
     "title": "Migration deposit",

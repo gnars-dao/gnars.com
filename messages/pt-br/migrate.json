@@ -56,7 +56,8 @@
     "quoteFailed": "{count} cotações falharam — o serviço de cotação não respondeu. Isso não é \"sem liquidez\"; tente de novo.",
     "depositFailedAfterSells": "As vendas passaram, mas o depósito não. Cerca de {amount} ETH delas está na sua carteira — deposite pelo terminal abaixo.",
     "batchNoteSellOnly": "Uma assinatura: todas as vendas rodam numa única transação com gas patrocinado.",
-    "sequentialNoteSellOnly": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin), e o gas é por sua conta."
+    "sequentialNoteSellOnly": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin), e o gas é por sua conta.",
+    "viaKyber": "{count} dessas coins a Zora não conseguiu rotear; a KyberSwap consegue, e será usada para elas."
   },
   "deposit": {
     "title": "Depósito da migração",

@@ -31,7 +31,7 @@ Terms (1% fee · 30% treasury · 7-day vesting) are confirmed by kompreni but no
 
 ## What the page does (`src/app/[locale]/migrate`)
 
-1. **Sell to ETH** — `useMigratableCoins` lists real Zora coins (indexer, not an ERC-20 scan); `useCoinQuotes` quotes each straight to ETH via `createTradeCall` at 5% slippage (`MIGRATION_SLIPPAGE`).
+1. **Sell to ETH** — `useMigratableCoins` lists real Zora coins (indexer, not an ERC-20 scan); `useCoinQuotes` quotes each straight to ETH via `createTradeCall`, then asks **KyberSwap** (`src/lib/kyber-quote.ts`) when Zora fails or has no route. Kyber is the one public aggregator that routes Zora's v4 hook pools (probed 2026-09-02 against LI.FI, 0x, Kyber, OpenOcean, Odos, ParaSwap, Relay, Pioneer); it prices within 1% of Zora and returns plain approve + router calldata. **Zora's `amountOut` is already the post-slippage minimum** — the UI divides the slippage back out for display and never applies the margin twice (`expectedFromZoraQuote`).
 2. **Execute** — `useExecuteMigration`:
    - `batch` (smart account, sponsored gas, one signature): per coin `coin.approve(PERMIT2)` → `PERMIT2.approve(coin, router)` → `router.execute(...)` with Zora's `PERMIT2_PERMIT` command stripped (`src/lib/zora-router-call.ts`), then `deposit{value: minOut}`. Validated on a Base fork: `scripts/sim-migrate-batch.ts`.
    - `sequential` (plain EOA): the Zora SDK signs a Permit2 permit per coin, then one deposit tx. The UI states the signature count; the fallback is never silent.

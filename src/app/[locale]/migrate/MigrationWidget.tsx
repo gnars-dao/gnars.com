@@ -924,9 +924,16 @@ function MigrationPreview({
   const routableAddrs = new Set(
     quotes.filter((q) => q.routable).map((q) => q.address.toLowerCase()),
   );
+  const providerByAddr = new Map(quotes.map((q) => [q.address.toLowerCase(), q.provider]));
   const routableCoins: CoinToMigrate[] = coins
     .filter((c) => routableAddrs.has(c.address.toLowerCase()))
-    .map((c) => ({ address: c.address, symbol: c.symbol, balance: c.balance }));
+    .map((c) => ({
+      address: c.address,
+      symbol: c.symbol,
+      balance: c.balance,
+      provider: providerByAddr.get(c.address.toLowerCase()),
+    }));
+  const kyberCount = quotes.filter((q) => q.provider === "kyber").length;
 
   // Sequential: the Zora SDK may prompt up to three times per coin (approve,
   // permit signature, swap), then once for the deposit.
@@ -978,6 +985,11 @@ function MigrationPreview({
         </div>
       </div>
 
+      {kyberCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t("preview.viaKyber", { count: kyberCount })}
+        </p>
+      )}
       {failedCount > 0 && (
         <ErrorNote>
           <span>{t("preview.quoteFailed", { count: failedCount })}</span>

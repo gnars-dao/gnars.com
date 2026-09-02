@@ -19,6 +19,7 @@ import { useReadContract } from "wagmi";
 import { MIGRATION_SLIPPAGE } from "@/hooks/use-gnars-migration";
 import { CHAIN, GNARS_CREATOR_COIN } from "@/lib/config";
 import { priceImpactBps, referenceSlice } from "@/lib/price-impact";
+import { expectedFromZoraQuote } from "@/lib/route-margin";
 
 export interface OldGnarsQuote {
   /** ETH (wei) for selling the whole balance. */
@@ -62,8 +63,10 @@ export function useOldGnarsPosition(address: string | undefined, slippage = MIGR
       const out = BigInt(full.quote.amountOut);
       const refOut =
         small?.success && small.quote?.amountOut ? BigInt(small.quote.amountOut) : null;
+      // Both quotes carry the same slippage, so the impact ratio is unaffected;
+      // the displayed amount is the expected one, with the slippage divided out.
       return {
-        out,
+        out: expectedFromZoraQuote(out, slippage),
         impactBps: refOut === null ? null : priceImpactBps(ref, refOut, bal, out),
       };
     },

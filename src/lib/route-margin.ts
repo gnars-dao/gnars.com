@@ -38,3 +38,18 @@ export function routeMarginFromQuotes(
 export function minOutAtMargin(amountOut: bigint, marginBps: number): bigint {
   return (amountOut * BigInt(10_000 - marginBps)) / 10_000n;
 }
+
+/**
+ * Zora's quote endpoint returns `amountOut` ALREADY reduced by the slippage you
+ * asked for — it is the router's amountOutMin, not the expected output.
+ * Verified 2026-09-02: the same sale quoted at 0.5%, 1%, 5% and 10% came back
+ * as expected × (1 − slippage) each time, and a fork execution delivered
+ * exactly quote ÷ 0.95 at 5%. So the expected amount is recovered by dividing
+ * the slippage back out, and a quote taken at the route's margin IS the
+ * deposit minimum — never apply the margin a second time.
+ */
+export function expectedFromZoraQuote(amountOut: bigint, slippage: number): bigint {
+  const bps = BigInt(Math.round(slippage * 10_000));
+  if (bps <= 0n || bps >= 10_000n) return amountOut;
+  return (amountOut * 10_000n) / (10_000n - bps);
+}

@@ -9,6 +9,8 @@ live UpgraderEth (`scripts/sim-migrate-batch.ts`); **test** = unit test;
 **code** = read the code path, not executed; **checklist** = needs a human with
 a wallet, see `migrate-runtime-checklist.md`.
 
+Quote sources: Zora first; KyberSwap when Zora fails or has no route (the only public aggregator that routes Zora's v4 hook pools — probed against eight sources on 2026-09-02). Both execute in both modes; Kyber needs no Permit2 signature.
+
 Invariant that must never break: the `user` argument of `deposit` /
 `withdraw` / `claim` is always the address that signs (`writer.account.address`
 from `useWriteAccount`), never `saAddress`/`adminAddress` picked by hand.

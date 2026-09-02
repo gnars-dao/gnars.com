@@ -51,8 +51,9 @@ import {
   PERMIT2_ADDRESS,
   UPGRADER_ADDRESS,
 } from "@/lib/config";
+import { kyberBuildCall, kyberQuoteToEth } from "@/lib/kyber-quote";
 import { referenceSlice } from "@/lib/price-impact";
-import { minOutAtMargin, routeMarginFromQuotes } from "@/lib/route-margin";
+import { expectedFromZoraQuote, routeMarginFromQuotes } from "@/lib/route-margin";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
 import { depositCall } from "@/lib/upgrader-calls";
@@ -68,6 +69,8 @@ export interface CoinToMigrate {
   symbol: string;
   /** Raw balance (BigInt-safe string). */
   balance: string;
+  /** Router the preview quoted this coin on. Defaults to Zora, falls back to Kyber. */
+  provider?: "zora" | "kyber";
 }
 
 export type StepStatus = "pending" | "active" | "done" | "failed";
@@ -168,7 +171,10 @@ export function useExecuteMigration() {
     setLastResult(null);
 
     const initial: MigrationStep[] = [
-      ...coins.map((c) => ({ label: `${c.symbol} → ETH`, status: "pending" as StepStatus })),
+      ...coins.map((c) => ({
+        label: `${c.symbol} → ETH${c.provider === "kyber" ? " · Kyber" : ""}`,
+        status: "pending" as StepStatus,
+      })),
       ...(depositIntoMigration
         ? [{ label: t("steps.deposit"), status: "pending" as StepStatus }]
         : []),
@@ -305,12 +311,65 @@ async function quoteToEth(coin: CoinToMigrate, sender: Address, maxSlippage: num
   if (!quote?.success || !quote.quote?.amountOut) {
     throw new Error(`No route to ETH for ${coin.symbol}`);
   }
+  // Zora's amountOut is already the router's minimum at `slippage` — using it
+  // as the deposit floor applies the margin exactly once.
+  const minOut = BigInt(quote.quote.amountOut);
   return {
     quote,
     slippage,
     marginBps,
-    minOut: minOutAtMargin(BigInt(quote.quote.amountOut), marginBps),
+    minOut,
+    expected: expectedFromZoraQuote(minOut, slippage),
   };
+}
+
+/**
+ * One coin's sell leg as plain calls plus the router-enforced minimum. Zora:
+ * approve → Permit2 approve → router (permit stripped). Kyber: approve → router.
+ * Kyber is tried when the coin was quoted there, or when Zora has no route now.
+ */
+async function buildSellLeg(
+  coin: CoinToMigrate,
+  sender: Address,
+  slippage: number,
+): Promise<{
+  calls: { to: Address; data?: Hex; value: bigint; method?: never }[];
+  approvals: { token: Address; spender: Address; amount: bigint; permit2?: { router: Address } }[];
+  minOut: bigint;
+  provider: "zora" | "kyber";
+}> {
+  const amountIn = BigInt(coin.balance);
+  const viaKyber = async () => {
+    const k = await kyberQuoteToEth(coin.address, amountIn);
+    if (!k) throw new Error(`No route to ETH for ${coin.symbol}`);
+    const built = await kyberBuildCall(k, sender, Math.round(slippage * 10_000));
+    return {
+      calls: [{ to: built.router, data: built.data, value: built.value }],
+      approvals: [{ token: coin.address, spender: built.router, amount: amountIn }],
+      minOut: built.amountOutMin,
+      provider: "kyber" as const,
+    };
+  };
+  if (coin.provider === "kyber") return viaKyber();
+  try {
+    const { quote, minOut } = await quoteToEth(coin, sender, slippage);
+    const router = quote.call.target as Address;
+    const stripped = stripPermitFromRouterCall(quote.call.data as Hex);
+    return {
+      calls: [{ to: router, data: stripped.data, value: BigInt(quote.call.value) }],
+      approvals: [
+        { token: coin.address, spender: PERMIT2_ADDRESS, amount: amountIn, permit2: { router } },
+      ],
+      minOut,
+      provider: "zora" as const,
+    };
+  } catch (zoraErr) {
+    try {
+      return await viaKyber();
+    } catch {
+      throw zoraErr;
+    }
+  }
 }
 
 async function runBatch({
@@ -340,37 +399,37 @@ async function runBatch({
   for (let i = 0; i < coins.length; i++) {
     const coin = coins[i];
     setStatus(i, "active");
-    let built;
+    let leg;
     try {
-      const { quote, minOut: coinMinOut } = await quoteToEth(coin, sender, slippage);
-      const router = quote.call.target as Address;
-      const stripped = stripPermitFromRouterCall(quote.call.data as Hex);
-      built = { quote, router, stripped, coinMinOut };
+      leg = await buildSellLeg(coin, sender, slippage);
     } catch (err) {
       setStatus(i, "failed");
       throw err;
     }
-    const amountIn = BigInt(coin.balance);
-    minOut += built.coinMinOut;
-    transactions.push(
-      prepareContractCall({
-        contract: getContract({ client, chain: base, address: coin.address }),
-        method: ERC20_APPROVE,
-        params: [PERMIT2_ADDRESS, amountIn],
-      }),
-      prepareContractCall({
-        contract: getContract({ client, chain: base, address: PERMIT2_ADDRESS }),
-        method: PERMIT2_APPROVE,
-        params: [coin.address, built.router, amountIn, expiration],
-      }),
-      prepareTransaction({
-        client,
-        chain: base,
-        to: built.router,
-        data: built.stripped.data,
-        value: BigInt(built.quote.call.value),
-      }),
-    );
+    minOut += leg.minOut;
+    for (const a of leg.approvals) {
+      transactions.push(
+        prepareContractCall({
+          contract: getContract({ client, chain: base, address: a.token }),
+          method: ERC20_APPROVE,
+          params: [a.spender, a.amount],
+        }),
+      );
+      if (a.permit2) {
+        transactions.push(
+          prepareContractCall({
+            contract: getContract({ client, chain: base, address: PERMIT2_ADDRESS }),
+            method: PERMIT2_APPROVE,
+            params: [a.token, a.permit2.router, a.amount, expiration],
+          }),
+        );
+      }
+    }
+    for (const c of leg.calls) {
+      transactions.push(
+        prepareTransaction({ client, chain: base, to: c.to, data: c.data, value: c.value }),
+      );
+    }
   }
 
   if (depositIntoMigration) {
@@ -441,6 +500,48 @@ async function runSequential({
   for (let i = 0; i < coins.length; i++) {
     setStatus(i, "active");
     try {
+      if (coins[i].provider === "kyber") {
+        // Kyber: approve the router, then one plain call — measured the same way.
+        const leg = await buildSellLeg(coins[i], sender, slippage);
+        const before = await publicClient.getBalance({ address: sender });
+        let gasPaid = 0n;
+        for (const a of leg.approvals) {
+          const tx = prepareContractCall({
+            contract: getContract({ client, chain: base, address: a.token }),
+            method: ERC20_APPROVE,
+            params: [a.spender, a.amount],
+          });
+          const r = await sendTransaction({ account: writer.account, transaction: tx });
+          const rc = await waitForReceipt({
+            client,
+            chain: base,
+            transactionHash: r.transactionHash,
+          });
+          gasPaid += rc.gasUsed * rc.effectiveGasPrice;
+        }
+        for (const c of leg.calls) {
+          const tx = prepareTransaction({
+            client,
+            chain: base,
+            to: c.to,
+            data: c.data,
+            value: c.value,
+          });
+          const r = await sendTransaction({ account: writer.account, transaction: tx });
+          const rc = await waitForReceipt({
+            client,
+            chain: base,
+            transactionHash: r.transactionHash,
+          });
+          gasPaid += rc.gasUsed * rc.effectiveGasPrice;
+        }
+        const after = await publicClient.getBalance({ address: sender });
+        const delta = after - before + gasPaid;
+        received += delta > 0n ? delta : 0n;
+        sold.push(coins[i].symbol);
+        setStatus(i, "done");
+        continue;
+      }
       const routeQuote = await quoteToEth(coins[i], sender, slippage);
       // The SDK re-quotes internally, so what it enforces is not our quote.
       // Measure what actually arrived: balance delta plus the gas the swap
