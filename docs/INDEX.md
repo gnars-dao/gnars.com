@@ -27,6 +27,7 @@ This is the canonical entry point for project documentation. Everything below sh
 - `docs/features/store-checkout.md` — /store checkout (USDC on Base, built Phase 1, real payment gated to live) + build plan
 - `docs/features/blog-archive.md` — historical blog archive, IPFS image migration, and the Drive→IPFS curation pipeline proposal
 - `docs/features/migrate-runtime-checklist.md` — the human click-through for /migrate's money-moving steps (batch vs sequential, deposit, withdraw, failure states); the read-only automated pass is `scripts/pw-migrate-connected.ts`
+- `docs/features/migrate-connection-matrix.md` — the five connection modes × consolidate/deposit/withdraw/claim: works / degrades how / not, with how each cell was verified (runtime, fork, test, code, checklist)
 
 ## Integrations
 

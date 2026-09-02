@@ -9,7 +9,7 @@ wallet holding a few dollars of Zora dust and a little old $gnars on Base.
 Report each line as ✅ / ❌ with what you saw. Anything ❌ blocks flipping the
 terminal on in production.
 
-## A. Sponsored smart account (social / email login, or external wallet in SA view)
+## A. Mode 1 — in-app wallet (social / email login), pinned to the smart account
 
 1. Connect. Holdings list shows only Zora coins; old $gnars appears in its own
    card above with balance, ETH estimate and **Price impact** as a percentage.
@@ -32,7 +32,7 @@ terminal on in production.
    rises.
 8. Disconnect and reload: nothing is remembered as selected.
 
-## B. Plain EOA (external wallet in EOA view)
+## B. Mode 3 — external wallet in EOA mode (MetaMask, Coinbase, Rainbow, WalletConnect)
 
 9. Preview note reads **"Your wallet will ask for N signatures …"** with N = coins
    (+1 when the terminal is live). Not the "One signature" note.
@@ -42,11 +42,32 @@ terminal on in production.
 11. Reject the second prompt. The rejected coin's row turns ✗, the run continues
     with the rest, and the deposit still happens for the sold ones.
 
-## C. Failure states (either account type)
+## C. Mode 2 — external wallet switched to SA mode (the drawer toggle)
 
-12. With the RPC blocked (devtools → offline after load), "Your deposit" shows
+12. Switch to "Smart account" in the wallet drawer. The holdings list is empty
+    (the SA holds no coins) and the old-$gnars card is gone — expected. The
+    terminal shows "Wallet: 0 ETH" and Deposit stays disabled.
+13. Having deposited in EOA mode first: the terminal shows "Your deposit 0 ETH"
+    **and** the notice "You have X ETH deposited from your other address
+    (0x…)" with "Switch to Wallet (EOA)". Switch back; the deposit reappears.
+
+## D. Mode 4 — Farcaster mini app (open gnars.com/migrate from a cast in Warpcast)
+
+14. The page connects on its own (no Connect modal). No wallet drawer toggle.
+15. Preview note reads "Your wallet will ask for N signatures". Run a sell of
+    one dust coin: Warpcast prompts per step (permit + swap), then the deposit.
+
+## E. Mode 5 — mobile (phone, PT-BR)
+
+16. Both tabs show their labels ("Entrar", "Guia"). No horizontal scrolling.
+17. In the deposit field, type 0,05 with the comma keyboard. The field shows
+    0.05 and the line above the button reads "Você vai enviar: 0.05 ETH".
+
+## F. Failure states (any mode)
+
+18. With the RPC blocked (devtools → offline after load), "Your deposit" shows
     **Read failed** and a Retry button, never "0 ETH".
-13. Set `NEXT_PUBLIC_UPGRADER_ADDRESS` to a typo locally: the card says
+19. Set `NEXT_PUBLIC_UPGRADER_ADDRESS` to a typo locally: the card says
     **Misconfigured** with the reason, and no button is enabled.
-14. PT-BR: every string above in Portuguese, no English leaking, "tesouro" not
+20. PT-BR: every string above in Portuguese, no English leaking, "tesouro" not
     "tesouraria".
