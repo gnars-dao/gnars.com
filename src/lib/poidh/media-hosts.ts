@@ -8,6 +8,9 @@ const ALLOWED_MEDIA_HOSTNAMES = new Set([
   "gateway.pinata.cloud",
   "dweb.link",
   "nftstorage.link",
+  // poidh's bounty-agent host: serves both the claim metadata JSON and its images.
+  "agentatwork.xyz",
+  "www.agentatwork.xyz",
 ]);
 
 const ALLOWED_MEDIA_HOST_SUFFIXES = [".mypinata.cloud"];
