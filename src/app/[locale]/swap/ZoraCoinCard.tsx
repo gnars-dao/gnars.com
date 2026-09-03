@@ -2,7 +2,6 @@
 
 import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
-import { getCoin, setApiKey } from "@zoralabs/coins-sdk";
 import { ExternalLink, TrendingDown, TrendingUp, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NATIVE_TOKEN, type SwapToken } from "./chains";
@@ -16,21 +15,26 @@ import {
 } from "./coinCardModel";
 
 /**
- * The coin behind a token, from the Zora SDK, or null when the token is not
- * a Zora coin. One query per address, cached for ten minutes: the figures
- * move, the media does not.
+ * The coin behind a token, or null when the token is not a Zora coin.
+ *
+ * Read through the site's own /api/coins/meta rather than the Zora SDK in
+ * the browser: the SDK's endpoint answers a keyless browser call with a
+ * Cloudflare block, which is why coins used to show a letter instead of
+ * their image. The route calls Zora server-side and falls back to the
+ * coin's on-chain metadata when Zora will not answer. One query per
+ * address, cached ten minutes.
  */
 export function useZoraCoin(address: string, chainId: number, enabled = true) {
   return useQuery({
-    queryKey: ["zora-coin", address],
+    queryKey: ["zora-coin-meta", address],
     enabled: enabled && chainId === 8453 && address !== NATIVE_TOKEN,
     staleTime: 10 * 60 * 1000,
     retry: false,
     queryFn: async (): Promise<ZoraCoinLike | null> => {
-      const key = process.env.NEXT_PUBLIC_ZORA_API_KEY;
-      if (key) setApiKey(key);
-      const res = await getCoin({ address, chain: 8453 });
-      return (res?.data?.zora20Token as ZoraCoinLike | undefined) ?? null;
+      const res = await fetch(`/api/coins/meta?address=${address}`);
+      if (!res.ok) return null;
+      const body = (await res.json()) as { coin?: ZoraCoinLike | null };
+      return body.coin ?? null;
     },
   });
 }
