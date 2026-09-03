@@ -71,5 +71,16 @@
     "quoteUnavailableFallback": "0x returned no transaction",
     "swapCancelled": "Swap cancelled",
     "swapFailed": "Swap failed"
+  },
+  "coinCard": {
+    "zoraCoin": "Zora coin",
+    "viewOnZora": "View on Zora",
+    "youSell": "You sell",
+    "youBuy": "You buy",
+    "marketCap": "Market cap",
+    "volume24h": "24h volume",
+    "holders": "Holders",
+    "tradingFor": "You are trading {coin} for {other}.",
+    "buyingWith": "You are buying {coin} with {other}."
   }
 }

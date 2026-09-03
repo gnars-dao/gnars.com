@@ -40,6 +40,7 @@ import {
   type TokenBalance,
 } from "./useTokenBalance";
 import { useTokenLookup, useWalletTokens } from "./useWalletTokens";
+import ZoraCoinCard from "./ZoraCoinCard";
 
 // Lazily fetches a Zora creator coin's image when no standard logo is available.
 // Only runs on Base (chain 8453) since creator coins are Base-only.
@@ -254,7 +255,12 @@ function TokenPicker({
           className="group inline-flex items-center gap-2 bg-transparent text-left transition-colors"
         >
           <TokenLogo token={value} size={16} chainId={chain.id} />
-          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors group-hover:text-foreground">
+          {/* One line, always: a coin named after a whole magazine masthead
+              used to wrap into eight, and the amount field fell off the fold. */}
+          <span
+            className="max-w-[14ch] truncate text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors group-hover:text-foreground"
+            title={value.name}
+          >
             {value.name}
           </span>
           <ChevronDown className="h-3 w-3 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
@@ -919,6 +925,14 @@ export function SwapWidget() {
               )}
             </p>
           </div>
+        </div>
+
+        {/* A Zora coin on either side gets its card: media, creator, market.
+            Renders nothing for an ordinary token, so the strip above is all
+            most pairs ever show. */}
+        <div className="grid gap-4 empty:hidden @2xl:grid-cols-2">
+          <ZoraCoinCard token={sellToken} counterpart={buyToken} side="sell" chainId={chain.id} />
+          <ZoraCoinCard token={buyToken} counterpart={sellToken} side="buy" chainId={chain.id} />
         </div>
 
         {/* Hairline divider */}
