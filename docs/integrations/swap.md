@@ -1,6 +1,7 @@
 # SwapPro Swap Integration
 
-The `/swap` page trades ETH, USDC, GNARS and the other Base tokens in the picker through
+The `/swap` page trades ETH, USDC, GNARS and the other tokens in the picker, on six
+chains, through
 the [SwapPro HTTP API](https://www.swaps.pro/docs/api). One `GET /quote` routes across
 0x, CoW, LI.FI, Relay and more and returns a firm quote with the transaction to sign.
 There is no API key. All transaction signing happens through the existing thirdweb
@@ -56,20 +57,36 @@ typing, quote on click) is untouched, and the fee recipient is still set server-
 ## Affiliate fee behaviour — read this before merging
 
 The fee is still **opt-in per request** (`fee=1`, the "Support Gnars treasury" checkbox,
-default checked). What changes is _how_ it is collected, and it depends on the venue
-SwapPro picks for the quote:
+default checked), and it is now also **gated on the chain**. What changes is _how_ it is
+collected, and it depends on the venue SwapPro picks for the quote:
 
-- **CoW** — a genuine on-chain volume fee to the partner address, per swap.
-- **0x and LI.FI** — the partner share rides inside SwapPro's own fee and is settled to
-  the partner address from SwapPro's request log, not on chain per swap.
-- **Relay and other same-chain venues** — cannot carry a partner fee at all.
+- **0x and CoW** — collected on chain, on top of SwapPro's own 30 bps, and paid to a
+  0xSplits contract derived from `(payout address, bps)` that divides it between the
+  treasury and SwapPro with no invoice and nobody to trust.
+- **LI.FI** — collected, but LI.FI registers one fee wallet per integrator rather than
+  accepting one per request, so it lands in SwapPro's wallet and the response says so
+  (`paidToPartner: false`).
+- **Relay and other Pioneer venues** — cannot carry a partner fee at all.
 
-Every quote returns a `partnerFee` block saying what was requested, what was collected
-and whether it was `paidToPartner`, and the handler passes it through verbatim. With the
-direct 0x integration the fee landed in the split contract on every swap; with SwapPro
-it lands on some venues per swap and is settled off-chain on others. SwapPro also takes
-its own 30 bps on same-chain EVM routes. This is a treasury-policy decision for the DAO,
-not a code one, and it is the reason this PR is a proposal rather than a drop-in.
+Every quote returns a `partnerFee` block saying what was requested, what was collected,
+whether it was `paidToPartner` and where it landed. The handler passes it through verbatim.
+
+### The chain gate
+
+`GNARS_SWAP_PAYOUT` in `src/lib/config.ts` lists the chains where the treasury has an
+address that can actually receive. **A chain missing from that map asks for no fee at
+all** and the checkbox is not shown there.
+
+That is not caution, it is measurement: `eth_getCode` on 2026-09-03 found the treasury's
+split holding 89 bytes on Base and **zero** on Ethereum, Arbitrum, BNB Chain, Avalanche
+and Robinhood Chain. Requesting 50 bps on those chains would take the money from the user
+and park it at an address with nothing behind it. Without the gate the user pays 80 bps
+and the treasury receives none of it.
+
+To earn on another chain: deploy the same split there (0xSplits derives the address from
+the configuration, so it carries over unchanged), then add the chain id to the map.
+Robinhood Chain is the exception — 0xSplits has no factory on 4663, so an EOA or a Safe
+is the only option there.
 
 ## What the user gains
 
@@ -82,6 +99,16 @@ not a code one, and it is the reason this PR is a proposal rather than a drop-in
 
 ## Chains
 
-SwapPro routes Base, Ethereum, Arbitrum, BNB Chain, Avalanche and Robinhood Chain. Optimism
-is in the site's chain list but not routed by SwapPro yet; the handler answers
-`liquidityAvailable: false` with `code: UNSUPPORTED_CHAIN` for it.
+The picker offers exactly the six chains SwapPro routes: Base, Ethereum, Arbitrum,
+BNB Chain, Avalanche and Robinhood Chain.
+
+Optimism was removed. It sat in the picker and every quote on it came back
+`liquidityAvailable: false` with `code: UNSUPPORTED_CHAIN` — a chain offered that could
+never fill an order. `chains.test.ts` now fails when `SWAP_CHAINS` and `SWAPPRO_CHAINS`
+disagree, so a chain SwapPro adds shows up as a failing test rather than as silence, and
+one it drops cannot linger.
+
+Token addresses and decimals come from SwapPro's own `/tokens` registry and were read back
+from chain before being written down. Two that are not guessable: **BNB Chain's USDT and
+USDC carry 18 decimals**, not Ethereum's six, and Avalanche's Tether is `USDt`. Robinhood
+Chain carries tokenised equities (NVDA, TSLA), which is the reason it is worth offering.

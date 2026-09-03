@@ -53,9 +53,34 @@ export interface SwapProQuote {
   };
 }
 
+/**
+ * SwapPro's error body, in BOTH shapes it can arrive in.
+ *
+ * v1 answered `{ error: "…", code: "…" }` with the message as a plain string.
+ * The standard shape being rolled out answers
+ * `{ error: { code, message, retryable }, message: "…" }`, keeping the
+ * top-level `message` for one release. Reading `error` as a string against the
+ * new body would print "[object Object]" on the screen and nothing would throw,
+ * so both are read and `reasonOf` decides.
+ */
 export interface SwapProError {
-  error: string;
-  code: string;
+  error: string | { code?: string; message?: string; retryable?: boolean };
+  /** The transitional top-level message on the new shape. */
+  message?: string;
+  code?: string;
+}
+
+/** The sentence to show, whichever error shape came back. */
+export function reasonOf(e: SwapProError): string {
+  if (typeof e.error === "string" && e.error) return e.error;
+  if (e.error && typeof e.error === "object" && e.error.message) return e.error.message;
+  return e.message ?? "SwapPro did not say why";
+}
+
+/** The machine-readable code, whichever error shape came back. */
+export function codeOf(e: SwapProError): string {
+  if (e.error && typeof e.error === "object" && e.error.code) return e.error.code;
+  return e.code ?? "UPSTREAM_UNAVAILABLE";
 }
 
 /** What the widget reads. Superset of the 0x fields it touches. */
@@ -167,7 +192,7 @@ export function toWidgetQuote(
 
 /** A SwapPro error in the widget's shape: no liquidity, with the reason it gave. */
 export function toWidgetError(e: SwapProError): WidgetQuote {
-  return { liquidityAvailable: false, reason: e.error, code: e.code };
+  return { liquidityAvailable: false, reason: reasonOf(e), code: codeOf(e) };
 }
 
 /** One call to SwapPro, translated. Never throws on an API answer; throws only when there is none. */

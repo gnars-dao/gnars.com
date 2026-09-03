@@ -112,27 +112,63 @@ export const DROPOSAL_TARGET = {
 // Default mint limit per address for droposals (effectively unlimited)
 export const DROPOSAL_DEFAULT_MINT_LIMIT = 1000000 as const;
 
-// /swap (0x Swap API) — affiliate fee taken on the bought token when the
-// user keeps the "Support Gnars treasury" checkbox checked.
-// Recipient depends on chain: Base swaps land in the Gnars split contract;
-// other (multichain / EVM batch) swaps land in the SOPA × COINMASTERSGUILD
-// split contract, which divides the 0x fee between the two parties on-chain.
+// /swap — the affiliate fee taken on the bought token when the user keeps the
+// "Support Gnars treasury" checkbox checked. Quotes come from SwapPro, which
+// adds this on top of its own 30 bps and pays it out through a 0xSplits
+// contract derived from the payout address below. See docs/integrations/swap.md.
 export const SWAP_FEE_BPS = 50 as const; // 0.5%
 
 export const SWAP_FEE_RECIPIENT_BASE =
   "0x15E69fD67DcC17E061Ceeb93DaC791e0f5aF0Eae" as `0x${string}`;
 
 /**
- * The SOPA × COINMASTERSGUILD split contract — receives the 0x affiliate
- * fee for every non-Base (EVM batch / multichain) swap and splits it between
- * the two parties on-chain. Replaces the old multichain custody wallet.
+ * The SOPA x COINMASTERSGUILD split. Kept as a named address because the
+ * treasury pages still attribute historical inflows to it; it is NOT a
+ * /swap payout address. It used to be the recipient for every non-Base swap,
+ * which meant a checkbox reading "Support Gnars treasury" funded somebody
+ * else on four chains out of five. See GNARS_SWAP_PAYOUT below.
  */
 export const SWAP_FEE_SPLIT_RECIPIENT =
   "0xa642b91ff941fb68919d1877e9937f3e369dfd68" as `0x${string}`;
 
-export function getSwapFeeRecipient(chainId: number): `0x${string}` {
-  return chainId === CHAIN.id ? SWAP_FEE_RECIPIENT_BASE : SWAP_FEE_SPLIT_RECIPIENT;
+/**
+ * Where the treasury's cut is paid, per chain — and nowhere else.
+ *
+ * SwapPro derives a 0xSplits contract from (payout address, bps) and pays the
+ * whole affiliate fee into it, which then divides on-chain between SwapPro and
+ * us. The derivation is deterministic, so both sides compute the same address
+ * without registering anything — but the SPLIT and the PAYOUT ADDRESS both
+ * have to exist as code on the chain the swap settles on.
+ *
+ * Measured on 2026-09-03 with eth_getCode: 0x15E69f... holds 89 bytes on Base
+ * and ZERO on Ethereum, Arbitrum, BNB Chain, Avalanche and Robinhood Chain.
+ * Paying it on those chains would park the money at an address with nothing
+ * behind it, so this map has one entry and a chain that is missing from it
+ * asks for NO partner fee at all — the user then pays SwapPro's 30 bps and
+ * nothing else, instead of 80 bps of which ours goes nowhere.
+ *
+ * TO ADD A CHAIN: deploy the same split (same recipients, same shares, same
+ * immutable owner) at the same address on that chain — 0xSplits is
+ * deterministic, so the address carries over — then add the id here. Robinhood
+ * Chain (4663) is the exception: 0xSplits has no factory there yet, so an EOA
+ * or a Safe is the only option.
+ */
+export const GNARS_SWAP_PAYOUT: Readonly<Record<number, `0x${string}`>> = {
+  8453: SWAP_FEE_RECIPIENT_BASE,
+};
+
+/**
+ * The payout address for a chain, or null when the treasury cannot be paid
+ * there. Null is a real answer and the caller must not substitute one: an
+ * address the treasury does not control is worse than no fee.
+ */
+export function getSwapFeeRecipient(chainId: number): `0x${string}` | null {
+  return GNARS_SWAP_PAYOUT[chainId] ?? null;
 }
+
+/** Can the treasury actually be paid on this chain? Drives the fee checkbox. */
+export const chainPaysTreasury = (chainId: number): boolean =>
+  getSwapFeeRecipient(chainId) !== null;
 
 export const SUBGRAPH = {
   // Official Nouns Builder Subgraph URL for Gnars on Base (Goldsky public)

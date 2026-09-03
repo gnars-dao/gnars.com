@@ -5,6 +5,7 @@ import {
   toSwapProToken,
   toWidgetError,
   toWidgetQuote,
+  SWAPPRO_CHAINS,
   type SwapProQuote,
 } from "./swappro";
 
@@ -126,5 +127,67 @@ describe("widget shape", () => {
     expect(w.liquidityAvailable).toBe(false);
     expect(w.reason).toContain("No route");
     expect(w.transaction).toBeUndefined();
+  });
+});
+
+describe("error shapes", () => {
+  it("reads the v1 string error", () => {
+    const w = toWidgetError({ error: "No route for this pair", code: "NO_ROUTE" });
+    expect(w.liquidityAvailable).toBe(false);
+    expect(w.reason).toBe("No route for this pair");
+    expect(w.code).toBe("NO_ROUTE");
+  });
+
+  it("reads the standard object error without printing [object Object]", () => {
+    const w = toWidgetError({
+      error: { code: "INSUFFICIENT_LIQUIDITY", message: "Not enough liquidity", retryable: true },
+      message: "Not enough liquidity",
+    });
+    expect(w.reason).toBe("Not enough liquidity");
+    expect(w.code).toBe("INSUFFICIENT_LIQUIDITY");
+    expect(w.reason).not.toContain("object Object");
+  });
+
+  it("falls back to the transitional top-level message when the object carries none", () => {
+    const w = toWidgetError({ error: { code: "RATE_LIMITED" }, message: "Too many requests" });
+    expect(w.reason).toBe("Too many requests");
+    expect(w.code).toBe("RATE_LIMITED");
+  });
+
+  it("never leaves the widget without a sentence", () => {
+    const w = toWidgetError({ error: { retryable: false } });
+    expect(w.reason).toBeTruthy();
+    expect(w.code).toBe("UPSTREAM_UNAVAILABLE");
+  });
+});
+
+describe("every SwapPro chain builds a quote URL", () => {
+  it("routes the six EVM chains and refuses the rest", () => {
+    for (const chainId of Object.keys(SWAPPRO_CHAINS).map(Number)) {
+      const url = buildQuoteUrl({
+        chainId,
+        sellToken: NATIVE_SENTINEL,
+        buyToken: "0x0000000000000000000000000000000000000001",
+        sellAmount: "1000000000000000000",
+        sellDecimals: 18,
+        buyDecimals: 18,
+        taker: "0x21c9a94AF76B59b171b32fD125A4edF0e9A2Ad3e",
+      });
+      expect(url, `chain ${chainId}`).toContain(`sellChain=${chainId}`);
+      // The native asset goes by the symbol SwapPro resolves, never the 0x sentinel.
+      expect(url).toContain(`sellToken=${SWAPPRO_CHAINS[chainId].native}`);
+      expect(url).not.toContain(NATIVE_SENTINEL);
+    }
+    expect(
+      buildQuoteUrl({
+        chainId: 10,
+        sellToken: NATIVE_SENTINEL,
+        buyToken: "0x0000000000000000000000000000000000000001",
+        sellAmount: "1",
+        sellDecimals: 18,
+        buyDecimals: 18,
+        taker: "0x21c9a94AF76B59b171b32fD125A4edF0e9A2Ad3e",
+      }),
+    ).toBeNull();
   });
 });

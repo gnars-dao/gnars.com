@@ -36,8 +36,12 @@ export async function answerSwapProQuote(request: NextRequest) {
     );
   }
 
-  const fee =
-    q.get("fee") === "1" ? { recipient: getSwapFeeRecipient(chainId), bps: SWAP_FEE_BPS } : null;
+  // The fee is opt-in AND chain-gated. `getSwapFeeRecipient` returns null on a
+  // chain where the treasury has no address that can receive — asking for a fee
+  // there would collect 50 bps from the user and park it at an address with no
+  // code behind it. No recipient, no fee: the swap simply costs less.
+  const recipient = getSwapFeeRecipient(chainId);
+  const fee = q.get("fee") === "1" && recipient ? { recipient, bps: SWAP_FEE_BPS } : null;
 
   try {
     const { status, body } = await fetchWidgetQuote({
