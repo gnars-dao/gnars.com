@@ -534,6 +534,10 @@ async function runSequential({
             transactionHash: r.transactionHash,
           });
           gasPaid += rc.gasUsed * rc.effectiveGasPrice;
+          // A mined-but-reverted swap delivered nothing: a failure, not a ✓.
+          if (rc.status !== "success") {
+            throw new Error(`Kyber swap reverted (${r.transactionHash})`);
+          }
         }
         const after = await publicClient.getBalance({ address: sender });
         const delta = after - before + gasPaid;
