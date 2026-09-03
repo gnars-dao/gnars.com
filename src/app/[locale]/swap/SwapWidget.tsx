@@ -25,7 +25,7 @@ import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { prepareContractCall, prepareTransaction } from "@/lib/builder-code";
-import { DAO_ADDRESSES } from "@/lib/config";
+import { chainPaysTreasury, DAO_ADDRESSES } from "@/lib/config";
 import { ipfsToHttp } from "@/lib/ipfs";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
@@ -411,6 +411,11 @@ export function SwapWidget() {
   const [buyToken, setBuyToken] = React.useState<SwapToken>(initialPair.buy);
   const [sellAmount, setSellAmount] = React.useState("");
   const [supportFee, setSupportFee] = React.useState(true);
+  // The treasury can only be paid where it has an address that can receive.
+  // On any other chain the checkbox would collect 0.5% and send it nowhere,
+  // so it is not shown and no fee is requested. See GNARS_SWAP_PAYOUT.
+  const canPayTreasury = chainPaysTreasury(chain.id);
+  const feeRequested = supportFee && canPayTreasury;
 
   const [price, setPrice] = React.useState<ZeroExPriceResponse | null>(null);
   // Distinct from `price === null`, which also means "nothing typed yet". Without
@@ -499,8 +504,11 @@ export function SwapWidget() {
           buyToken: buyToken.address,
           sellAmount: rawAmount,
           taker,
+          // SwapPro quotes in human decimals; the proxy converts both ways.
+          sellDecimals: String(sellToken.decimals),
+          buyDecimals: String(buyToken.decimals),
         });
-        if (supportFee) params.set("fee", "1");
+        if (feeRequested) params.set("fee", "1");
 
         const res = await fetch(`/api/0x/price?${params.toString()}`);
         const data: ZeroExPriceResponse & { error?: string } = await res.json();
@@ -542,7 +550,7 @@ export function SwapWidget() {
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [sellAmount, sellToken, buyToken, address, supportFee, chain.id]);
+  }, [sellAmount, sellToken, buyToken, address, feeRequested, chain.id]);
 
   const flip = () => {
     setSellToken(buyToken);
@@ -632,8 +640,10 @@ export function SwapWidget() {
         buyToken: buyToken.address,
         sellAmount: rawAmount,
         taker: address,
+        sellDecimals: String(sellToken.decimals),
+        buyDecimals: String(buyToken.decimals),
       });
-      if (supportFee) params.set("fee", "1");
+      if (feeRequested) params.set("fee", "1");
 
       const res = await fetch(`/api/0x/quote?${params.toString()}`);
       const quote: ZeroExQuoteResponse = await res.json();
@@ -976,8 +986,8 @@ export function SwapWidget() {
 
           <div className="hidden h-px flex-1 bg-border @2xl:block" />
 
-          {/* Fee opt-in */}
-          <div className="flex items-center gap-2">
+          {/* Fee opt-in — only where the treasury can actually be paid. */}
+          <div className={cn("flex items-center gap-2", !canPayTreasury && "hidden")}>
             <Checkbox
               id="support-treasury-fee"
               checked={supportFee}

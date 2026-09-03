@@ -1,8 +1,10 @@
 import {
   arbitrum as thirdwebArbitrum,
+  avalanche as thirdwebAvalanche,
   base as thirdwebBase,
+  bsc as thirdwebBsc,
+  defineChain,
   ethereum as thirdwebEthereum,
-  optimism as thirdwebOptimism,
   type Chain as ThirdwebChain,
 } from "thirdweb/chains";
 import { DAO_ADDRESSES, TREASURY_TOKEN_ALLOWLIST } from "@/lib/config";
@@ -40,6 +42,46 @@ const ETH_NATIVE: SwapToken = {
   logo: ETH_LOGO,
 };
 
+const BNB_NATIVE: SwapToken = {
+  symbol: "BNB",
+  name: "BNB",
+  address: NATIVE_TOKEN,
+  decimals: 18,
+  logo: "https://assets.relay.link/icons/56/light.png",
+};
+
+const AVAX_NATIVE: SwapToken = {
+  symbol: "AVAX",
+  name: "Avalanche",
+  address: NATIVE_TOKEN,
+  decimals: 18,
+  logo: "https://assets.relay.link/icons/43114/light.png",
+};
+
+/**
+ * Robinhood Chain, defined here because thirdweb ships no definition for it.
+ *
+ * The RPC is given explicitly and is NOT the one in the chain's own registry
+ * entry: that host does not resolve from a browser, so a wallet balance read
+ * would fail on the client while working in every server-side test.
+ */
+const thirdwebRobinhood = defineChain({
+  id: 4663,
+  name: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpc: "https://robinhood-rpc.publicnode.com",
+  blockExplorers: [{ name: "Robinhood", url: "https://explorer.chain.robinhood.com" }],
+});
+
+/**
+ * The chains the picker offers — exactly the ones SwapPro routes.
+ *
+ * This list and `SWAPPRO_CHAINS` in src/lib/swappro.ts must hold the same ids,
+ * and chains.test.ts fails when they drift. It is not bookkeeping: Optimism
+ * sat here for months and every quote on it came back UNSUPPORTED_CHAIN, so
+ * the picker offered a chain that could never fill an order. A chain SwapPro
+ * adds shows up as a failing test rather than as nothing at all.
+ */
 export const SWAP_CHAINS: readonly SwapChain[] = [
   {
     id: 8453,
@@ -138,36 +180,6 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
     ],
   },
   {
-    id: 10,
-    name: "Optimism",
-    shortName: "OP",
-    thirdwebChain: thirdwebOptimism,
-    defaults: { sell: "ETH", buy: "USDC" },
-    tokens: [
-      ETH_NATIVE,
-      {
-        symbol: "WETH",
-        name: "Wrapped Ether",
-        address: "0x4200000000000000000000000000000000000006",
-        decimals: 18,
-        logo: ETH_LOGO,
-      },
-      {
-        symbol: "USDC",
-        name: "USD Coin",
-        address: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
-        decimals: 6,
-        logo: USDC_LOGO,
-      },
-      {
-        symbol: "OP",
-        name: "Optimism",
-        address: "0x4200000000000000000000000000000000000042",
-        decimals: 18,
-      },
-    ],
-  },
-  {
     id: 42161,
     name: "Arbitrum",
     shortName: "ARB",
@@ -194,6 +206,106 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
         name: "Arbitrum",
         address: "0x912ce59144191c1204e64559fe8253a0e49e6548",
         decimals: 18,
+      },
+    ],
+  },
+  {
+    id: 56,
+    name: "BNB Chain",
+    shortName: "BNB",
+    thirdwebChain: thirdwebBsc,
+    defaults: { sell: "BNB", buy: "USDT" },
+    tokens: [
+      BNB_NATIVE,
+      // BNB Chain stables are 18 decimals, not 6. Read from chain on
+      // 2026-09-03 rather than copied from the Ethereum list, which is the
+      // mistake that turns 35 USDT into 35 trillion.
+      {
+        symbol: "USDT",
+        name: "Tether",
+        address: "0x55d398326f99059ff775485246999027b3197955",
+        decimals: 18,
+      },
+      {
+        symbol: "USDC",
+        name: "USD Coin",
+        address: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+        decimals: 18,
+        logo: USDC_LOGO,
+      },
+      {
+        symbol: "WBNB",
+        name: "Wrapped BNB",
+        address: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
+        decimals: 18,
+      },
+    ],
+  },
+  {
+    id: 43114,
+    name: "Avalanche",
+    shortName: "AVAX",
+    thirdwebChain: thirdwebAvalanche,
+    defaults: { sell: "AVAX", buy: "USDC" },
+    tokens: [
+      AVAX_NATIVE,
+      {
+        symbol: "USDC",
+        name: "USD Coin",
+        address: "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+        decimals: 6,
+        logo: USDC_LOGO,
+      },
+      // Avalanche's Tether is "USDt", not "USDT" — the symbol is the token's
+      // own, so the picker matches what a block explorer shows.
+      {
+        symbol: "USDt",
+        name: "Tether",
+        address: "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
+        decimals: 6,
+      },
+      {
+        symbol: "WAVAX",
+        name: "Wrapped AVAX",
+        address: "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7",
+        decimals: 18,
+      },
+    ],
+  },
+  {
+    id: 4663,
+    name: "Robinhood Chain",
+    shortName: "RHD",
+    thirdwebChain: thirdwebRobinhood,
+    defaults: { sell: "ETH", buy: "USDG" },
+    // Tokenised equities, which is the whole reason this chain is here: a
+    // shredder can turn ETH into NVDA without leaving the page.
+    tokens: [
+      ETH_NATIVE,
+      {
+        symbol: "USDG",
+        name: "Global Dollar",
+        address: "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+        decimals: 6,
+      },
+      {
+        symbol: "NVDA",
+        name: "NVIDIA",
+        address: "0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec",
+        decimals: 18,
+      },
+      {
+        symbol: "TSLA",
+        name: "Tesla",
+        address: "0x322f0929c4625ed5bad873c95208d54e1c003b2d",
+        decimals: 18,
+      },
+      {
+        symbol: "WETH",
+        name: "Wrapped Ether",
+        address: "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+        decimals: 18,
+        logo: ETH_LOGO,
       },
     ],
   },
