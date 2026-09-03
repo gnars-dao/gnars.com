@@ -122,7 +122,13 @@ export function useMigratableCoins(address: string | undefined) {
         identifier: (address as string).toLowerCase(),
         count: 200,
         chainIds: [BASE_CHAIN_ID],
-        excludeHidden: true,
+        // Hidden is a PROFILE-DISPLAY flag, not a quality signal: it means the
+        // holder hid the coin from their public Zora profile. That is close to
+        // the opposite of "don't migrate this" — a coin you hid is usually one
+        // you want out. Excluding them cut a real wallet from 20 coins to 4.
+        // Scam/airdrop filtering is already handled by sourcing from Zora's
+        // indexer at all instead of a raw ERC-20 scan.
+        excludeHidden: false,
         sortOption: "USD_VALUE",
       });
 
