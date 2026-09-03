@@ -30,7 +30,7 @@ import { ipfsToHttp } from "@/lib/ipfs";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
 import { cn } from "@/lib/utils";
-import { getDefaultPair, NATIVE_TOKEN, type SwapToken } from "./chains";
+import { getDefaultPair, NATIVE_TOKEN, SWAP_CHAINS, type SwapToken } from "./chains";
 import type { SwapChain } from "./chains";
 import { useSwapChain } from "./SwapChainContext";
 import {
@@ -173,6 +173,7 @@ interface TokenPickerProps {
   onSelect: (token: SwapToken) => void;
   label: string;
   chain: SwapChain;
+  onChainChange: (chainId: number) => void;
   userAddress: Address | undefined;
   isConnected: boolean;
   usdValues?: Map<string, number>;
@@ -185,6 +186,7 @@ function TokenPicker({
   onSelect,
   label,
   chain,
+  onChainChange,
   userAddress,
   isConnected,
   usdValues,
@@ -274,6 +276,39 @@ function TokenPicker({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          {/*
+            The network row lives HERE, next to the tokens, because that is
+            where the question is actually asked: "which USDC?" is the same
+            question as "which chain?". The standalone selector by the title
+            was a badge-sized control that people did not find — the author of
+            this page included — and a chain nobody can switch is a chain we
+            do not really offer.
+          */}
+          <div className="flex flex-wrap gap-1.5">
+            {SWAP_CHAINS.map((c) => {
+              const active = c.id === chain.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onChainChange(c.id)}
+                  aria-pressed={active}
+                  title={c.name}
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors",
+                    active
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={c.logo} alt="" width={16} height={16} className="rounded-full" />
+                  {c.shortName}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -403,7 +438,7 @@ function TokenPicker({
 
 export function SwapWidget() {
   const t = useTranslations("swap");
-  const { chain } = useSwapChain();
+  const { chain, setChainId } = useSwapChain();
   const { address, isConnected } = useUserAddress();
   const writer = useWriteAccount();
   const activeWallet = useActiveWallet();
@@ -792,6 +827,7 @@ export function SwapWidget() {
                 }}
                 label={t("from.sellToken")}
                 chain={chain}
+                onChainChange={setChainId}
                 userAddress={address as Address | undefined}
                 isConnected={isConnected}
                 usdValues={usdValues}
@@ -889,6 +925,7 @@ export function SwapWidget() {
                 }}
                 label={t("to.buyToken")}
                 chain={chain}
+                onChainChange={setChainId}
                 userAddress={address as Address | undefined}
                 isConnected={isConnected}
                 usdValues={usdValues}

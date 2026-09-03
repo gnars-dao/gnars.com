@@ -17,12 +17,19 @@ export function ChainSelector() {
 
   return (
     <DropdownMenu>
+      {/*
+        A BUTTON, not a badge. This was a small tinted pill that read as
+        decoration next to the title, and people looked straight past it —
+        the network mark and the border are what say "you can change this".
+      */}
       <DropdownMenuTrigger
-        className="inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2 py-1 text-xs font-semibold tracking-wide text-blue-800 transition-colors hover:bg-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/50"
+        className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={t("chain.selectLabel")}
       >
-        {chain.shortName}
-        <ChevronDown className="h-3 w-3" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={chain.logo} alt="" width={16} height={16} className="rounded-full" />
+        {chain.name}
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[10rem]">
         {SWAP_CHAINS.map((c) => (
@@ -30,6 +37,8 @@ export function ChainSelector() {
             <Check
               className={c.id === chain.id ? "h-3.5 w-3.5 opacity-100" : "h-3.5 w-3.5 opacity-0"}
             />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={c.logo} alt="" width={16} height={16} className="rounded-full" />
             {c.name}
           </DropdownMenuItem>
         ))}

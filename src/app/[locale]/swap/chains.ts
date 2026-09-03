@@ -24,6 +24,8 @@ export interface SwapChain {
   id: number;
   name: string;
   shortName: string;
+  /** Network icon, so a chain is picked by its mark rather than by reading. */
+  logo: string;
   thirdwebChain: ThirdwebChain;
   tokens: readonly SwapToken[];
   /** Default sell/buy symbols when the user lands on or switches to this chain. */
@@ -87,6 +89,7 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
     id: 8453,
     name: "Base",
     shortName: "Base",
+    logo: "https://assets.relay.link/icons/8453/light.png",
     thirdwebChain: thirdwebBase,
     defaults: { sell: "ETH", buy: "MOR" },
     // First 4 tokens appear in the "Popular" chip row of the token picker.
@@ -147,6 +150,7 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
     id: 1,
     name: "Ethereum",
     shortName: "Ethereum",
+    logo: "https://assets.relay.link/icons/1/light.png",
     thirdwebChain: thirdwebEthereum,
     defaults: { sell: "ETH", buy: "USDC" },
     tokens: [
@@ -183,6 +187,7 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
     id: 42161,
     name: "Arbitrum",
     shortName: "ARB",
+    logo: "https://assets.relay.link/icons/42161/light.png",
     thirdwebChain: thirdwebArbitrum,
     defaults: { sell: "ETH", buy: "USDC" },
     tokens: [
@@ -213,6 +218,7 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
     id: 56,
     name: "BNB Chain",
     shortName: "BNB",
+    logo: "https://assets.relay.link/icons/56/light.png",
     thirdwebChain: thirdwebBsc,
     defaults: { sell: "BNB", buy: "USDT" },
     tokens: [
@@ -245,6 +251,7 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
     id: 43114,
     name: "Avalanche",
     shortName: "AVAX",
+    logo: "https://assets.relay.link/icons/43114/light.png",
     thirdwebChain: thirdwebAvalanche,
     defaults: { sell: "AVAX", buy: "USDC" },
     tokens: [
@@ -276,6 +283,7 @@ export const SWAP_CHAINS: readonly SwapChain[] = [
     id: 4663,
     name: "Robinhood Chain",
     shortName: "RHD",
+    logo: "https://assets.relay.link/icons/4663/light.png",
     thirdwebChain: thirdwebRobinhood,
     defaults: { sell: "ETH", buy: "USDG" },
     // Tokenised equities, which is the whole reason this chain is here: a

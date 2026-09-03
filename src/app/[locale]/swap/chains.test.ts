@@ -63,3 +63,11 @@ describe("swap chains", () => {
     }
   });
 });
+
+describe("chain marks", () => {
+  it("gives every chain an icon keyed to its own id", () => {
+    for (const chain of SWAP_CHAINS) {
+      expect(chain.logo, chain.name).toContain(`/icons/${chain.id}/`);
+    }
+  });
+});
