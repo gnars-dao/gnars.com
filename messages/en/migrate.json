@@ -115,7 +115,6 @@
   "oldGnars": {
     "title": "Your old $gnars",
     "body": "The contract does not accept old $gnars. To enter with it, it has to be sold to ETH first — through the thin $gnars → ZORA → WETH pool, at the price below.",
-    "notEligible": "Not eligible as a deposit",
     "balance": "You hold",
     "estimate": "Sells for (est.)",
     "impact": "Price impact",

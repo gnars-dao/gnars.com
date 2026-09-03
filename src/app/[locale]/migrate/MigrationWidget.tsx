@@ -239,14 +239,9 @@ function OldGnarsCard({
 
   return (
     <Card className="space-y-4 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-medium">{t("oldGnars.title")}</div>
-          <p className="mt-1 text-xs text-muted-foreground">{t("oldGnars.body")}</p>
-        </div>
-        <Badge variant="secondary" className="shrink-0">
-          {t("oldGnars.notEligible")}
-        </Badge>
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{t("oldGnars.title")}</div>
+        <p className="mt-1 text-xs text-muted-foreground">{t("oldGnars.body")}</p>
       </div>
 
       <div className="grid grid-cols-3 gap-2">

@@ -115,7 +115,6 @@
   "oldGnars": {
     "title": "Seu $gnars antigo",
     "body": "O contrato não aceita $gnars antigo. Para entrar com ele, é preciso vendê-lo por ETH primeiro — pelo pool raso $gnars → ZORA → WETH, ao preço abaixo.",
-    "notEligible": "Não elegível como depósito",
     "balance": "Você tem",
     "estimate": "Vende por (est.)",
     "impact": "Impacto no preço",
