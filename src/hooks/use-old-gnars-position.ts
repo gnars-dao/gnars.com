@@ -2,7 +2,7 @@
 
 /**
  * The connected wallet's old $gnars (the Zora creator coin) and what selling
- * all of it to ETH would return.
+ * a chosen amount of it to ETH would return.
  *
  * ETH-only means an existing holder can only enter the migration by selling
  * into the thin $gnars → ZORA → WETH pool. This hook quotes that sale before
@@ -11,6 +11,11 @@
  * the UI says so.
  *
  * The balance is read with wagmi. A failed read is an error, never a zero.
+ *
+ * `sellAmount` is the portion the holder chose to sell; it defaults to the whole
+ * balance. The quote AND the price impact both follow it, because impact is a
+ * function of size: quoting the full balance while selling a tenth of it would
+ * show a scary number that the actual sale never pays.
  */
 import { useQuery } from "@tanstack/react-query";
 import { createTradeCall, type TradeParameters } from "@zoralabs/coins-sdk";
@@ -22,13 +27,17 @@ import { priceImpactBps, referenceSlice } from "@/lib/price-impact";
 import { expectedFromZoraQuote } from "@/lib/route-margin";
 
 export interface OldGnarsQuote {
-  /** ETH (wei) for selling the whole balance. */
+  /** ETH (wei) for selling `sellAmount`. */
   out: bigint;
   /** Price impact vs. the marginal price, in bps; null when it could not be derived. */
   impactBps: number | null;
 }
 
-export function useOldGnarsPosition(address: string | undefined, slippage = MIGRATION_SLIPPAGE) {
+export function useOldGnarsPosition(
+  address: string | undefined,
+  sellAmount?: bigint,
+  slippage = MIGRATION_SLIPPAGE,
+) {
   const balanceRead = useReadContract({
     address: GNARS_CREATOR_COIN,
     abi: erc20Abi,
@@ -38,14 +47,24 @@ export function useOldGnarsPosition(address: string | undefined, slippage = MIGR
     query: { enabled: Boolean(address), staleTime: 30_000 },
   });
   const balance = balanceRead.data;
+  // A portion above the balance is not sellable; clamp instead of quoting a
+  // trade that would revert. No choice yet (or a zero) means the whole balance.
+  const amount =
+    balance === undefined
+      ? undefined
+      : sellAmount === undefined || sellAmount <= 0n
+        ? balance
+        : sellAmount > balance
+          ? balance
+          : sellAmount;
 
   const quote = useQuery<OldGnarsQuote>({
-    queryKey: ["old-gnars-quote", address?.toLowerCase(), balance?.toString(), slippage],
-    enabled: Boolean(address) && balance !== undefined && balance > 0n,
+    queryKey: ["old-gnars-quote", address?.toLowerCase(), amount?.toString(), slippage],
+    enabled: Boolean(address) && amount !== undefined && amount > 0n,
     staleTime: 30_000,
     retry: false,
     queryFn: async () => {
-      const bal = balance as bigint;
+      const bal = amount as bigint;
       const sender = address as Address;
       const params = (amountIn: bigint): TradeParameters => ({
         sell: { type: "erc20", address: GNARS_CREATOR_COIN },
@@ -74,6 +93,8 @@ export function useOldGnarsPosition(address: string | undefined, slippage = MIGR
 
   return {
     balance,
+    /** The amount the quote is for — the clamped `sellAmount`, or the balance. */
+    sellAmount: amount,
     isBalanceLoading: balanceRead.isLoading,
     isBalanceError: balanceRead.isError,
     refetchBalance: balanceRead.refetch,

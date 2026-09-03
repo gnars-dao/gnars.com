@@ -65,17 +65,33 @@ export function MigrationWidget() {
   // Selection is keyed by lowercase address.
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   // Old $gnars is not in the Zora list (it is the coin being migrated away
-  // from); the holder opts it into the sale explicitly from its own card.
+  // from); the holder opts it into the sale explicitly from its own card, and
+  // chooses how much — selling everything is the recommendation, not a rule.
   const [includeOldGnars, setIncludeOldGnars] = React.useState(false);
-  const oldGnars = useOldGnarsPosition(address);
+  // The portion to sell, as typed. Empty means "not chosen yet" and reads as
+  // the whole balance, so opting in without touching the field sells it all.
+  const [oldGnarsAmount, setOldGnarsAmount] = React.useState("");
+  const typedOldGnars = React.useMemo(() => {
+    const raw = oldGnarsAmount.trim();
+    if (!raw) return undefined;
+    try {
+      const v = parseEther(raw);
+      return v > 0n ? v : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [oldGnarsAmount]);
+  const oldGnars = useOldGnarsPosition(address, typedOldGnars);
 
   const selectedCoins = React.useMemo(() => {
     const picked = coins.filter((c) => selected.has(c.address.toLowerCase()));
-    if (includeOldGnars && oldGnars.balance !== undefined && oldGnars.balance > 0n) {
-      picked.push(oldGnarsAsCoin(oldGnars.balance));
+    // `sellAmount` is the clamped portion the quote was actually made for —
+    // using the raw typed value here could send a sell larger than the balance.
+    if (includeOldGnars && oldGnars.sellAmount !== undefined && oldGnars.sellAmount > 0n) {
+      picked.push(oldGnarsAsCoin(oldGnars.sellAmount));
     }
     return picked;
-  }, [coins, selected, includeOldGnars, oldGnars.balance]);
+  }, [coins, selected, includeOldGnars, oldGnars.sellAmount]);
 
   const toggle = (addr: string) => {
     setSelected((prev) => {
@@ -90,6 +106,7 @@ export function MigrationWidget() {
   const clearAll = () => {
     setSelected(new Set());
     setIncludeOldGnars(false);
+    setOldGnarsAmount("");
   };
 
   if (!isConnected) {
@@ -117,6 +134,8 @@ export function MigrationWidget() {
         position={oldGnars}
         included={includeOldGnars}
         onIncludedChange={setIncludeOldGnars}
+        amount={oldGnarsAmount}
+        onAmountChange={setOldGnarsAmount}
       />
 
       <HoldingsList
@@ -160,6 +179,15 @@ export function MigrationWidget() {
 }
 
 /** Old $gnars shaped like a Zora coin so the quote and run paths treat it uniformly. */
+/** Quick portions for the old $gnars sell. 100% leads and is styled as the
+ *  recommendation: the point of the migration is to leave the old coin behind. */
+const OLD_GNARS_PORTIONS = [
+  { pct: 100, labelKey: "oldGnars.portionAll" },
+  { pct: 75, labelKey: "oldGnars.portion75" },
+  { pct: 50, labelKey: "oldGnars.portion50" },
+  { pct: 25, labelKey: "oldGnars.portion25" },
+] as const;
+
 function oldGnarsAsCoin(balance: bigint): MigratableCoin {
   return {
     address: GNARS_CREATOR_COIN,
@@ -185,10 +213,14 @@ function OldGnarsCard({
   position,
   included,
   onIncludedChange,
+  amount,
+  onAmountChange,
 }: {
   position: ReturnType<typeof useOldGnarsPosition>;
   included: boolean;
   onIncludedChange: (v: boolean) => void;
+  amount: string;
+  onAmountChange: (v: string) => void;
 }) {
   const t = useTranslations("migrate");
 
@@ -228,6 +260,18 @@ function OldGnarsCard({
 
   const impact = position.quote?.impactBps;
   const impactPct = impact === null || impact === undefined ? null : impact / 100;
+  // Typing more than you hold is caught here rather than at signing time; the
+  // hook already clamps the quote, so this only explains why the number stopped
+  // following the field.
+  const overBalance = (() => {
+    const raw = amount.trim();
+    if (!raw || position.balance === undefined) return false;
+    try {
+      return parseEther(raw) > position.balance;
+    } catch {
+      return false;
+    }
+  })();
   const impactTone =
     impactPct === null
       ? "text-muted-foreground"
@@ -293,6 +337,44 @@ function OldGnarsCard({
             </span>
           </span>
         </label>
+
+        {included && position.balance !== undefined && position.balance > 0n && (
+          <div className="space-y-2 pl-8">
+            <label className="text-xs text-muted-foreground" htmlFor="old-gnars-amount">
+              {t("oldGnars.amountLabel")}
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="old-gnars-amount"
+                inputMode="decimal"
+                placeholder={formatEther(position.balance)}
+                value={amount}
+                onChange={(e) => onAmountChange(normalizeDecimalInput(e.target.value))}
+              />
+              <span className="text-sm font-medium text-muted-foreground">$GNARS</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {OLD_GNARS_PORTIONS.map(({ pct, labelKey }) => (
+                <Button
+                  key={pct}
+                  type="button"
+                  variant={pct === 100 ? "secondary" : "outline"}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() =>
+                    onAmountChange(formatEther((position.balance! * BigInt(pct)) / 100n))
+                  }
+                >
+                  {t(labelKey)}
+                </Button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">{t("oldGnars.allHint")}</p>
+            {overBalance && (
+              <p className="text-[11px] text-destructive">{t("oldGnars.exceedsBalance")}</p>
+            )}
+          </div>
+        )}
         <Separator />
         <div className="text-sm">
           <span className="font-medium">{t("oldGnars.holdTitle")}</span>

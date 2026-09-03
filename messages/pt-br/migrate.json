@@ -123,6 +123,13 @@
     "impactHint": "Impacto no preço é quanto pior fica o preço vendendo tudo em comparação com vender uma quantia pequena — o custo do tamanho desta venda, não um aviso sobre outra coisa. Vender não é de graça.",
     "include": "Vender meu $gnars antigo por ETH junto com as coins acima",
     "includeHint": "Adiciona ele à prévia da venda abaixo. É cotado e vendido como qualquer outra coin.",
+    "amountLabel": "Quanto vender",
+    "portionAll": "Tudo",
+    "portion75": "75%",
+    "portion50": "50%",
+    "portion25": "25%",
+    "allHint": "Vender tudo é o recomendado — migrar é o objetivo, e o que ficar para trás continua na coin antiga. Uma porção também funciona; a estimativa e o impacto no preço acima acompanham o que você escolher.",
+    "exceedsBalance": "Isso é mais do que você tem — a estimativa fica limitada ao seu saldo.",
     "holdTitle": "Ou segurar e não fazer nada",
     "holdBody": "Uma escolha legítima. O $gnars antigo continua sendo uma creator coin da Zora negociável; ele só não entra na migração.",
     "balanceError": "Não foi possível ler seu saldo de $gnars antigo. Nada é presumido — tente de novo."

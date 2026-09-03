@@ -123,6 +123,13 @@
     "impactHint": "Price impact is how much worse the price of selling everything is compared with selling a small amount — the cost of this sale's size, not a warning about something else. Selling is not free.",
     "include": "Sell my old $gnars to ETH along with the coins above",
     "includeHint": "Adds it to the sell preview below. It is quoted and sold like any other coin.",
+    "amountLabel": "How much to sell",
+    "portionAll": "All",
+    "portion75": "75%",
+    "portion50": "50%",
+    "portion25": "25%",
+    "allHint": "Selling all of it is the recommended move — the migration is the point, and what stays behind stays in the old coin. A portion works too; the estimate and the price impact above follow whatever you pick.",
+    "exceedsBalance": "That is more than you hold — the estimate is capped at your balance.",
     "holdTitle": "Or hold it and do nothing",
     "holdBody": "A legitimate choice. Old $gnars stays a tradable Zora creator coin; it just does not enter the migration.",
     "balanceError": "Couldn't read your old $gnars balance. Nothing is assumed — try again."
