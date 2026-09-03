@@ -3,6 +3,7 @@ import {
   coinMedia,
   compactUsd,
   deltaPercent,
+  onchainToCoin,
   shortDescription,
   zoraCoinUrl,
 } from "./coinCardModel";
@@ -76,5 +77,33 @@ describe("zoraCoinUrl", () => {
     expect(zoraCoinUrl("0xE19E55F525DF6C7A3FF2FEAFEF705BAF6BE5453B")).toBe(
       "https://zora.co/coin/base:0xe19e55f525df6c7a3ff2feafef705baf6be5453b",
     );
+  });
+});
+
+describe("onchainToCoin", () => {
+  it("maps contractURI metadata into the SDK shape, media included", () => {
+    const c = onchainToCoin(
+      {
+        name: "venê",
+        ticker: "Venê",
+        description: "1 of each color",
+        image: "ipfs://img",
+        content: { mime: "image/jpeg", uri: "ipfs://img" },
+      },
+      "0xabc",
+    );
+    expect(c).toMatchObject({
+      address: "0xabc",
+      name: "venê",
+      symbol: "Venê",
+      description: "1 of each color",
+    });
+    expect(coinMedia(c!)).toEqual({ kind: "image", src: expect.stringMatching(/img$/) });
+    expect(c?.marketCap).toBeUndefined();
+  });
+
+  it("is null for metadata that names nothing", () => {
+    expect(onchainToCoin(null, "0x1")).toBeNull();
+    expect(onchainToCoin({ foo: 1 }, "0x1")).toBeNull();
   });
 });

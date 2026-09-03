@@ -87,3 +87,30 @@ export function shortDescription(text: string | null | undefined, max = 140): st
 /** The Zora page for a coin on Base. */
 export const zoraCoinUrl = (address: string) =>
   `https://zora.co/coin/base:${address.toLowerCase()}`;
+
+/**
+ * A coin's on-chain metadata (the JSON behind `contractURI()`), in the same
+ * shape the SDK gives, so the card draws either without caring which it got.
+ * Market figures are absent on this path: the chain knows the media, not the
+ * price.
+ */
+export function onchainToCoin(meta: unknown, address: string): ZoraCoinLike | null {
+  if (!meta || typeof meta !== "object") return null;
+  const m = meta as Record<string, unknown>;
+  const content = (m.content ?? null) as { mime?: string; uri?: string } | null;
+  const image = typeof m.image === "string" ? m.image : null;
+  const uri = content?.uri ?? image;
+  const name = typeof m.name === "string" ? m.name : null;
+  const symbol =
+    typeof m.ticker === "string" ? m.ticker : typeof m.symbol === "string" ? m.symbol : null;
+  if (!name && !uri) return null;
+  return {
+    address,
+    name,
+    symbol,
+    description: typeof m.description === "string" ? m.description : null,
+    mediaContent: uri
+      ? { mimeType: content?.mime ?? null, originalUri: uri, previewImage: null }
+      : null,
+  };
+}
