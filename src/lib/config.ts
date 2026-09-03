@@ -58,17 +58,34 @@ export const MIGRATION_MULTISIG = (process.env.NEXT_PUBLIC_MIGRATION_MULTISIG ||
 // deposit(): old $gnars, ZORA and USDC revert "Token not eligible"; address(0)
 // (native ETH) is the single entry in getTokens(0).
 //
-// Both values are env-driven and EMPTY by default, on purpose. The operator
-// offered an on-chain deadline that requires a redeploy — a new address AND a
-// new upgradeId — so nothing here is final until Vlad gives the go. Production
-// flips on by setting both envs on Vercel; a malformed value renders as a
-// configuration error in the UI, never as "opens at launch".
+// These defaulted to EMPTY while the terminal waited on a go-ahead. Vlad gave it
+// on 2026-09-03, so the deposit terminal is on by default and no longer depends
+// on env vars being present on the host.
 //
-// Current deployment, subject to that redeploy (Base 8453):
-//   UpgraderEth 0x064fd3d95f322909489dc085bb0044a343191ad3 · upgradeId 0
+// The defaults were verified against Base 8453 the same day, before being
+// written here: the contract exists (10185 bytes of code), isHalted() is false,
+// getBuyToken(0) is the zero address (the launch has not run, so deposits and
+// withdrawals are open), and getTokens(0) is exactly [address(0)] — native ETH
+// as the only eligible asset, matching the ETH-only note above.
+//
+// Env still WINS over these, which is what keeps a kill switch that needs no
+// deploy: set NEXT_PUBLIC_UPGRADER_ADDRESS to an empty string and the terminal
+// goes back to "opens at launch". Emptying it has to disable the id as well —
+// an address without an id is a mismatched pair, and parseMigrationEnv rightly
+// renders that as a red misconfiguration rather than a clean off.
+const MIGRATION_DEFAULTS = {
+  upgraderAddress: "0x064fd3d95f322909489dc085bb0044a343191ad3",
+  upgradeId: "0",
+} as const;
+// `??` not `||`: an explicit "" is the operator turning this off, and must not
+// fall back to the default.
+const upgraderEnv = process.env.NEXT_PUBLIC_UPGRADER_ADDRESS ?? MIGRATION_DEFAULTS.upgraderAddress;
+const disabled = upgraderEnv.trim() === "";
 const migrationEnv = parseMigrationEnv({
-  upgraderAddress: process.env.NEXT_PUBLIC_UPGRADER_ADDRESS,
-  upgradeId: process.env.NEXT_PUBLIC_MIGRATION_UPGRADE_ID,
+  upgraderAddress: upgraderEnv,
+  upgradeId: disabled
+    ? ""
+    : (process.env.NEXT_PUBLIC_MIGRATION_UPGRADE_ID ?? MIGRATION_DEFAULTS.upgradeId),
 });
 export const UPGRADER_ADDRESS = migrationEnv.upgraderAddress;
 export const MIGRATION_UPGRADE_ID = migrationEnv.upgradeId;
