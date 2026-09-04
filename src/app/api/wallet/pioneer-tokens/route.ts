@@ -3,7 +3,7 @@ import { getAddress, isAddress } from "viem";
 
 /**
  * Live ERC-20 discovery for the /swap token picker via Pioneer
- * (api.keepkey.info) — the same balance engine keepkey-vault / SwapPro use.
+ * (api.keepkey.info) — the same balance engine keepkey-vault / SwapsPro use.
  *
  * This replaces the fragile Blockscout `addresses/{addr}/tokens?type=ERC-20`
  * call (500ing on the Base instance): Pioneer is keyless, free and
@@ -37,7 +37,7 @@ function decimalToBaseUnits(human: string | undefined, decimals: number): bigint
   return BigInt(`${whole || "0"}${fracPadded}`);
 }
 
-/** Pioneer-hosted coin logo for a token CAIP (same URL scheme as SwapPro). */
+/** Pioneer-hosted coin logo for a token CAIP (same URL scheme as SwapsPro). */
 function pioneerCoinLogo(caip?: string): string | null {
   if (!caip) return null;
   return `https://api.keepkey.info/coins/${btoa(caip).replace(/=+$/, "")}.png`;
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
     // ERC-20 tokens only — the picker already carries the native asset from
     // the curated chain list.
     .filter((b) => b.type === "token" || (b.caip ?? "").includes("/erc20:"))
-    // Scam/spam airdrop flags: exclude from the picker (mirrors SwapPro).
+    // Scam/spam airdrop flags: exclude from the picker (mirrors SwapsPro).
     .filter((b) => !b.isScam)
     .filter((b) => decimalToBaseUnits(b.balance, b.decimals ?? 18) > 0n)
     .map(

@@ -70,7 +70,7 @@ describe("quote URL", () => {
     expect(url).toContain("partnerFeeBps=50");
   });
 
-  it("names gnars as the partner without a fee, and refuses a chain SwapPro does not route", () => {
+  it("names gnars as the partner without a fee, and refuses a chain SwapsPro does not route", () => {
     const base = {
       sellToken: NATIVE_SENTINEL,
       buyToken: USDC,
@@ -122,7 +122,7 @@ describe("widget shape", () => {
     });
   });
 
-  it("turns a SwapPro error into a no-liquidity answer with the reason", () => {
+  it("turns a SwapsPro error into a no-liquidity answer with the reason", () => {
     const w = toWidgetError({ error: "No route for this pair at this size", code: "NO_ROUTE" });
     expect(w.liquidityAvailable).toBe(false);
     expect(w.reason).toContain("No route");
@@ -161,7 +161,7 @@ describe("error shapes", () => {
   });
 });
 
-describe("every SwapPro chain builds a quote URL", () => {
+describe("every SwapsPro chain builds a quote URL", () => {
   it("routes the six EVM chains and refuses the rest", () => {
     for (const chainId of Object.keys(SWAPPRO_CHAINS).map(Number)) {
       const url = buildQuoteUrl({
@@ -174,7 +174,7 @@ describe("every SwapPro chain builds a quote URL", () => {
         taker: "0x21c9a94AF76B59b171b32fD125A4edF0e9A2Ad3e",
       });
       expect(url, `chain ${chainId}`).toContain(`sellChain=${chainId}`);
-      // The native asset goes by the symbol SwapPro resolves, never the 0x sentinel.
+      // The native asset goes by the symbol SwapsPro resolves, never the 0x sentinel.
       expect(url).toContain(`sellToken=${SWAPPRO_CHAINS[chainId].native}`);
       expect(url).not.toContain(NATIVE_SENTINEL);
     }

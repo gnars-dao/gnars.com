@@ -6,13 +6,13 @@ import { getDefaultPair, NATIVE_TOKEN, SWAP_CHAINS } from "./chains";
 /**
  * The picker and the router have to agree.
  *
- * Every failure below was once shipped: Optimism in the picker that SwapPro
+ * Every failure below was once shipped: Optimism in the picker that SwapsPro
  * cannot route, a default pair naming a token the chain's list does not carry,
  * and a stablecoin given Ethereum's six decimals on a chain that uses
  * eighteen. None of them is caught by types.
  */
 describe("swap chains", () => {
-  it("offers exactly the chains SwapPro routes", () => {
+  it("offers exactly the chains SwapsPro routes", () => {
     const offered = SWAP_CHAINS.map((c) => c.id).sort((a, b) => a - b);
     const routed = Object.keys(SWAPPRO_CHAINS)
       .map(Number)
@@ -20,7 +20,7 @@ describe("swap chains", () => {
     expect(offered).toEqual(routed);
   });
 
-  it("names the native asset the way SwapPro resolves it", () => {
+  it("names the native asset the way SwapsPro resolves it", () => {
     for (const chain of SWAP_CHAINS) {
       const native = chain.tokens.find((t) => t.address === NATIVE_TOKEN);
       expect(native, `${chain.name} has no native token`).toBeDefined();

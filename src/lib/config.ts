@@ -130,7 +130,7 @@ export const DROPOSAL_TARGET = {
 export const DROPOSAL_DEFAULT_MINT_LIMIT = 1000000 as const;
 
 // /swap — the affiliate fee taken on the bought token when the user keeps the
-// "Support Gnars treasury" checkbox checked. Quotes come from SwapPro, which
+// "Support Gnars treasury" checkbox checked. Quotes come from SwapsPro, which
 // adds this on top of its own 30 bps and pays it out through a 0xSplits
 // contract derived from the payout address below. See docs/integrations/swap.md.
 export const SWAP_FEE_BPS = 50 as const; // 0.5%
@@ -151,8 +151,8 @@ export const SWAP_FEE_SPLIT_RECIPIENT =
 /**
  * Where the treasury's cut is paid, per chain — and nowhere else.
  *
- * SwapPro derives a 0xSplits contract from (payout address, bps) and pays the
- * whole affiliate fee into it, which then divides on-chain between SwapPro and
+ * SwapsPro derives a 0xSplits contract from (payout address, bps) and pays the
+ * whole affiliate fee into it, which then divides on-chain between SwapsPro and
  * us. The derivation is deterministic, so both sides compute the same address
  * without registering anything — but the SPLIT and the PAYOUT ADDRESS both
  * have to exist as code on the chain the swap settles on.
@@ -161,7 +161,7 @@ export const SWAP_FEE_SPLIT_RECIPIENT =
  * and ZERO on Ethereum, Arbitrum, BNB Chain, Avalanche and Robinhood Chain.
  * Paying it on those chains would park the money at an address with nothing
  * behind it, so this map has one entry and a chain that is missing from it
- * asks for NO partner fee at all — the user then pays SwapPro's 30 bps and
+ * asks for NO partner fee at all — the user then pays SwapsPro's 30 bps and
  * nothing else, instead of 80 bps of which ours goes nowhere.
  *
  * TO ADD A CHAIN: deploy the same split (same recipients, same shares, same

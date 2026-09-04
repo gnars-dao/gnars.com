@@ -1,11 +1,11 @@
 import { formatUnits, parseUnits } from "viem";
 
 /**
- * SwapPro quotes, in the shape the swap widget already reads.
+ * SwapsPro quotes, in the shape the swap widget already reads.
  *
  * The widget was written against 0x's allowance-holder responses
  * (`liquidityAvailable`, `buyAmount` in base units, `issues.allowance.spender`,
- * `transaction { to, data, value, gas }`). SwapPro's `/quote` answers with one
+ * `transaction { to, data, value, gas }`). SwapsPro's `/quote` answers with one
  * routed quote across 0x, CoW, LI.FI, Relay and more — no API key — but in
  * human decimals and with its own field names. This module is the translation,
  * kept pure so it can be unit-tested without a network.
@@ -18,7 +18,7 @@ export const SWAPPRO_BASE_URL = "https://www.swaps.pro/api/sdk/v1";
 /** 0x's convention for the native asset, which the widget's token list uses. */
 export const NATIVE_SENTINEL = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
-/** Chains SwapPro routes, keyed by EIP-155 id, with the symbol its native asset resolves under. */
+/** Chains SwapsPro routes, keyed by EIP-155 id, with the symbol its native asset resolves under. */
 export const SWAPPRO_CHAINS: Record<number, { id: string; native: string }> = {
   1: { id: "ETH", native: "ETH" },
   8453: { id: "BASE", native: "ETH" },
@@ -54,7 +54,7 @@ export interface SwapProQuote {
 }
 
 /**
- * SwapPro's error body, in BOTH shapes it can arrive in.
+ * SwapsPro's error body, in BOTH shapes it can arrive in.
  *
  * v1 answered `{ error: "…", code: "…" }` with the message as a plain string.
  * The standard shape being rolled out answers
@@ -74,7 +74,7 @@ export interface SwapProError {
 export function reasonOf(e: SwapProError): string {
   if (typeof e.error === "string" && e.error) return e.error;
   if (e.error && typeof e.error === "object" && e.error.message) return e.error.message;
-  return e.message ?? "SwapPro did not say why";
+  return e.message ?? "SwapsPro did not say why";
 }
 
 /** The machine-readable code, whichever error shape came back. */
@@ -94,9 +94,9 @@ export interface WidgetQuote {
     balance?: null;
   };
   transaction?: { to: string; data: string; value: string; gas?: string };
-  /** Which venue SwapPro chose: 0x, cow, lifi, relay, … */
+  /** Which venue SwapsPro chose: 0x, cow, lifi, relay, … */
   route?: string;
-  /** SwapPro's own accounting of the affiliate fee, verbatim. */
+  /** SwapsPro's own accounting of the affiliate fee, verbatim. */
   partnerFee?: SwapProQuote["partnerFee"];
   expiresAt?: string;
   reason?: string;
@@ -117,14 +117,14 @@ export interface QuoteRequest {
   fee?: { recipient: string; bps: number } | null;
 }
 
-/** The SwapPro token parameter for a widget token: symbol for the native asset, address otherwise. */
+/** The SwapsPro token parameter for a widget token: symbol for the native asset, address otherwise. */
 export function toSwapProToken(chainId: number, token: string): string | null {
   const chain = SWAPPRO_CHAINS[chainId];
   if (!chain) return null;
   return token.toLowerCase() === NATIVE_SENTINEL ? chain.native : token;
 }
 
-/** The query string for SwapPro's /quote. Null when the chain is not one SwapPro routes. */
+/** The query string for SwapsPro's /quote. Null when the chain is not one SwapsPro routes. */
 export function buildQuoteUrl(req: QuoteRequest, base: string = SWAPPRO_BASE_URL): string | null {
   const chain = SWAPPRO_CHAINS[req.chainId];
   const sell = toSwapProToken(req.chainId, req.sellToken);
@@ -161,7 +161,7 @@ const toDecimalString = (hexOrDec: string | undefined): string => {
   }
 };
 
-/** A SwapPro quote in the widget's shape. */
+/** A SwapsPro quote in the widget's shape. */
 export function toWidgetQuote(
   q: SwapProQuote,
   sellDecimals: number,
@@ -190,12 +190,12 @@ export function toWidgetQuote(
   };
 }
 
-/** A SwapPro error in the widget's shape: no liquidity, with the reason it gave. */
+/** A SwapsPro error in the widget's shape: no liquidity, with the reason it gave. */
 export function toWidgetError(e: SwapProError): WidgetQuote {
   return { liquidityAvailable: false, reason: reasonOf(e), code: codeOf(e) };
 }
 
-/** One call to SwapPro, translated. Never throws on an API answer; throws only when there is none. */
+/** One call to SwapsPro, translated. Never throws on an API answer; throws only when there is none. */
 export async function fetchWidgetQuote(
   req: QuoteRequest,
   base: string = SWAPPRO_BASE_URL,
@@ -206,7 +206,7 @@ export async function fetchWidgetQuote(
       status: 400,
       body: {
         liquidityAvailable: false,
-        reason: `SwapPro does not route chain ${req.chainId} yet`,
+        reason: `SwapsPro does not route chain ${req.chainId} yet`,
         code: "UNSUPPORTED_CHAIN",
       },
     };
