@@ -74,12 +74,12 @@ const thirdwebRobinhood = defineChain({
 });
 
 /**
- * The chains the picker offers — exactly the ones SwapPro routes.
+ * The chains the picker offers — exactly the ones SwapsPro routes.
  *
  * This list and `SWAPPRO_CHAINS` in src/lib/swappro.ts must hold the same ids,
  * and chains.test.ts fails when they drift. It is not bookkeeping: Optimism
  * sat here for months and every quote on it came back UNSUPPORTED_CHAIN, so
- * the picker offered a chain that could never fill an order. A chain SwapPro
+ * the picker offered a chain that could never fill an order. A chain SwapsPro
  * adds shows up as a failing test rather than as nothing at all.
  */
 export const SWAP_CHAINS: readonly SwapChain[] = [

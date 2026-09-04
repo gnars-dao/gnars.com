@@ -5,7 +5,7 @@ import { fetchWidgetQuote } from "@/lib/swappro";
 /**
  * The one handler behind /api/0x/price and /api/0x/quote.
  *
- * SwapPro has a single /quote: every answer is firm and carries the
+ * SwapsPro has a single /quote: every answer is firm and carries the
  * transaction when a same-chain route exists, so the indicative price and
  * the executed quote are the same call and cannot disagree. Both routes keep
  * their old paths so the widget does not change. There is no API key; the
@@ -56,7 +56,7 @@ export async function answerSwapProQuote(request: NextRequest) {
     });
     return NextResponse.json(body, { status });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "SwapPro did not answer";
+    const message = err instanceof Error ? err.message : "SwapsPro did not answer";
     return NextResponse.json(
       { liquidityAvailable: false, reason: message, code: "UPSTREAM_UNAVAILABLE" },
       { status: 502 },

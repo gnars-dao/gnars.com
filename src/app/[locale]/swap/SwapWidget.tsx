@@ -515,7 +515,7 @@ export function SwapWidget() {
           buyToken: buyToken.address,
           sellAmount: rawAmount,
           taker,
-          // SwapPro quotes in human decimals; the proxy converts both ways.
+          // SwapsPro quotes in human decimals; the proxy converts both ways.
           sellDecimals: String(sellToken.decimals),
           buyDecimals: String(buyToken.decimals),
         });

@@ -18,7 +18,7 @@ function decimalToBaseUnits(human: string | undefined, decimals: number): bigint
 /**
  * Fetches every ERC-20 token the connected user holds on the selected chain
  * via /api/wallet/pioneer-tokens (Pioneer portfolio — the same keyless,
- * multi-source balance engine keepkey-vault / SwapPro use). Replaces the old
+ * multi-source balance engine keepkey-vault / SwapsPro use). Replaces the old
  * Alchemy + Blockscout path that 500'd in production.
  *
  * Returns a merged token list: hardcoded curated tokens first (with their
