@@ -63,13 +63,6 @@ export default async function MigratePage({ params }: { params: Promise<{ locale
         </div>
 
         <MigrateTabs />
-
-        <div className="mx-auto max-w-2xl space-y-3 border-t pt-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {t("editorial.tagline")}
-          </p>
-          <p className="text-sm leading-relaxed text-muted-foreground">{t("editorial.body")}</p>
-        </div>
       </div>
     </div>
   );

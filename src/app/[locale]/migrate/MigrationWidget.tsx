@@ -113,68 +113,129 @@ export function MigrationWidget() {
     // The migration's state and its risk disclosure are public facts; they
     // must not sit behind the connect wall.
     return (
-      <div className="space-y-6">
+      <div className="space-y-10">
+        <StageRail position={position} />
         <Card className="flex flex-col items-center gap-4 p-10 text-center">
           <p className="text-sm text-muted-foreground">{t("connectPrompt")}</p>
           <ConnectButton />
         </Card>
-        <DepositSection position={position} connected={false} />
+        <section className="space-y-4">
+          <SectionHeading title={t("stages.deposit")} body={t("sections.depositBody")} />
+          <DepositSection position={position} connected={false} />
+        </section>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <ShieldCheck className="size-3.5 shrink-0" />
-        {t("safetyHint")}
-      </p>
+    <div className="space-y-10">
+      <StageRail position={position} />
 
-      <OldGnarsCard
-        position={oldGnars}
-        included={includeOldGnars}
-        onIncludedChange={setIncludeOldGnars}
-        amount={oldGnarsAmount}
-        onAmountChange={setOldGnarsAmount}
-      />
+      <section className="space-y-4">
+        <SectionHeading title={t("stages.sell")} body={t("sections.sellBody")} />
 
-      <HoldingsList
-        coins={coins}
-        isLoading={isLoading}
-        isError={isError}
-        coinsElsewhereHint={
-          canSwitchView && viewMode === "sa" && adminAddress
-            ? t("coinsElsewhere", {
-                address: `${adminAddress.slice(0, 6)}…${adminAddress.slice(-4)}`,
-                button: t("deposit.switchButtonEoa"),
-              })
-            : undefined
-        }
-        onRetry={() => void refetch()}
-        selected={selected}
-        onToggle={toggle}
-        onSelectAll={selectAll}
-        onClearAll={clearAll}
-      />
-      {selectedCoins.length > 0 && <RouteMap coins={selectedCoins} />}
-      {selectedCoins.length > 0 && (
-        <MigrationPreview
-          coins={selectedCoins}
-          sender={address}
-          onRun={(result) => {
-            // Anything that ran changed balances: refresh regardless of outcome.
-            position.refetch();
-            void refetch();
-            void oldGnars.refetchBalance();
-            // Keep the failed coins selected so the retry is one click, and
-            // keep the step list on screen as the record of what failed.
-            if (result.ok) clearAll();
-          }}
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <ShieldCheck className="size-3.5 shrink-0" />
+          {t("safetyHint")}
+        </p>
+
+        <OldGnarsCard
+          position={oldGnars}
+          included={includeOldGnars}
+          onIncludedChange={setIncludeOldGnars}
+          amount={oldGnarsAmount}
+          onAmountChange={setOldGnarsAmount}
         />
-      )}
 
-      <DepositSection position={position} connected />
+        <HoldingsList
+          coins={coins}
+          isLoading={isLoading}
+          isError={isError}
+          coinsElsewhereHint={
+            canSwitchView && viewMode === "sa" && adminAddress
+              ? t("coinsElsewhere", {
+                  address: `${adminAddress.slice(0, 6)}…${adminAddress.slice(-4)}`,
+                  button: t("deposit.switchButtonEoa"),
+                })
+              : undefined
+          }
+          onRetry={() => void refetch()}
+          selected={selected}
+          onToggle={toggle}
+          onSelectAll={selectAll}
+          onClearAll={clearAll}
+        />
+        {selectedCoins.length > 0 && (
+          <MigrationPreview
+            coins={selectedCoins}
+            sender={address}
+            onRun={(result) => {
+              // Anything that ran changed balances: refresh regardless of outcome.
+              position.refetch();
+              void refetch();
+              void oldGnars.refetchBalance();
+              // Keep the failed coins selected so the retry is one click, and
+              // keep the step list on screen as the record of what failed.
+              if (result.ok) clearAll();
+            }}
+          />
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeading
+          title={position.executed ? t("stages.claim") : t("stages.deposit")}
+          body={position.executed ? undefined : t("sections.depositBody")}
+        />
+        <DepositSection position={position} connected />
+      </section>
     </div>
+  );
+}
+
+/** Section heading: the stage this group of cards belongs to. */
+function SectionHeading({ title, body }: { title: string; body?: string }) {
+  return (
+    <div className="space-y-1">
+      <h2 className="text-base font-semibold">{title}</h2>
+      {body && <p className="text-sm text-muted-foreground">{body}</p>}
+    </div>
+  );
+}
+
+/**
+ * Orientation for the whole page: the three stages of the migration and where
+ * the person stands in each. Every status is derived from state already read,
+ * never guessed — the deposit stage reuses the terminal's own status wording.
+ */
+function StageRail({ position }: { position: UpgraderPosition }) {
+  const t = useTranslations("migrate");
+  const live = isMigrationDepositLive();
+  const claimStatus = position.executed
+    ? position.claimed
+      ? t("stages.claimedShort")
+      : t("stages.open")
+    : t("stages.afterLaunch");
+  const stages = [
+    { label: t("stages.sell"), status: t("stages.now") },
+    { label: t("stages.deposit"), status: t(`deposit.${depositStatusKey(live, position)}`) },
+    { label: t("stages.claim"), status: claimStatus },
+  ];
+
+  return (
+    <ol className="grid grid-cols-3 gap-2 rounded-lg border p-3">
+      {stages.map((stage, i) => (
+        <li key={i} className="flex flex-col items-center gap-1 text-center">
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+            {i + 1}
+          </span>
+          <span className="text-[11px] font-medium leading-tight sm:text-sm">{stage.label}</span>
+          <span className="text-[10px] leading-tight text-muted-foreground sm:text-xs">
+            {stage.status}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -306,10 +367,8 @@ function OldGnarsCard({
           loading={position.isQuoting}
         />
         <div className="rounded-lg border p-2 text-center">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            {t("oldGnars.impact")}
-          </div>
-          <div className={`mt-0.5 text-sm font-semibold ${impactTone}`}>
+          <div className="text-xs text-muted-foreground">{t("oldGnars.impact")}</div>
+          <div className={`mt-0.5 text-sm font-semibold tabular-nums ${impactTone}`}>
             {position.isQuoting ? (
               <Skeleton className="mx-auto h-4 w-12" />
             ) : impactPct === null ? (
@@ -465,20 +524,48 @@ function DepositSection({
   );
 }
 
-function DepositStatusBadge({ live, position }: { live: boolean; position: UpgraderPosition }) {
-  const t = useTranslations("migrate");
-  if (MIGRATION_CONFIG_ERROR)
-    return <Badge variant="destructive">{t("deposit.misconfigured")}</Badge>;
-  if (!live) return <Badge variant="secondary">{t("deposit.opensAtLaunch")}</Badge>;
-  if (position.isError) return <Badge variant="destructive">{t("deposit.readFailed")}</Badge>;
+/**
+ * The single source of truth for the deposit window's status, shared by the
+ * badge and the stage rail so the two can never disagree.
+ */
+type DepositStatusKey =
+  | "misconfigured"
+  | "opensAtLaunch"
+  | "readFailed"
+  | "checking"
+  | "halted"
+  | "executed"
+  | "live";
+
+function depositStatusKey(live: boolean, position: UpgraderPosition): DepositStatusKey {
+  if (MIGRATION_CONFIG_ERROR) return "misconfigured";
+  if (!live) return "opensAtLaunch";
+  if (position.isError) return "readFailed";
   // Not read yet is not "live". Say so until the contract has answered.
   if (position.isLoading || position.halted === undefined || position.executed === undefined)
-    return <Badge variant="secondary">{t("deposit.checking")}</Badge>;
-  if (position.halted) return <Badge variant="destructive">{t("deposit.halted")}</Badge>;
-  if (position.executed) return <Badge>{t("deposit.executed")}</Badge>;
-  return (
-    <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">{t("deposit.live")}</Badge>
-  );
+    return "checking";
+  if (position.halted) return "halted";
+  if (position.executed) return "executed";
+  return "live";
+}
+
+function DepositStatusBadge({ live, position }: { live: boolean; position: UpgraderPosition }) {
+  const t = useTranslations("migrate");
+  const key = depositStatusKey(live, position);
+  const label = t(`deposit.${key}`);
+  switch (key) {
+    case "misconfigured":
+    case "readFailed":
+    case "halted":
+      return <Badge variant="destructive">{label}</Badge>;
+    case "opensAtLaunch":
+    case "checking":
+      return <Badge variant="secondary">{label}</Badge>;
+    case "executed":
+      return <Badge>{label}</Badge>;
+    default:
+      return <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">{label}</Badge>;
+  }
 }
 
 /** The live terminal: position, deposit, withdraw, claim. */
@@ -572,10 +659,8 @@ function DepositTerminal({ position }: { position: UpgraderPosition }) {
 
       {position.executed ? (
         <div className="space-y-2 rounded-lg bg-accent/50 p-4">
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">
-            {t("deposit.claimTitle")}
-          </div>
-          <div className="text-2xl font-bold">
+          <div className="text-xs text-muted-foreground">{t("deposit.claimTitle")}</div>
+          <div className="text-2xl font-bold tabular-nums">
             {position.claimable === undefined ? "…" : formatCoinAmount(position.claimable, 18, 2)}{" "}
             <span className="text-base">$GNARS</span>
           </div>
@@ -737,8 +822,8 @@ function OtherAddressNotice({ position }: { position: UpgraderPosition }) {
 function StatTile({ label, value, loading }: { label: string; value?: string; loading: boolean }) {
   return (
     <div className="rounded-lg border p-2 text-center">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-sm font-semibold">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold tabular-nums">
         {value ?? (loading ? <Skeleton className="mx-auto h-4 w-16" /> : "—")}
       </div>
     </div>
@@ -775,9 +860,8 @@ function RouteMap({ coins }: { coins: MigratableCoin[] }) {
   }, [coins]);
 
   return (
-    <Card className="space-y-4 p-5">
-      <div className="text-sm font-medium">{t("route.title")}</div>
-      <div className="space-y-4">
+    <div className="space-y-3">
+      <div className="space-y-3">
         {groups.map((g, i) => (
           <div key={i} className="rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -796,7 +880,20 @@ function RouteMap({ coins }: { coins: MigratableCoin[] }) {
         ))}
       </div>
       <p className="text-xs text-muted-foreground">{t("route.hopHint")}</p>
-    </Card>
+    </div>
+  );
+}
+
+/** A one-click disclosure for detail that would otherwise crowd the decision. */
+function Disclosure({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <details className="group rounded-md border px-3 py-2">
+      <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3 shrink-0 transition-transform group-open:rotate-90" />
+        {label}
+      </summary>
+      <div className="mt-2 text-xs text-muted-foreground">{children}</div>
+    </details>
   );
 }
 
@@ -1053,10 +1150,8 @@ function MigrationPreview({
       </div>
 
       <div className="rounded-lg bg-accent/50 p-4">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">
-          {t("preview.youReceive")}
-        </div>
-        <div className="mt-1 text-2xl font-bold">
+        <div className="text-xs text-muted-foreground">{t("preview.youReceive")}</div>
+        <div className="mt-1 text-2xl font-bold tabular-nums">
           {loading ? "…" : formatCoinAmount(totalEthOut, 18, 6)}{" "}
           <span className="text-base">ETH</span>
         </div>
@@ -1078,6 +1173,12 @@ function MigrationPreview({
 
       <p className="text-xs text-muted-foreground">{t("preview.slippageNote")}</p>
       {live && <p className="text-xs text-muted-foreground">{t("preview.leftoverNote")}</p>}
+      <div className="space-y-2">
+        <Disclosure label={t("preview.whyLabel")}>{t("preview.slippageDetails")}</Disclosure>
+        <Disclosure label={t("route.detailsLabel")}>
+          <RouteMap coins={coins} />
+        </Disclosure>
+      </div>
 
       {steps.length > 0 && <StepList steps={steps} />}
       {lastResult?.depositFailed && (
@@ -1102,13 +1203,16 @@ function MigrationPreview({
           </Button>
           <Button
             className="w-full"
-            variant="ghost"
-            size="sm"
+            variant="outline"
+            size="lg"
             disabled={loading || isRunning || routableCount === 0}
             onClick={() => void run(false)}
           >
             {t("preview.consolidateOnly")}
           </Button>
+          <p className="text-center text-[11px] text-muted-foreground">
+            {t("preview.sellOnlyNote")}
+          </p>
         </>
       ) : (
         <Button
