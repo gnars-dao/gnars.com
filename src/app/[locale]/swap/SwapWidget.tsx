@@ -930,7 +930,7 @@ export function SwapWidget() {
         {/* A Zora coin on either side gets its card: media, creator, market.
             Renders nothing for an ordinary token, so the strip above is all
             most pairs ever show. */}
-        <div className="grid gap-4 empty:hidden @2xl:grid-cols-2">
+        <div className="flex flex-col gap-4 empty:hidden">
           <ZoraCoinCard token={sellToken} counterpart={buyToken} side="sell" chainId={chain.id} />
           <ZoraCoinCard token={buyToken} counterpart={sellToken} side="buy" chainId={chain.id} />
         </div>
