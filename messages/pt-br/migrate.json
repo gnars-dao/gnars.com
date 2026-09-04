@@ -1,43 +1,20 @@
 {
   "title": "Migre para o novo $gnars",
-  "subtitle": "Venda coins espalhadas da Zora por ETH, deposite o ETH e resgate o novo $gnars no lançamento. ETH é a única entrada.",
+  "subtitle": "Só ETH entra na migração. Venda o que você tem à esquerda, deposite à direita.",
   "connectPrompt": "Conecte sua carteira para ver suas coins da Zora e entrar na migração.",
-  "tabs": {
-    "consolidate": "Entrar",
-    "guide": "Guia"
-  },
-  "stages": {
-    "sell": "Vender para ETH",
-    "deposit": "Depositar ETH",
-    "claim": "Resgatar o novo $gnars",
-    "now": "Agora",
-    "afterLaunch": "Após o lançamento",
-    "open": "Aberto",
-    "claimedShort": "Resgatado"
-  },
-  "sections": {
-    "sellBody": "Cada coin que você escolher é vendida direto por ETH. ETH é o único ativo que a migração aceita.",
-    "depositBody": "Deposite o ETH no contrato da migração. O saque é sua saída até o operador executar o lançamento."
-  },
   "guide": {
-    "title": "Como a migração funciona",
-    "intro": "É uma entrada compartilhada no novo token, não uma ferramenta pública de swap. Todo mundo deposita ETH e entra pelo mesmo preço numa única compra em lote no lançamento. Só ETH é aceito; $gnars antigo, ZORA e USDC são rejeitados on-chain.",
     "steps": [
       {
-        "title": "Transforme coins da Zora em ETH",
-        "body": "Selecione de uma vez suas coins espalhadas da Zora. Cada uma é vendida direto por ETH numa única troca, e a estimativa já reflete quanto pools rasos movem o preço. O $gnars antigo também precisa ser vendido, ou simplesmente mantido; as duas escolhas são legítimas."
+        "title": "Venda por ETH",
+        "body": "Cada coin é uma única troca, direto por ETH. O ETH que já está na sua carteira não precisa de troca; $gnars antigo, ZORA e USDC são rejeitados on-chain."
       },
       {
-        "title": "Deposite ETH na migração",
-        "body": "Seu ETH fica no contrato UpgraderEth, no seu próprio endereço. Você pode sacar até o operador executar o lançamento. Nenhuma data de encerramento foi anunciada, então a janela pode fechar sem aviso."
+        "title": "Deposite",
+        "body": "Seu ETH fica no contrato UpgraderEth, no seu próprio endereço. O saque é sua saída até o operador executar o lançamento, e nenhuma data de encerramento foi anunciada."
       },
       {
-        "title": "Uma compra em lote no lançamento (TGE)",
-        "body": "Numa única transação o operador usa todos os depósitos para comprar o novo $gnars, lançado na Clanker e pareado com ETH. Todos entram pelo mesmo preço."
-      },
-      {
-        "title": "Resgate seu novo $gnars",
-        "body": "Depois que o lote roda, resgate seu novo $gnars aqui, alocado proporcionalmente ao que você depositou. Esse é o token daqui pra frente."
+        "title": "Resgate no lançamento",
+        "body": "Uma compra em lote a um preço único e compartilhado. Sua parte dos depósitos é sua parte do novo $gnars, resgatado aqui."
       }
     ],
     "footnote": "Os termos do lançamento são definidos pelo operador (Onchain Inc / kompreni) e não são legíveis no contrato, por isso não os mostramos aqui; eles serão publicados no anúncio de lançamento. As estimativas dependem da liquidez ao vivo e podem mudar; sempre verifique os links nos canais oficiais da Gnars."
@@ -45,7 +22,6 @@
   "noCoins": "Nenhuma coin da Zora migrável encontrada nesta carteira.",
   "holdingsError": "Não foi possível carregar suas coins da Zora. Nada é presumido. Tente de novo.",
   "safetyHint": "Apenas coins da Zora verificadas são exibidas; tokens não-Zora e de golpe/airdrop são filtrados.",
-  "holdingsTitle": "Suas coins da Zora ({count})",
   "selectAll": "Selecionar tudo",
   "clear": "Limpar",
   "route": {
@@ -53,31 +29,24 @@
     "hopHint": "Cada coin passa pelo seu par de pool até virar ETH. Uma troca por coin; estes são os saltos nos bastidores."
   },
   "preview": {
-    "title": "Prévia da venda",
-    "selected": "Coins selecionadas",
-    "routable": "Com rota",
-    "unroutable": "{count} sem liquidez",
-    "youReceive": "Você recebe (estimado)",
     "whyLabel": "Por quê",
     "slippageNote": "Pools rasos movem o preço em vendas grandes; a estimativa pode mudar antes da confirmação da transação.",
     "slippageDetails": "Cada coin tem sua própria margem de slippage, de 0,5% a 5%, definida por quanto a rota se move ao vender tudo.",
     "leftoverNote": "O depósito é o mínimo garantido da cotação de cada rota; o que vier acima disso fica na sua carteira como ETH.",
-    "migrateAndDepositCta": "Vender {count} coins e depositar",
-    "consolidateOnly": "Só vender para ETH",
-    "sellOnlyNote": "Só vender para ETH deixa o ETH na sua carteira; você pode depositar pelo terminal abaixo.",
     "migrateCta": "Vender {count} coins por ETH",
     "executing": "Processando…",
     "batchNote": "Uma assinatura: todas as vendas e o depósito rodam numa única transação com gas patrocinado.",
     "sequentialNote": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin, depois o depósito), e o gas é por sua conta. Entre as vendas e o depósito o ETH fica na sua carteira, e o depósito é uma transação à parte.",
-    "quoteFailed": "{count} cotações falharam: o serviço de cotação não respondeu. Isso não é \"sem liquidez\"; tente de novo.",
+    "quoteFailed": "{count} cotações falharam. O serviço de cotação não respondeu; as coins estão marcadas na lista.",
     "depositFailedAfterSells": "As vendas passaram, mas o depósito não. Cerca de {amount} ETH delas está na sua carteira; deposite pelo terminal abaixo.",
     "batchNoteSellOnly": "Uma assinatura: todas as vendas rodam numa única transação com gas patrocinado.",
     "sequentialNoteSellOnly": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin), e o gas é por sua conta.",
-    "viaKyber": "{count} dessas coins a Zora não conseguiu rotear; a KyberSwap consegue, e será usada para elas."
+    "viaKyber": "{count} dessas coins a Zora não conseguiu rotear; a KyberSwap consegue, e será usada para elas.",
+    "sellAndDepositCta": "Vender {count} coins e depositar ≈{eth} ETH",
+    "sellOnlyLink": "Só vender por ETH e deixar na carteira"
   },
   "deposit": {
-    "title": "Depósito da migração",
-    "live": "No ar",
+    "live": "Depósitos abertos",
     "opensAtLaunch": "Abre no lançamento",
     "halted": "Pausado pelo operador",
     "executed": "Lançado",
@@ -87,19 +56,9 @@
     "configError": "O terminal de depósito está mal configurado e foi desativado: {error}",
     "readError": "Não foi possível ler seu depósito no contrato. Nada é presumido: seu depósito não aparece como zero.",
     "retry": "Tentar de novo",
-    "yourDeposit": "Seu depósito",
     "totalDeposits": "Todos os depósitos",
-    "closeLabel": "Depósitos fecham",
-    "closeValue": "Sem aviso, pode encerrar a qualquer momento",
-    "closeValueClosed": "Encerrado, o lançamento já rodou",
-    "howTitle": "O que acontece quando você deposita",
-    "how": [
-      "Seu ETH fica no contrato UpgraderEth, no seu endereço. Você pode sacar até o operador executar o lançamento.",
-      "No lançamento (TGE) todos os depósitos entram numa única compra em lote do novo $gnars, a um preço único.",
-      "Você resgata o novo $gnars aqui, proporcional à sua parte dos depósitos."
-    ],
     "amountLabel": "Valor",
-    "walletBalance": "Carteira: {amount} ETH (usar tudo)",
+    "walletBalance": "Carteira: {amount} ETH",
     "walletBalanceUnavailable": "Não foi possível ler o saldo da sua carteira.",
     "fillDeposited": "Sacar tudo",
     "depositCta": "Depositar",
@@ -122,28 +81,30 @@
     "switchButtonEoa": "Mudar para admin",
     "ethElsewhere": "Esta smart account não tem ETH. Seu ETH está no seu endereço admin ({address}); abra o menu da carteira e toque em \"{button}\" para depositar a partir dele, ou envie ETH para esta conta antes.",
     "lastTxConfirmed": "Última transação confirmada:",
-    "lastTxPending": "Última transação enviada, confirmação pendente:"
+    "lastTxPending": "Última transação enviada, confirmação pendente:",
+    "liveHint": "pode acabar a qualquer momento",
+    "fromWallet": "Depositar da sua carteira",
+    "max": "Máx",
+    "gasReserveHint": "Uma reserva de gas de {amount} ETH fica na sua carteira.",
+    "depositedSoFar": "Depositado até agora",
+    "becomesLabel": "No lançamento vira",
+    "becomesValue": "novo $gnars, proporcional"
   },
   "oldGnars": {
-    "title": "Seu $gnars antigo",
-    "body": "O contrato não aceita $gnars antigo. Para entrar com ele, é preciso vendê-lo por ETH primeiro, pelo pool raso $gnars → ZORA → WETH, ao preço abaixo.",
-    "balance": "Você tem",
-    "estimate": "Vende por (est.)",
+    "title": "$gnars antigo",
+    "body": "Não é aceito. Vende por um pool raso.",
     "impact": "Impacto no preço",
     "impactUnknown": "desconhecido",
     "noRoute": "Sem rota",
     "impactHint": "Impacto no preço é o custo do tamanho desta venda: quanto pior fica o preço em relação a vender uma quantia pequena.",
-    "include": "Vender meu $gnars antigo por ETH junto com as coins acima",
-    "includeHint": "Adiciona ele à prévia da venda abaixo. É cotado e vendido como qualquer outra coin.",
-    "amountLabel": "Quanto vender",
+    "include": "Vender meu $gnars antigo por ETH junto com as coins abaixo",
+    "amountLabel": "Quanto de $gnars antigo vender",
     "portionAll": "Tudo",
     "portion75": "75%",
     "portion50": "50%",
     "portion25": "25%",
-    "allHint": "Vender tudo é o recomendado; uma porção também funciona e a estimativa acima acompanha o que você escolher.",
     "exceedsBalance": "Isso é mais do que você tem; a estimativa fica limitada ao seu saldo.",
-    "holdTitle": "Ou segurar e não fazer nada",
-    "holdBody": "Uma escolha legítima. O $gnars antigo continua sendo uma creator coin da Zora negociável; ele só não entra na migração.",
+    "holdBody": "Ou segure e não faça nada: ele continua sendo uma creator coin da Zora negociável, só não entra na migração.",
     "balanceError": "Não foi possível ler seu saldo de $gnars antigo. Nada é presumido. Tente de novo."
   },
   "steps": {
@@ -175,5 +136,31 @@
     "partial": "Vendidas {sold} de {total}. Não vendidas: {failed}. Elas continuam selecionadas; tente de novo quando quiser.",
     "depositAfterSellsFailed": "As vendas passaram, mas o depósito não. Cerca de {amount} ETH está na sua carteira; deposite pelo terminal."
   },
-  "coinsElsewhere": "Você está vendo sua smart account, que não tem coins da Zora. Suas coins estão no seu endereço admin ({address}); abra o menu da carteira e toque em \"{button}\"."
+  "coinsElsewhere": "Você está vendo sua smart account, que não tem coins da Zora. Suas coins estão no seu endereço admin ({address}); abra o menu da carteira e toque em \"{button}\".",
+  "hold": {
+    "title": "O que você tem",
+    "hint": "Escolha o que virar ETH",
+    "ethTitle": "ETH na sua carteira",
+    "ethReady": "Pronto para depositar do jeito que está",
+    "accepted": "aceito",
+    "unreadable": "Não foi possível ler",
+    "zoraTitle": "Coins da Zora",
+    "selectedCount": "{selected} de {total} selecionadas",
+    "noLiquidity": "Sem liquidez",
+    "quoteFailed": "Cotação falhou",
+    "selectedCountNoRoute": "{selected} de {total} selecionadas · {noRoute} sem rota",
+    "deselectUnroutable": "Desmarcar sem rota",
+    "deselectUnroutableCount": "Desmarcar {count} sem rota"
+  },
+  "receipt": {
+    "title": "Seu depósito na migração",
+    "hint": "Para onde tudo vai",
+    "walletEth": "ETH na carteira",
+    "coinsSold": "+ {count} coins da Zora, vendidas",
+    "coinsNone": "+ coins da Zora, vendidas",
+    "oldGnarsSold": "+ $gnars antigo, vendido",
+    "nothingSelected": "Nada selecionado",
+    "available": "Disponível para depositar",
+    "gasReserve": "− reserva de gas"
+  }
 }

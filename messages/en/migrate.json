@@ -1,43 +1,20 @@
 {
   "title": "Migrate to new $gnars",
-  "subtitle": "Sell scattered Zora coins to ETH, deposit the ETH, claim new $gnars at launch. ETH is the only way in.",
+  "subtitle": "Only ETH enters the migration. Sell what you hold on the left, deposit on the right.",
   "connectPrompt": "Connect your wallet to see your Zora coins and enter the migration.",
-  "tabs": {
-    "consolidate": "Enter",
-    "guide": "Guide"
-  },
-  "stages": {
-    "sell": "Sell to ETH",
-    "deposit": "Deposit ETH",
-    "claim": "Claim new $gnars",
-    "now": "Now",
-    "afterLaunch": "After launch",
-    "open": "Open",
-    "claimedShort": "Claimed"
-  },
-  "sections": {
-    "sellBody": "Every coin you pick is sold straight to ETH. ETH is the only asset the migration accepts.",
-    "depositBody": "Deposit the ETH into the migration contract. Withdraw is your exit until the operator runs the launch."
-  },
   "guide": {
-    "title": "How the migration works",
-    "intro": "A shared entry into the new token, not a public swap tool. Everyone deposits ETH and enters at one price in a single batch buy at launch. Only ETH is accepted; old $gnars, ZORA and USDC are rejected on-chain.",
     "steps": [
       {
-        "title": "Turn Zora coins into ETH",
-        "body": "Batch-select your scattered Zora coins. Each is sold straight to ETH in one trade, and the estimate already reflects how thin pools move the price. Old $gnars has to be sold too, or simply held; both are legitimate."
+        "title": "Sell to ETH",
+        "body": "Each coin is one trade, straight to ETH. ETH already in your wallet needs no trade; old $gnars, ZORA and USDC are rejected on-chain."
       },
       {
-        "title": "Deposit ETH into the migration",
-        "body": "Your ETH sits in the UpgraderEth contract under your own address. You can withdraw it until the operator runs the launch. No close date has been announced, so the window can end without notice."
+        "title": "Deposit",
+        "body": "Your ETH is held under your own address in the UpgraderEth contract. Withdraw is your exit until the operator runs the launch, and no close date has been announced."
       },
       {
-        "title": "One batch buy at launch (TGE)",
-        "body": "In one transaction the operator uses every deposit to buy the new $gnars, deployed on Clanker and paired with ETH. Everyone enters at the same price."
-      },
-      {
-        "title": "Claim your new $gnars",
-        "body": "After the batch runs, claim your new $gnars here, allocated pro-rata to what you deposited. That is the token going forward."
+        "title": "Claim at launch",
+        "body": "One batch buy at a single shared price. Your share of the deposits is your share of the new $gnars, claimed here."
       }
     ],
     "footnote": "Launch terms are set by the operator (Onchain Inc / kompreni) and are not readable from the contract, so we don't show them here; they will be published in the launch announcement. Estimates depend on live liquidity and can change; always verify links in official Gnars channels."
@@ -45,7 +22,6 @@
   "noCoins": "No migratable Zora coins found in this wallet.",
   "holdingsError": "Couldn't load your Zora coins. Nothing is assumed. Try again.",
   "safetyHint": "Only verified Zora coins are shown; non-Zora and scam/airdrop tokens are filtered out.",
-  "holdingsTitle": "Your Zora coins ({count})",
   "selectAll": "Select all",
   "clear": "Clear",
   "route": {
@@ -53,31 +29,24 @@
     "hopHint": "Each coin routes through its pool pairing into ETH. One trade per coin; these are the hops under the hood."
   },
   "preview": {
-    "title": "Sell preview",
-    "selected": "Selected coins",
-    "routable": "With a route",
-    "unroutable": "{count} no liquidity",
-    "youReceive": "You receive (estimated)",
     "whyLabel": "Why",
     "slippageNote": "Thin pools move the price on large sells; the estimate can change before the transaction confirms.",
     "slippageDetails": "Each coin gets its own slippage margin, 0.5% to 5%, set from how much its route moves when it is sold in full.",
     "leftoverNote": "The deposit is each route's guaranteed minimum; anything above it stays in your wallet as ETH.",
-    "migrateAndDepositCta": "Sell {count} coins & deposit",
-    "consolidateOnly": "Sell to ETH only",
-    "sellOnlyNote": "Selling to ETH only keeps the ETH in your wallet; you can deposit it from the terminal below.",
     "migrateCta": "Sell {count} coins to ETH",
     "executing": "Working…",
     "batchNote": "One signature: every sell and the deposit run as a single sponsored transaction.",
     "sequentialNote": "Your wallet may ask for up to {count} signatures (approve, permit and swap per coin, then the deposit), and you pay the gas. Between the sells and the deposit the ETH sits in your wallet, and the deposit is its own transaction.",
-    "quoteFailed": "{count} quotes failed: the quote service did not answer. That is not \"no liquidity\"; retry.",
+    "quoteFailed": "{count} quotes failed. The quote service did not answer; the coins are marked in the list.",
     "depositFailedAfterSells": "The sells went through but the deposit did not. About {amount} ETH from them is in your wallet; deposit it from the terminal below.",
     "batchNoteSellOnly": "One signature: every sell runs as a single sponsored transaction.",
     "sequentialNoteSellOnly": "Your wallet may ask for up to {count} signatures (approve, permit and swap per coin), and you pay the gas.",
-    "viaKyber": "{count} of these coins Zora could not route; KyberSwap can, and will be used for them."
+    "viaKyber": "{count} of these coins Zora could not route; KyberSwap can, and will be used for them.",
+    "sellAndDepositCta": "Sell {count} coins and deposit ≈{eth} ETH",
+    "sellOnlyLink": "Sell to ETH only, keep it in the wallet"
   },
   "deposit": {
-    "title": "Migration deposit",
-    "live": "Live",
+    "live": "Deposits open",
     "opensAtLaunch": "Opens at launch",
     "halted": "Halted by the operator",
     "executed": "Launched",
@@ -87,19 +56,9 @@
     "configError": "The deposit terminal is misconfigured and has been disabled: {error}",
     "readError": "Couldn't read your deposit from the contract. Nothing is assumed: your deposit is not shown as zero.",
     "retry": "Retry",
-    "yourDeposit": "Your deposit",
     "totalDeposits": "All deposits",
-    "closeLabel": "Deposits close",
-    "closeValue": "No notice given, can end at any time",
-    "closeValueClosed": "Closed, the launch has run",
-    "howTitle": "What happens when you deposit",
-    "how": [
-      "Your ETH is held in the UpgraderEth contract under your address. You can withdraw it until the operator runs the launch.",
-      "At launch (TGE) every deposit goes into one batch buy of the new $gnars at a single shared price.",
-      "You claim your new $gnars here, pro-rata to your share of the deposits."
-    ],
     "amountLabel": "Amount",
-    "walletBalance": "Wallet: {amount} ETH (use all)",
+    "walletBalance": "Wallet: {amount} ETH",
     "walletBalanceUnavailable": "Couldn't read your wallet balance.",
     "fillDeposited": "Withdraw everything",
     "depositCta": "Deposit",
@@ -122,28 +81,30 @@
     "switchButtonEoa": "Switch to admin",
     "ethElsewhere": "This smart account holds no ETH. Your ETH is in your admin address ({address}); open the wallet menu and press \"{button}\" to deposit from it, or send ETH to this account first.",
     "lastTxConfirmed": "Last transaction confirmed:",
-    "lastTxPending": "Last transaction sent, confirmation pending:"
+    "lastTxPending": "Last transaction sent, confirmation pending:",
+    "liveHint": "no close date, can end any time",
+    "fromWallet": "Deposit from your wallet",
+    "max": "Max",
+    "gasReserveHint": "A gas reserve of {amount} ETH is kept in your wallet.",
+    "depositedSoFar": "Deposited so far",
+    "becomesLabel": "At launch becomes",
+    "becomesValue": "new $gnars, pro-rata"
   },
   "oldGnars": {
-    "title": "Your old $gnars",
-    "body": "The contract does not accept old $gnars. To enter with it, it has to be sold to ETH first, through the thin $gnars → ZORA → WETH pool, at the price below.",
-    "balance": "You hold",
-    "estimate": "Sells for (est.)",
+    "title": "Old $gnars",
+    "body": "Not accepted. Sells through a thin pool.",
     "impact": "Price impact",
     "impactUnknown": "unknown",
     "noRoute": "No route",
     "impactHint": "Price impact is the cost of this sale's size: how much worse the price is versus selling a small amount.",
-    "include": "Sell my old $gnars to ETH along with the coins above",
-    "includeHint": "Adds it to the sell preview below. It is quoted and sold like any other coin.",
-    "amountLabel": "How much to sell",
+    "include": "Sell my old $gnars to ETH along with the coins below",
+    "amountLabel": "How much old $gnars to sell",
     "portionAll": "All",
     "portion75": "75%",
     "portion50": "50%",
     "portion25": "25%",
-    "allHint": "Selling all is the recommended move; a portion works too and the estimate above follows what you pick.",
     "exceedsBalance": "That is more than you hold; the estimate is capped at your balance.",
-    "holdTitle": "Or hold it and do nothing",
-    "holdBody": "A legitimate choice. Old $gnars stays a tradable Zora creator coin; it just does not enter the migration.",
+    "holdBody": "Or hold it and do nothing: it stays a tradable Zora creator coin, it just does not enter the migration.",
     "balanceError": "Couldn't read your old $gnars balance. Nothing is assumed. Try again."
   },
   "steps": {
@@ -175,5 +136,31 @@
     "partial": "Sold {sold} of {total}. Not sold: {failed}. They stay selected; retry when ready.",
     "depositAfterSellsFailed": "The sells went through but the deposit did not. About {amount} ETH is in your wallet; deposit it from the terminal."
   },
-  "coinsElsewhere": "Viewing as your smart account, which holds no Zora coins. Your coins are in your admin address ({address}); open the wallet menu and press \"{button}\"."
+  "coinsElsewhere": "Viewing as your smart account, which holds no Zora coins. Your coins are in your admin address ({address}); open the wallet menu and press \"{button}\".",
+  "hold": {
+    "title": "What you hold",
+    "hint": "Pick what to turn into ETH",
+    "ethTitle": "ETH in your wallet",
+    "ethReady": "Ready to deposit as is",
+    "accepted": "accepted",
+    "unreadable": "Couldn't read",
+    "zoraTitle": "Zora coins",
+    "selectedCount": "{selected} of {total} selected",
+    "noLiquidity": "No liquidity",
+    "quoteFailed": "Quote failed",
+    "selectedCountNoRoute": "{selected} of {total} selected · {noRoute} without a route",
+    "deselectUnroutable": "Deselect unroutable",
+    "deselectUnroutableCount": "Deselect {count} unroutable"
+  },
+  "receipt": {
+    "title": "Your migration deposit",
+    "hint": "Where it all goes",
+    "walletEth": "ETH in wallet",
+    "coinsSold": "+ {count} Zora coins, sold",
+    "coinsNone": "+ Zora coins, sold",
+    "oldGnarsSold": "+ old $gnars, sold",
+    "nothingSelected": "Nothing selected",
+    "available": "Available to deposit",
+    "gasReserve": "− gas reserve"
+  }
 }
