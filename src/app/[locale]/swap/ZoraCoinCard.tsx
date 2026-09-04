@@ -141,7 +141,7 @@ export default function ZoraCoinCard({
       </div>
 
       {/* Name, blurb, market */}
-      <div className="space-y-2 px-4 pt-3 pb-4">
+      <div className="flex flex-col gap-2 px-4 pt-3 pb-4">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="truncate text-base font-semibold leading-tight">{coin.name ?? symbol}</h3>
           <span className="shrink-0 font-mono text-xs text-muted-foreground">${symbol}</span>
