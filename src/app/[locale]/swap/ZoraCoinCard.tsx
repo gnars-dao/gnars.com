@@ -75,13 +75,13 @@ export default function ZoraCoinCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-2xl border border-border bg-card/60 shadow-[0_24px_60px_-30px_rgba(0,0,0,.6)] @lg:flex @lg:items-stretch",
+        "overflow-hidden rounded-2xl border border-border bg-card/60 shadow-[0_24px_60px_-30px_rgba(0,0,0,.6)]",
         className,
       )}
       data-testid="zora-coin-card"
     >
       {/* Creator line */}
-      <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2 @lg:hidden">
+      <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
         <div className="flex min-w-0 items-center gap-2">
           {avatar ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -111,7 +111,7 @@ export default function ZoraCoinCard({
       </div>
 
       {/* The media, square, the point of the card */}
-      <div className="relative aspect-square w-full bg-muted @lg:w-64 @lg:shrink-0 @lg:self-stretch @lg:aspect-auto @lg:min-h-[16rem]">
+      <div className="relative aspect-square w-full bg-muted">
         {media?.kind === "video" ? (
           <video
             src={media.src}
@@ -141,36 +141,7 @@ export default function ZoraCoinCard({
       </div>
 
       {/* Name, blurb, market */}
-      <div className="flex flex-1 flex-col justify-center gap-2 px-4 pt-3 pb-4 @lg:px-6">
-        {/* Creator line */}
-        <div className="flex items-center justify-between gap-3 px-0 pt-0 pb-1 hidden @lg:flex">
-          <div className="flex min-w-0 items-center gap-2">
-            {avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatar}
-                alt=""
-                width={20}
-                height={20}
-                className="h-5 w-5 shrink-0 rounded-full object-cover"
-              />
-            ) : (
-              <span className="h-5 w-5 shrink-0 rounded-full bg-muted" />
-            )}
-            <span className="truncate text-xs text-muted-foreground">
-              {handle ? `@${handle}` : t("coinCard.zoraCoin")}
-            </span>
-          </div>
-          <a
-            href={zoraCoinUrl(token.address)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {t("coinCard.viewOnZora")}
-            <ExternalLink className="h-3 w-3" aria-hidden />
-          </a>
-        </div>
+      <div className="flex flex-col gap-2 px-4 pt-3 pb-4">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="truncate text-base font-semibold leading-tight">{coin.name ?? symbol}</h3>
           <span className="shrink-0 font-mono text-xs text-muted-foreground">${symbol}</span>
