@@ -169,6 +169,8 @@ const GOLD = "#f7c948";
 // attention. Neutral idle, gold only for the animated stream flowing inward.
 const EDGE = "rgba(255,255,255,.12)";
 const EDGE_FOCUS = "rgba(255,255,255,.2)";
+const EDGE_UNVERIFIED = "rgba(255,255,255,.06)";
+const EDGE_UNVERIFIED_FOCUS = "rgba(255,255,255,.12)";
 // Real protocol logos, marking each backer node by where they staked.
 const MORPHO_LOGO = "/logos/morpho.webp";
 const MORPHEUS_LOGO = "/logos/morpheus.webp";
@@ -699,14 +701,25 @@ export function StakeOrbit({
                   keys and dropped one of the two streams, silently hiding a real
                   stake from the orbit. */}
                 {nd.backers.map((bk) => (
-                  <g key={`e-${bk.b.kind}-${bk.b.asset ?? "na"}-${bk.b.address}`}>
+                  <g
+                    key={`e-${bk.b.kind}-${bk.b.asset ?? "na"}-${bk.b.address}`}
+                    data-reward-edge={hasVerifiedRewardRouting(bk.b) ? "verified" : "unverified"}
+                  >
                     <line
                       x1={bk.x}
                       y1={bk.y}
                       x2={nd.p.x}
                       y2={nd.p.y}
-                      stroke={nd.isCenter ? EDGE_FOCUS : EDGE}
-                      strokeWidth={supW(bk.b.amount)}
+                      stroke={
+                        hasVerifiedRewardRouting(bk.b)
+                          ? nd.isCenter
+                            ? EDGE_FOCUS
+                            : EDGE
+                          : nd.isCenter
+                            ? EDGE_UNVERIFIED_FOCUS
+                            : EDGE_UNVERIFIED
+                      }
+                      strokeWidth={hasVerifiedRewardRouting(bk.b) ? supW(bk.b.amount) : 1}
                       strokeLinecap="round"
                     />
                     {hasVerifiedRewardRouting(bk.b) && (

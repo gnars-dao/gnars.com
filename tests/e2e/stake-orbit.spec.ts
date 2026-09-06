@@ -61,11 +61,21 @@ for (const width of [1280, 390]) {
       await expect(page.locator('[data-routing="verified-split"]')).toHaveCount(1);
       await expect(page.locator('[data-routing="unconfigured"]')).toHaveCount(1);
     }
+    const pendingEdge = page.locator('[data-reward-edge="unverified"]');
+    const verifiedEdge = page.locator('[data-reward-edge="verified"]');
+    await expect(pendingEdge.locator("line")).toHaveCount(1);
+    await expect(pendingEdge.locator("line")).toHaveAttribute("stroke-width", "1");
+    await expect(pendingEdge.locator("line")).toHaveAttribute("stroke", "rgba(255,255,255,.12)");
+    await expect(pendingEdge.locator(".so-flow")).toHaveCount(0);
+    await expect(verifiedEdge.locator(".so-flow")).toHaveCount(1);
     await page.waitForTimeout(1000);
     await page.screenshot({ path: info.outputPath(`orbit-${width}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
       true,
     );
+    await page.getByRole("button", { name: "← Todos os riders", exact: true }).click();
+    await expect(pendingEdge.locator("line")).toHaveAttribute("stroke-width", "1");
+    await expect(pendingEdge.locator("line")).toHaveAttribute("stroke", "rgba(255,255,255,.06)");
 
     graph.morResolved = false;
     await page.reload({ waitUntil: "domcontentloaded" });

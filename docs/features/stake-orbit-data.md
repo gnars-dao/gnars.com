@@ -24,6 +24,8 @@ unconfigured, custom or unreadable. `routing` distinguishes those states from
 Only verified routing contributes pending MOR to the treasury estimate. Actual
 MOR already held by the expected split is counted independently of current routing.
 The orbit does not animate reward flow for an unverified Morpheus receiver.
+Unverified backer connections use a thin, low-opacity line regardless of deposit
+size, so a large referred deposit does not visually outweigh verified sponsorship.
 
 `morResolved: false` signals incomplete Morpheus data; consumers label subtotals
 instead of presenting missing reads as zero. Degraded responses are not cached.
