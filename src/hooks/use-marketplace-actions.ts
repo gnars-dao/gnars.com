@@ -647,7 +647,8 @@ export function useMarketplaceActions() {
   async function trade(kind: "buy" | "cancel", tokenId: string, offer: MarketplaceOffer) {
     return execute(async (entry, owner) => {
       const ready = await api("/readiness");
-      if (!ready.capabilities?.localTrading) throw new Error("Marketplace trading is unavailable");
+      if (offer.source !== "opensea" && !ready.capabilities?.localTrading)
+        throw new Error("Marketplace trading is unavailable");
       if (offer.source === "opensea") {
         if (kind !== "buy" || !ready.capabilities?.openseaBuy)
           throw new Error("OpenSea execution is unavailable");

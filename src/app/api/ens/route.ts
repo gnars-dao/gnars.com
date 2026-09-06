@@ -1,227 +1,133 @@
+import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
-import { Address, isAddress } from "viem";
+import { isAddress, type Address } from "viem";
+import { z } from "zod";
+import { mapConcurrent } from "@/lib/server/map-concurrent";
+import {
+  enforceRateLimit,
+  readJsonBody,
+  RequestSecurityError,
+  requestSecurityResponse,
+} from "@/lib/server/request-security";
 
-type ENSData = {
-  name: string | null;
-  avatar: string | null;
-  displayName: string;
-  address: Address;
-};
+const addressSchema = z
+  .string()
+  .refine(isAddress)
+  .transform((value) => value.toLowerCase() as Address);
+const requestSchema = z.union([
+  z.object({ address: addressSchema }).strict(),
+  z.object({ addresses: z.array(addressSchema).min(1).max(50) }).strict(),
+  z
+    .object({
+      name: z
+        .string()
+        .trim()
+        .min(3)
+        .max(255)
+        .includes(".")
+        .transform((value) => value.toLowerCase()),
+    })
+    .strict(),
+]);
+const reverseSchema = z
+  .object({
+    name: z.string().nullable().optional(),
+    displayName: z.string().nullable().optional(),
+    avatar: z.string().nullable().optional(),
+    address: z.string().refine(isAddress).nullable().optional(),
+  })
+  .refine((value) => "name" in value || "displayName" in value || "address" in value);
+const forwardSchema = z.object({ address: addressSchema.nullable() });
+const cacheHeaders = { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800" };
 
-type ENSResolveResult = {
-  name: string | null;
-  avatar: string | null;
-};
-
-type EnsRequestBody = {
-  address?: string;
-  addresses?: string[];
-  name?: string;
-};
-
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours - ENS names rarely change
-const EDGE_CACHE_SECONDS = 86400; // 24 hours for Vercel edge cache
-const STALE_WHILE_REVALIDATE = 604800; // 7 days
-
-const ensCache = new Map<string, { data: ENSResolveResult; timestamp: number }>();
-const nameToAddressCache = new Map<string, { address: Address | null; timestamp: number }>();
-
-// Cache headers for Vercel edge caching
-const cacheHeaders = {
-  "Cache-Control": `public, s-maxage=${EDGE_CACHE_SECONDS}, stale-while-revalidate=${STALE_WHILE_REVALIDATE}`,
-};
-
-function now(): number {
-  return Date.now();
+async function fetchResolution(query: string, forward: boolean) {
+  for (const base of [
+    "https://api.ensideas.com/ens/resolve/",
+    "https://ens.resolver.eth.link/resolve/",
+  ]) {
+    try {
+      const response = await fetch(`${base}${encodeURIComponent(query)}`, {
+        headers: { Accept: "application/json", "User-Agent": "gnars-website/ens" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) continue;
+      const parsed = (forward ? forwardSchema : reverseSchema).safeParse(await response.json());
+      if (parsed.success) return parsed.data;
+    } catch {
+      // Try the secondary provider; outages must not become cached negative answers.
+    }
+  }
+  throw new RequestSecurityError(502, "ENS service is unavailable.");
 }
 
-function shortenAddress(address: Address): string {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+const cachedResolution = unstable_cache(fetchResolution, ["ens-resolution-v2"], {
+  revalidate: 3600,
+});
+const pending = new Map<string, ReturnType<typeof cachedResolution>>();
+
+function resolve(query: string, forward: boolean) {
+  const key = `${forward}:${query}`;
+  const current = pending.get(key);
+  if (current) return current;
+  const promise = cachedResolution(query, forward).finally(() => pending.delete(key));
+  pending.set(key, promise);
+  return promise;
 }
 
-function buildENSData(address: Address, base: ENSResolveResult): ENSData {
+async function resolveAddress(address: Address) {
+  const result = reverseSchema.parse(await resolve(address, false));
+  const name = result.name || result.displayName || null;
   return {
-    name: base.name,
-    avatar: base.avatar,
-    displayName: base.name || shortenAddress(address),
     address,
+    name,
+    avatar: result.avatar ?? null,
+    displayName: name || `${address.slice(0, 6)}...${address.slice(-4)}`,
   };
 }
 
-function normalizeAddress(addr: string): Address | null {
-  const candidate = (addr || "").toLowerCase();
-  return isAddress(candidate) ? (candidate as Address) : null;
-}
-
-async function fetchENSFromUpstream(address: Address): Promise<ENSResolveResult> {
-  // Primary provider: ensideas
-  try {
-    const res = await fetch(`https://api.ensideas.com/ens/resolve/${address}`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "gnars-website/ens",
-      },
-      next: { revalidate: 60 * 60 },
-    });
-    if (res.ok) {
-      const data = (await res.json()) as {
-        displayName?: string | null;
-        name?: string | null;
-        avatar?: string | null;
-      };
-      return {
-        name: data.displayName || data.name || null,
-        avatar: data.avatar || null,
-      };
-    }
-  } catch {
-    // ignore
+async function handle(request: Request, raw: unknown) {
+  const parsed = requestSchema.safeParse(raw);
+  if (!parsed.success)
+    throw new RequestSecurityError(400, "Invalid ENS lookup. Maximum batch size is 50.");
+  const input = parsed.data;
+  const addresses = "addresses" in input ? [...new Set(input.addresses)] : null;
+  await enforceRateLimit(request, {
+    scope: "ens",
+    limit: 120,
+    windowSeconds: 60,
+    cost: addresses?.length ?? 1,
+  });
+  const headers = request.method === "GET" ? cacheHeaders : { "Cache-Control": "no-store" };
+  if ("name" in input) {
+    const result = forwardSchema.parse(await resolve(input.name, true));
+    return NextResponse.json({ address: result.address }, { headers });
   }
-
-  // Fallback provider
-  try {
-    const res = await fetch(`https://ens.resolver.eth.link/resolve/${address}`, {
-      headers: { Accept: "application/json" },
-      next: { revalidate: 60 * 60 },
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { name?: string | null; avatar?: string | null };
-      return {
-        name: data.name || null,
-        avatar: data.avatar || null,
-      };
-    }
-  } catch {
-    // ignore
-  }
-
-  return { name: null, avatar: null };
-}
-
-async function resolveEnsForAddress(address: Address): Promise<ENSResolveResult> {
-  const cached = ensCache.get(address);
-  if (cached && now() - cached.timestamp < CACHE_TTL_MS) {
-    return cached.data;
-  }
-
-  const data = await fetchENSFromUpstream(address);
-  ensCache.set(address, { data, timestamp: now() });
-  return data;
-}
-
-async function resolveNameToAddress(name: string): Promise<Address | null> {
-  const trimmed = (name || "").trim().toLowerCase();
-  if (!trimmed || !trimmed.includes(".")) return null;
-
-  const cached = nameToAddressCache.get(trimmed);
-  if (cached && now() - cached.timestamp < CACHE_TTL_MS) {
-    return cached.address;
-  }
-
-  // Primary provider
-  try {
-    const res = await fetch(`https://api.ensideas.com/ens/resolve/${encodeURIComponent(trimmed)}`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "gnars-website/ens",
-      },
-      next: { revalidate: 60 * 60 },
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { address?: string | null };
-      const addr = typeof data?.address === "string" ? data.address.toLowerCase() : null;
-      const normalized = addr && isAddress(addr) ? (addr as Address) : null;
-      nameToAddressCache.set(trimmed, { address: normalized, timestamp: now() });
-      return normalized;
-    }
-  } catch {
-    // ignore
-  }
-
-  // Fallback provider
-  try {
-    const res = await fetch(
-      `https://ens.resolver.eth.link/resolve/${encodeURIComponent(trimmed)}`,
-      {
-        headers: { Accept: "application/json" },
-        next: { revalidate: 60 * 60 },
-      },
-    );
-    if (res.ok) {
-      const data = (await res.json()) as { address?: string | null };
-      const addr = typeof data?.address === "string" ? data.address.toLowerCase() : null;
-      const normalized = addr && isAddress(addr) ? (addr as Address) : null;
-      nameToAddressCache.set(trimmed, { address: normalized, timestamp: now() });
-      return normalized;
-    }
-  } catch {
-    // ignore
-  }
-
-  nameToAddressCache.set(trimmed, { address: null, timestamp: now() });
-  return null;
-}
-
-async function handleSingle(addressParam: string) {
-  const normalized = normalizeAddress(addressParam);
-  if (!normalized) {
-    return NextResponse.json({ error: "invalid_address" }, { status: 400 });
-  }
-
-  const base = await resolveEnsForAddress(normalized);
-  const ens = buildENSData(normalized, base);
-  return NextResponse.json({ ens }, { headers: cacheHeaders });
-}
-
-async function handleBatch(addressesParam: string[]) {
-  const addresses: Address[] = addressesParam
-    .map((a) => normalizeAddress(a))
-    .filter((a): a is Address => Boolean(a));
-
-  if (addresses.length === 0) {
-    return NextResponse.json({ error: "addresses_required" }, { status: 400 });
-  }
-
-  const results = await Promise.all(
-    addresses.map(async (addr) => {
-      const base = await resolveEnsForAddress(addr);
-      return [addr, buildENSData(addr, base)] as const;
-    }),
+  if ("address" in input)
+    return NextResponse.json({ ens: await resolveAddress(input.address) }, { headers });
+  const entries = await mapConcurrent(
+    addresses!,
+    async (address) => [address, await resolveAddress(address)] as const,
+    5,
   );
-
-  const ensMap: Record<string, ENSData> = {};
-  for (const [addr, data] of results) {
-    ensMap[addr] = data;
-  }
-  return NextResponse.json({ ensMap }, { headers: cacheHeaders });
-}
-
-async function handleName(nameParam: string) {
-  const address = await resolveNameToAddress(String(nameParam || ""));
-  return NextResponse.json({ address }, { headers: cacheHeaders });
+  return NextResponse.json({ ensMap: Object.fromEntries(entries) }, { headers });
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const name = searchParams.get("name");
-  const address = searchParams.get("address");
-  const addressesParam = searchParams.get("addresses");
-
-  if (name) return handleName(name);
-  if (address) return handleSingle(address);
-  if (addressesParam) return handleBatch(addressesParam.split(","));
-
-  return NextResponse.json({ error: "missing_params" }, { status: 400 });
+  try {
+    const params = new URL(request.url).searchParams;
+    const raw: Record<string, unknown> = Object.fromEntries(params);
+    if (typeof raw.addresses === "string") raw.addresses = raw.addresses.split(",");
+    return await handle(request, raw);
+  } catch (error) {
+    return requestSecurityResponse(error);
+  }
 }
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const body = (await req.json()) as EnsRequestBody;
-    if (body?.name) return handleName(body.name);
-    if (body?.address) return handleSingle(body.address);
-    if (Array.isArray(body?.addresses)) return handleBatch(body.addresses);
-    return NextResponse.json({ error: "missing_params" }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    return await handle(request, await readJsonBody(request, 8192));
+  } catch (error) {
+    return requestSecurityResponse(error);
   }
 }

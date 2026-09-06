@@ -58,11 +58,18 @@ describe("marketplace source availability", () => {
     expect(page.capabilities).toEqual({ openseaBuy: false, localTrading: false });
     expect(mocks.external).not.toHaveBeenCalled();
   });
-  it("does not enable paid fulfillment with an API key but no durable budget storage", async () => {
+  it("enables OpenSea purchases with only an API key, without enabling local order storage", async () => {
     mocks.key.mockReturnValue(true);
     expect(await getMarketplaceReadiness()).toMatchObject({
       sources: { opensea: { available: true } },
-      capabilities: { openseaBuy: false },
+      capabilities: { openseaBuy: true, localTrading: false },
+    });
+    expect(await loadMarketplacePage({ view: "listings" })).toMatchObject({
+      capabilities: { openseaBuy: true, localTrading: false },
+    });
+    mocks.detail.mockResolvedValueOnce(null);
+    expect(await loadMarketplaceToken("12")).toMatchObject({
+      capabilities: { openseaBuy: true, localTrading: false },
     });
   });
   it("marks a catalogue read failure explicitly unavailable", async () => {

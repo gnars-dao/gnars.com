@@ -86,7 +86,7 @@ export async function enforceMarketplaceBudget(
   const now = Math.floor(Date.now() / 1000);
   const minute = Math.floor(now / 60);
   const ip = request.headers.get("x-vercel-forwarded-for") ?? "local";
-  const limits = operation === "fulfillment" ? [20, 120] : [10, 60];
+  const limits = operation === "fulfillment" ? [20, 40] : [10, 60];
   for (const [index, subject] of [ip, "global"].entries()) {
     const key = createHash("sha256")
       .update(`${operation}:${index}:${subject}:${minute}`)
@@ -101,6 +101,32 @@ export async function enforceMarketplaceBudget(
       throw new RequestSecurityError(429, "Marketplace request limit reached.", 60 - (now % 60));
   }
   await database().query("DELETE FROM marketplace_rate_limits WHERE expires_at < $1", [now - 3600]);
+}
+
+/** Count only outbound cache misses, across instances when marketplace storage is ready. */
+export async function enforceOpenSeaProviderBudget(operation: "read" | "fulfillment") {
+  if (!marketplaceStorageConfigured()) return;
+  if (!(await marketplaceStorageReady())) return;
+  const now = Math.floor(Date.now() / 1000);
+  const window = Math.floor(now / 30);
+  // A rolling minute intersects at most three buckets: <=90 reads / 45 fulfillments.
+  // Leave headroom because OpenSea shares the account's quota across all API keys.
+  const limit = operation === "read" ? 30 : 15;
+  const bucket = createHash("sha256")
+    .update(`opensea-provider:${operation}:${window}`)
+    .digest("hex");
+  const result = await database().query(
+    `INSERT INTO marketplace_rate_limits (bucket, hits, expires_at) VALUES ($1, 1, $2)
+     ON CONFLICT (bucket) DO UPDATE SET hits = marketplace_rate_limits.hits + 1
+     WHERE marketplace_rate_limits.hits < $3 RETURNING hits`,
+    [bucket, (window + 1) * 30, limit],
+  );
+  if (result.rowCount === 0)
+    throw new RequestSecurityError(429, "OpenSea request limit reached.", 30 - (now % 30));
+  if (result.rows[0]?.hits === 1)
+    await database().query("DELETE FROM marketplace_rate_limits WHERE expires_at < $1", [
+      now - 3600,
+    ]);
 }
 
 type StoredOrder = { id: string; signed_order: unknown; order_hash: Hex; status: string };

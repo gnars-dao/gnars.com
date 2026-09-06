@@ -7,7 +7,7 @@ import { orderTypes, SEAPORT_ADDRESS } from "./seaport";
 
 const seller = "0x1111111111111111111111111111111111111111" as Address;
 const buyer = "0x2222222222222222222222222222222222222222" as Address;
-function fixture(kind: "basic" | "order" | "advanced" = "advanced") {
+function fixture(kind: "basic" | "order" | "advanced" = "advanced", orderType = 0) {
   const p = {
     offerer: seller,
     zone: zeroAddress,
@@ -30,7 +30,7 @@ function fixture(kind: "basic" | "order" | "advanced" = "advanced") {
         recipient: seller,
       },
     ],
-    orderType: 0,
+    orderType,
     startTime: "1",
     endTime: "9999999999",
     zoneHash: zeroHash,
@@ -60,7 +60,7 @@ function fixture(kind: "basic" | "order" | "advanced" = "advanced") {
     offerToken: DAO_ADDRESSES.token,
     offerIdentifier: "42",
     offerAmount: "1",
-    basicOrderType: 0,
+    basicOrderType: orderType,
     startTime: "1",
     endTime: "9999999999",
     zoneHash: zeroHash,
@@ -103,6 +103,34 @@ function fixture(kind: "basic" | "order" | "advanced" = "advanced") {
   return { raw, expected: { offer, tokenId: "42", buyer }, p };
 }
 describe("OpenSea fulfillment boundary", () => {
+  it.each(["basic", "order", "advanced"] as const)(
+    "accepts whole singleton fills of partial-enabled %s orders with the OpenSea conduit",
+    (kind) => {
+      for (const orderType of [1, 3]) {
+        const { raw, expected } = fixture(kind, orderType);
+        const input = raw.fulfillment_data.transaction.input_data;
+        const route = kind === "basic" ? input.parameters! : input;
+        Object.assign(route, {
+          fulfillerConduitKey: "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+        });
+        const tx = encodeOpenSeaFulfillment(raw, expected);
+        expect(() => verifyOpenSeaTransaction(tx, { ...expected, counter: 0n })).not.toThrow();
+        Object.assign(route, { fulfillerConduitKey: `0x${"11".repeat(32)}` });
+        expect(() => encodeOpenSeaFulfillment(raw, expected)).toThrow();
+      }
+      const unsupported = fixture(kind, 4);
+      expect(() => encodeOpenSeaFulfillment(unsupported.raw, unsupported.expected)).toThrow();
+    },
+  );
+  it("accepts the live Seaport 1.6 label and hex-encoded uint salt", () => {
+    const { raw, expected, p } = fixture("basic");
+    raw.protocol = "seaport1.6";
+    p.salt = "0x7b";
+    Object.assign(raw.fulfillment_data.transaction.input_data.parameters!, { salt: "0x7b" });
+    expect(() => encodeOpenSeaFulfillment(raw, expected)).not.toThrow();
+    raw.protocol = "seaport1.5";
+    expect(() => encodeOpenSeaFulfillment(raw, expected)).toThrow();
+  });
   it("accepts the documented ABI Address wrapper for the buyer", () => {
     const { raw, expected } = fixture();
     Object.assign(raw.fulfillment_data.transaction.input_data, {

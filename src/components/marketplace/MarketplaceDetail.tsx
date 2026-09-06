@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -17,19 +17,21 @@ import { formatEther } from "viem";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMarketplaceActions } from "@/hooks/use-marketplace-actions";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { parseMarketplacePrice } from "@/lib/marketplace-display";
+import { cn } from "@/lib/utils";
 import type { MarketplaceItem, MarketplaceOffer, MarketplacePage } from "@/types/marketplace";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { NftArtwork } from "./NftArtwork";
@@ -51,10 +53,12 @@ const phases = [
 export default function MarketplaceDetail({
   item: initialItem,
   capabilities: initialCapabilities,
+  restoreFocus,
   onClose,
 }: {
   item: MarketplaceItem;
   capabilities: MarketplacePage["capabilities"];
+  restoreFocus: () => void;
   onClose: () => void;
 }) {
   const t = useTranslations("marketplace");
@@ -62,6 +66,12 @@ export default function MarketplaceDetail({
   const writer = useWriteAccount();
   const actions = useMarketplaceActions();
   const queryClient = useQueryClient();
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const [mounted, setMounted] = useState(false);
+  const [open, setOpen] = useState(true);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => setMounted(true), []);
   const [mode, setMode] = useState<Mode>("details");
   const [offer, setOffer] = useState<MarketplaceOffer | null>(null);
   const [price, setPrice] = useState("");
@@ -130,22 +140,39 @@ export default function MarketplaceDetail({
 
   function choose(next: Mode, listing?: MarketplaceOffer) {
     if (busy || unresolved) return;
-    actions.reset();
+    if (writer) actions.reset();
     setSubmitted(false);
     setOffer(listing ?? null);
     setMode(next);
+    scrollRef.current?.scrollTo({ top: 0 });
   }
 
+  if (!mounted) return null;
+
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+    <Drawer
+      open={open}
+      direction={isDesktop ? "right" : "bottom"}
+      dismissible={!busy}
+      autoFocus
+      fixed
+      onOpenChange={(nextOpen) => {
+        if (!busy) setOpen(nextOpen);
+      }}
+      onAnimationEnd={(isOpen) => {
+        if (!isOpen) onClose();
       }}
     >
-      <DialogContent
-        className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
-        showCloseButton={!busy}
+      <DrawerContent
+        className="overflow-hidden shadow-2xl data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh] data-[vaul-drawer-direction=right]:w-[min(560px,100vw)] data-[vaul-drawer-direction=right]:sm:max-w-[560px] motion-reduce:!animate-none motion-reduce:!transition-none"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          titleRef.current?.focus({ preventScroll: true });
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreFocus();
+        }}
         onInteractOutside={(event) => {
           if (busy) event.preventDefault();
         }}
@@ -153,39 +180,76 @@ export default function MarketplaceDetail({
           if (busy) event.preventDefault();
         }}
       >
-        <DialogHeader>
-          <DialogTitle>{item.name}</DialogTitle>
-          <DialogDescription>
-            {t("collection")} / {t("network")}
-          </DialogDescription>
-        </DialogHeader>
-        <MarketplaceRecovery />
-        <div className="grid min-w-0 gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <div className="min-w-0 space-y-3">
-            <div className="overflow-hidden rounded-lg border">
-              <NftArtwork key={item.image} item={item} sizes="(max-width: 639px) 85vw, 300px" />
-            </div>
-            <a
-              href={`https://opensea.io/item/base/${DAO_ADDRESSES.token}/${item.tokenId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-            >
-              {t("openSea")}
-              <ExternalLink className="size-3" />
-            </a>
-          </div>
-          <div className="min-w-0 space-y-5">
+        <DrawerHeader className="shrink-0 flex-row items-center justify-between gap-4 border-b px-5 py-4 text-left md:px-6 md:py-5 group-data-[vaul-drawer-direction=bottom]/drawer-content:text-left">
+          <div className="flex min-w-0 items-center gap-3">
             {mode !== "details" && !busy && !success && !unresolved && (
               <Button
                 size="icon"
                 variant="ghost"
                 aria-label={t("back")}
                 onClick={() => choose("details")}
+                className="shrink-0"
               >
                 <ArrowLeft className="size-4" />
               </Button>
             )}
+            <div className="min-w-0 space-y-1">
+              <DrawerTitle
+                ref={titleRef}
+                tabIndex={-1}
+                className="break-words text-xl font-semibold outline-none"
+              >
+                {item.name}
+              </DrawerTitle>
+              <DrawerDescription className="flex items-center gap-2 text-xs">
+                {t("collection")}
+                <span aria-hidden="true" className="text-border">
+                  /
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span aria-hidden="true" className="size-1.5 rounded-full bg-blue-600" />
+                  {t("network")}
+                </span>
+              </DrawerDescription>
+            </div>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={t("close")}
+            onClick={() => setOpen(false)}
+            disabled={busy}
+            className="shrink-0 cursor-pointer"
+          >
+            <X className="size-4" />
+          </Button>
+        </DrawerHeader>
+        <div
+          ref={scrollRef}
+          data-vaul-no-drag
+          className="min-h-0 flex-1 select-text space-y-6 overflow-y-auto overscroll-contain px-5 pt-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] md:px-6 md:pt-6"
+        >
+          <MarketplaceRecovery />
+          <div className="min-w-0 space-y-3">
+            <div
+              className={cn(
+                "mx-auto overflow-hidden rounded-lg",
+                mode === "details" ? "w-[min(100%,36dvh)] md:w-full" : "w-24",
+              )}
+            >
+              <NftArtwork key={item.image} item={item} sizes="(max-width: 767px) 36vh, 512px" />
+            </div>
+            <a
+              href={`https://opensea.io/item/base/${DAO_ADDRESSES.token}/${item.tokenId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {t("openSea")}
+              <ExternalLink className="size-3" />
+            </a>
+          </div>
+          <div className="min-w-0 space-y-5">
             {mode === "details" ? (
               <>
                 <div>
@@ -220,9 +284,9 @@ export default function MarketplaceDetail({
                     </p>
                   ) : null}
                   {item.offers.map((listing) => (
-                    <div key={listing.id} className="space-y-2 border-b pb-3">
+                    <div key={listing.id} className="space-y-3 border-b pb-4 last:border-b-0">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="break-all font-mono text-sm font-semibold">
+                        <span className="break-all font-mono text-xl font-semibold">
                           {formatEther(BigInt(listing.priceWei))} ETH
                         </span>
                         <span className="text-xs text-muted-foreground">
@@ -425,7 +489,7 @@ export default function MarketplaceDetail({
                 {!writer ? (
                   <ConnectButton />
                 ) : success ? (
-                  <Button onClick={onClose} className="w-full">
+                  <Button onClick={() => setOpen(false)} className="w-full">
                     {t("newAction")}
                   </Button>
                 ) : (
@@ -476,7 +540,7 @@ export default function MarketplaceDetail({
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }

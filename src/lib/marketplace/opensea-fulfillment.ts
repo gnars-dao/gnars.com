@@ -40,6 +40,7 @@ const uint = z
       .string()
       .regex(/^(0|[1-9]\d*)$/)
       .max(78),
+    z.string().regex(/^0x[\da-fA-F]{1,64}$/),
     z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   ])
   .transform((v) => BigInt(v))
@@ -105,6 +106,12 @@ export const openSeaFulfillmentAbi = parseAbi([
 type Expected = { offer: MarketplaceOffer; tokenId: string; buyer: Address };
 type Transaction = { to: Address; data: Hex; value: bigint };
 
+// OpenSea's canonical conduit is allowed only within the native-ETH-only routes below.
+const OPENSEA_CONDUIT_KEY = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
+function supportedBuyerConduit(key: Hex): boolean {
+  return key === zeroHash || key.toLowerCase() === OPENSEA_CONDUIT_KEY;
+}
+
 function verifyParameters(p: z.infer<typeof parameters>, counter: bigint, expected: Expected) {
   const { offer, tokenId, buyer } = expected;
   const nft = p.offer[0];
@@ -113,7 +120,7 @@ function verifyParameters(p: z.infer<typeof parameters>, counter: bigint, expect
     !isAddressEqual(offer.protocolAddress, SEAPORT_ADDRESS) ||
     !isAddressEqual(p.offerer, offer.seller) ||
     isAddressEqual(buyer, p.offerer) ||
-    ![0, 2].includes(p.orderType) ||
+    ![0, 1, 2, 3].includes(p.orderType) ||
     nft.itemType !== 2 ||
     !isAddressEqual(nft.token, DAO_ADDRESSES.token) ||
     nft.identifierOrCriteria !== BigInt(tokenId) ||
@@ -149,8 +156,8 @@ function verifyParameters(p: z.infer<typeof parameters>, counter: bigint, expect
 
 function basicParameters(p: z.infer<typeof basic>): z.infer<typeof parameters> {
   if (
-    ![0, 2].includes(p.basicOrderType) ||
-    p.fulfillerConduitKey !== zeroHash ||
+    ![0, 1, 2, 3].includes(p.basicOrderType) ||
+    !supportedBuyerConduit(p.fulfillerConduitKey) ||
     p.totalOriginalAdditionalRecipients !== BigInt(p.additionalRecipients.length)
   )
     throw new Error("Unsupported basic order route");
@@ -204,7 +211,7 @@ export function verifyOpenSeaTransaction(
     p = basicParameters(basic.parse(decoded.args[0]));
   } else if (decoded.functionName === "fulfillOrder") {
     const [o, conduit] = decoded.args;
-    if (conduit !== zeroHash) throw new Error("Unexpected buyer conduit");
+    if (!supportedBuyerConduit(conduit)) throw new Error("Unexpected buyer conduit");
     p = parameters.parse(o.parameters);
   } else {
     const [o, criteria, conduit, recipient] = decoded.args;
@@ -212,7 +219,7 @@ export function verifyOpenSeaTransaction(
       o.numerator !== 1n ||
       o.denominator !== 1n ||
       criteria.length ||
-      conduit !== zeroHash ||
+      !supportedBuyerConduit(conduit) ||
       !isAddressEqual(recipient, expected.buyer)
     )
       throw new Error("Unsupported advanced order route");
@@ -224,7 +231,7 @@ export function verifyOpenSeaTransaction(
 export function encodeOpenSeaFulfillment(raw: unknown, expected: Expected): Transaction {
   const response = z
     .object({
-      protocol: z.literal("seaport"),
+      protocol: z.enum(["seaport", "seaport1.6"]),
       fulfillment_data: z.object({
         orders: z
           .array(z.object({ parameters: parameters.extend({ counter: uint }), signature: bytes }))

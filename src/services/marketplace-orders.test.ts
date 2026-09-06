@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   enforceMarketplaceBudget,
+  enforceOpenSeaProviderBudget,
   getMarketplaceOrder,
   marketplaceStorageReady,
   reconcileMarketplaceOrder,
@@ -153,7 +154,7 @@ describe("distributed paid-operation budgets", () => {
     expect(budgets[0][0]).toContain("WHERE marketplace_rate_limits.hits < $3");
     expect(budgets[0][1][0]).toMatch(/^[a-f0-9]{64}$/);
     expect(budgets[0][1][2]).toBe(20);
-    expect(budgets[1][1][2]).toBe(120);
+    expect(budgets[1][1][2]).toBe(40);
     expect(JSON.stringify(budgets)).not.toContain("192.0.2.1");
   });
   it("rejects exhausted IP budget before spending the global budget", async () => {
@@ -169,5 +170,40 @@ describe("distributed paid-operation budgets", () => {
     expect(
       mocks.query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO marketplace_rate_limits")),
     ).toHaveLength(1);
+  });
+  it("budgets actual OpenSea reads separately from fulfillment across instances", async () => {
+    await enforceOpenSeaProviderBudget("read");
+    await enforceOpenSeaProviderBudget("fulfillment");
+    const budgets = mocks.query.mock.calls.filter(([sql]) =>
+      sql.includes("INSERT INTO marketplace_rate_limits"),
+    );
+    expect(budgets).toHaveLength(2);
+    expect(budgets[0][1][2]).toBe(30);
+    expect(budgets[1][1][2]).toBe(15);
+    expect(budgets[0][1][0]).not.toBe(budgets[1][1][0]);
+  });
+  it("does not make an existing database without marketplace tables block OpenSea", async () => {
+    mocks.query.mockRejectedValueOnce(new Error("marketplace schema is missing"));
+    await expect(enforceOpenSeaProviderBudget("read")).resolves.toBeUndefined();
+    expect(mocks.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO"))).toBe(false);
+  });
+  it("fails closed if consuming a ready distributed budget fails", async () => {
+    const original = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, ...args) => {
+      if (sql.includes("INSERT INTO marketplace_rate_limits")) throw new Error("database offline");
+      return original(sql, ...args);
+    });
+    await expect(enforceOpenSeaProviderBudget("read")).rejects.toThrow("database offline");
+  });
+  it("permits local-only read protection when no database is configured", async () => {
+    for (const key of [
+      "MARKETPLACE_DATABASE_URL",
+      "ROUNDS_DATABASE_URL",
+      "DATABASE_PUBLIC_URL",
+      "DATABASE_URL",
+    ])
+      vi.stubEnv(key, "");
+    await enforceOpenSeaProviderBudget("read");
+    expect(mocks.query).not.toHaveBeenCalled();
   });
 });

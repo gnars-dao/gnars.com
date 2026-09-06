@@ -12,10 +12,13 @@ import {
 } from "./marketplace-opensea";
 
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
+const budget = vi.hoisted(() => vi.fn());
+vi.mock("./marketplace-orders", () => ({ enforceOpenSeaProviderBudget: budget }));
 
 const hash = `0x${"a".repeat(64)}`;
 const seller = "0x1111111111111111111111111111111111111111";
 const fetchMock = vi.fn<typeof fetch>();
+let testTime = Date.now();
 
 // Wire names/envelope follow OpenSea get_order.md GetOrderResponse and Listing schemas.
 function listing() {
@@ -57,11 +60,16 @@ function listing() {
   };
 }
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  testTime += 7_200_000;
+  vi.setSystemTime(testTime);
+  budget.mockReset().mockResolvedValue(undefined);
   vi.stubEnv("OPENSEA_API_KEY", "test-secret");
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -118,16 +126,26 @@ describe("OpenSea marketplace adapter", () => {
     expect(normalizeOpenSeaListing({ status: "EXPIRED", chain: "base" })).toBeNull();
     expect(normalizeOpenSeaListing({ status: "ACTIVE", chain: "ethereum" })).toBeNull();
   });
-  it("rejects different NFTs, ERC20 payment, partial orders and changing prices", () => {
+  it.each([1, 3])("accepts orderType %i for a whole singleton ERC721 purchase", (orderType) => {
+    const order = listing();
+    order.protocol_data.parameters.orderType = orderType;
+    expect(normalizeOpenSeaListing(order)).toMatchObject({ tokenId: "12" });
+  });
+  it("rejects different NFTs, ERC20 payment, multi-unit orders and changing prices", () => {
     const wrong = listing();
     wrong.protocol_data.parameters.offer[0].token = seller;
     expect(normalizeOpenSeaListing(wrong)).toBeNull();
     const erc20 = listing();
     erc20.protocol_data.parameters.consideration[0].itemType = 1;
     expect(normalizeOpenSeaListing(erc20)).toBeNull();
-    const partial = listing();
-    partial.protocol_data.parameters.orderType = 1;
-    expect(normalizeOpenSeaListing(partial)).toBeNull();
+    const multiple = listing();
+    multiple.protocol_data.parameters.orderType = 1;
+    multiple.protocol_data.parameters.offer[0].startAmount = "2";
+    multiple.protocol_data.parameters.offer[0].endAmount = "2";
+    expect(normalizeOpenSeaListing(multiple)).toBeNull();
+    const contractOrder = listing();
+    contractOrder.protocol_data.parameters.orderType = 4;
+    expect(normalizeOpenSeaListing(contractOrder)).toBeNull();
     const dutch = listing();
     dutch.protocol_data.parameters.consideration[0].endAmount = "1";
     expect(normalizeOpenSeaListing(dutch)).toBeNull();
@@ -169,5 +187,50 @@ describe("OpenSea marketplace adapter", () => {
     expect(await getOpenSeaTokenListing("12")).toBeNull();
     fetchMock.mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
     await expect(getOpenSeaTokenListing("12")).rejects.toThrow("unavailable");
+  });
+  it("coalesces concurrent reads and charges only one outbound request", async () => {
+    fetchMock.mockImplementation(async () => Response.json({ order: listing() }));
+    const orders = await Promise.all(
+      Array.from({ length: 20 }, () => getOpenSeaMarketplaceOrder(hash)),
+    );
+    expect(orders).toHaveLength(20);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(budget).toHaveBeenCalledExactlyOnceWith("read");
+    await getOpenSeaMarketplaceOrder(hash);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("releases failed in-flight reads so a later request can recover", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    await expect(getOpenSeaMarketplaceOrder(hash)).rejects.toThrow("unavailable");
+    fetchMock.mockResolvedValueOnce(Response.json({ order: listing() }));
+    expect(await getOpenSeaMarketplaceOrder(hash)).toMatchObject({ tokenId: "12" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("honors provider cooldown across different NFT reads without retrying upstream", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response("limited", { status: 429, headers: { "Retry-After": "90" } }),
+    );
+    await expect(getOpenSeaTokenListing("12")).rejects.toMatchObject({
+      status: 503,
+      retryAfter: 90,
+    });
+    await expect(getOpenSeaTokenListing("13")).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(testTime + 91_000);
+    fetchMock.mockResolvedValueOnce(new Response("not found", { status: 404 }));
+    expect(await getOpenSeaTokenListing("13")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("bounds distinct read misses before spending provider quota, even without storage", async () => {
+    fetchMock.mockImplementation(async () => new Response("not found", { status: 404 }));
+    for (let index = 0; index < 30; index++) await getOpenSeaTokenListing(String(index));
+    await expect(getOpenSeaTokenListing("30")).rejects.toMatchObject({ status: 429 });
+    expect(fetchMock).toHaveBeenCalledTimes(30);
+    expect(budget).toHaveBeenCalledTimes(30);
+  });
+  it("does not forward requests after a distributed budget failure", async () => {
+    budget.mockRejectedValueOnce(new Error("budget exhausted"));
+    await expect(getOpenSeaMarketplaceOrder(hash)).rejects.toThrow("budget exhausted");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

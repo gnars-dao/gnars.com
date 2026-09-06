@@ -7,6 +7,7 @@ import { RequestSecurityError } from "@/lib/server/request-security";
 import { getMarketplaceCatalogue, getMarketplaceMetadata } from "@/services/marketplace-catalogue";
 import {
   MARKETPLACE_CACHE_TAG,
+  MARKETPLACE_ORDERS_CACHE_TAG,
   marketplaceClient,
   marketplaceUintSchema,
 } from "@/services/marketplace-common";
@@ -63,12 +64,12 @@ export async function getMarketplaceReadiness() {
           error: marketplaceStorageConfigured() ? "unavailable" : "not_configured",
         },
   };
-  return { sources, capabilities: { openseaBuy: opensea && local, localTrading: local } };
+  return { sources, capabilities: { openseaBuy: opensea, localTrading: local } };
 }
 
 const cachedLocalOrders = unstable_cache(listMarketplaceOrders, ["marketplace-orders-v1"], {
   revalidate: 15,
-  tags: [MARKETPLACE_CACHE_TAG],
+  tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_ORDERS_CACHE_TAG],
 });
 
 export async function loadMarketplacePage({

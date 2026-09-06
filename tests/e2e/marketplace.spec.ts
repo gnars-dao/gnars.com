@@ -47,6 +47,15 @@ for (const mobile of [false, true]) {
     );
     await page.getByRole("button", { name: "Ver Gnar #42", exact: true }).click();
     const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveAttribute("data-vaul-drawer-direction", mobile ? "bottom" : "right");
+    await expect
+      .poll(async () => {
+        const box = await dialog.boundingBox();
+        return !!box && Math.abs(mobile ? box.y + box.height - 844 : box.x + box.width - 1280) < 2;
+      })
+      .toBe(true);
+    const drawerBox = await dialog.boundingBox();
+    expect(drawerBox?.width).toBe(mobile ? 390 : 560);
     await expect(dialog.getByRole("heading", { name: "Gnar #42", exact: true })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Comprar", exact: true })).toBeDisabled();
     await expect(dialog.getByRole("link", { name: "Ver na OpenSea" })).toHaveAttribute(
@@ -57,8 +66,17 @@ for (const mobile of [false, true]) {
       "href",
       `/pt-br/members/${seller}`,
     );
-    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(
+      await dialog
+        .locator("[data-vaul-no-drag]")
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
     await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Ver Gnar #42", exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "Ver Gnar #42", exact: true }).click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Fechar", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await page.getByRole("tab", { name: "Meus Gnars", exact: true }).click();
     await expect(
@@ -78,4 +96,46 @@ test("provider failure is not rendered as an empty successful marketplace", asyn
     timeout: 15000,
   });
   await expect(page.getByText("No active listings found.")).not.toBeVisible();
+});
+
+test("drawer switches edges on resize and preserves the selected NFT", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/marketplace**", (route) =>
+    route.fulfill({ json: { ...data, capabilities: { ...data.capabilities, openseaBuy: true } } }),
+  );
+  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+  await page.getByRole("tab", { name: "À venda", exact: true }).click();
+  await page.getByRole("button", { name: "Ver Gnar #42", exact: true }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toHaveAttribute("data-vaul-drawer-direction", "right");
+  await drawer.getByRole("button", { name: "Comprar", exact: true }).click();
+  await expect(drawer.getByText("Preço total", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 640 });
+  await expect(drawer).toHaveAttribute("data-vaul-drawer-direction", "bottom");
+  await expect(drawer.getByRole("heading", { name: "Gnar #42", exact: true })).toBeVisible();
+  await expect(drawer.getByText("Preço total", { exact: true })).toBeVisible();
+  const scrollArea = drawer.locator("[data-vaul-no-drag]");
+  await scrollArea.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+  await expect(drawer.getByRole("button", { name: "Fechar", exact: true })).toBeVisible();
+  expect(await drawer.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(drawer).toHaveAttribute("data-vaul-drawer-direction", "right");
+  await page.locator('[data-slot="drawer-overlay"]').click({ position: { x: 40, y: 100 } });
+  await expect(drawer).not.toBeVisible();
+});
+
+test("mobile drawer can be dismissed by dragging its header", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/marketplace**", (route) => route.fulfill({ json: data }));
+  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+  await page.getByRole("tab", { name: "À venda", exact: true }).click();
+  await page.getByRole("button", { name: "Ver Gnar #42", exact: true }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toHaveAttribute("data-vaul-drawer-direction", "bottom");
+  await expect.poll(async () => Math.round((await drawer.boundingBox())!.y)).toBe(68);
+  await page.mouse.move(195, 95);
+  await page.mouse.down();
+  await page.mouse.move(195, 420, { steps: 15 });
+  await page.mouse.up();
+  await expect(drawer).not.toBeVisible();
 });

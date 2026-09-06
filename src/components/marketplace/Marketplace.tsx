@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import dynamic from "next/dynamic";
 import {
@@ -31,6 +31,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   const t = useTranslations("marketplace");
   const [view, setView] = useState<MarketplaceView>("catalogue");
   const [selected, setSelected] = useState<MarketplaceItem | null>(null);
+  const selectedTrigger = useRef<HTMLButtonElement | null>(null);
   const writer = useWriteAccount();
   const query = useMarketplace(
     view,
@@ -214,7 +215,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
               return (
                 <button
                   key={item.tokenId}
-                  onClick={() => setSelected(item)}
+                  onClick={(event) => {
+                    selectedTrigger.current = event.currentTarget;
+                    setSelected(item);
+                  }}
                   aria-label={t("details", { id: item.tokenId })}
                   className="group min-w-0 cursor-pointer overflow-hidden rounded-lg border text-left transition-colors hover:border-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-4"
                 >
@@ -274,6 +278,11 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           key={`${selected.tokenId}-${writer?.account.address ?? "guest"}`}
           item={selected}
           capabilities={page.capabilities}
+          restoreFocus={() => {
+            if (selectedTrigger.current?.isConnected) {
+              selectedTrigger.current.focus({ preventScroll: true });
+            }
+          }}
           onClose={() => setSelected(null)}
         />
       )}

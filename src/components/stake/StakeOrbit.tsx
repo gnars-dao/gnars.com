@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useActiveAccount } from "thirdweb/react";
 import { useStakeGraphQuery } from "@/hooks/use-stake-graph";
+import { resolveENSBatch } from "@/lib/ens";
 import type { RiderId } from "@/lib/gnars-vaults";
 import { EASE_IN_OUT, EASE_OUT } from "@/lib/motion";
 import { formatMorpheusPrincipal, hasVerifiedRewardRouting } from "@/lib/stake-graph-display";
@@ -339,28 +340,22 @@ export function StakeOrbit({
       ),
     );
     if (addrs.length === 0) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/ens", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ addresses: addrs }),
+    const controller = new AbortController();
+    void resolveENSBatch(addrs, {
+      signal: controller.signal,
+      onBatch: (entries) => {
+        if (controller.signal.aborted) return;
+        setEnsNames((previous) => {
+          const next = { ...previous };
+          for (const [addr, data] of Object.entries(entries)) {
+            if (data.name) next[addr] = data.name;
+            else delete next[addr];
+          }
+          return next;
         });
-        if (!res.ok) return;
-        const json = (await res.json()) as { ensMap?: Record<string, { name?: string | null }> };
-        const map: Record<string, string> = {};
-        for (const [addr, data] of Object.entries(json.ensMap ?? {})) {
-          if (data?.name) map[addr.toLowerCase()] = data.name;
-        }
-        if (!cancelled) setEnsNames(map);
-      } catch {
-        /* addresses stay short */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      },
+    });
+    return () => controller.abort();
   }, [graph]);
 
   // A dead /api/stake-graph used to render as an eternal "loading the flow…".

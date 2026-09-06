@@ -24,6 +24,7 @@ describe("chain-only listing reconciliation", () => {
     );
     expect(response.status).toBe(400);
     expect(mocks.reconcile).not.toHaveBeenCalled();
+    expect(mocks.budget).not.toHaveBeenCalled();
     expect(mocks.invalidate).not.toHaveBeenCalled();
   });
   it("returns only the status read from chain and invalidates successful reconciliation", async () => {
@@ -37,6 +38,6 @@ describe("chain-only listing reconciliation", () => {
     expect(await response.json()).toEqual({ status: "active" });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(mocks.reconcile).toHaveBeenCalledWith(orderHash);
-    expect(mocks.invalidate).toHaveBeenCalledWith("marketplace", { expire: 0 });
+    expect(mocks.invalidate).toHaveBeenCalledExactlyOnceWith("marketplace-orders", { expire: 0 });
   });
 });

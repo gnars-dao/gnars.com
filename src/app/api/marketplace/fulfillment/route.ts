@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       marketplaceFulfillmentSchema,
       await readJsonBody(request, 2048),
     );
-    await enforceMarketplaceBudget(request, "fulfillment");
+    if (input.source === "gnars") await enforceMarketplaceBudget(request, "fulfillment");
     return Response.json(await prepareMarketplaceFulfillment(input), {
       headers: { "Cache-Control": "no-store" },
     });

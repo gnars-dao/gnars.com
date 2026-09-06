@@ -1,7 +1,14 @@
+import { unstable_cache } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
 import { getCoin, setApiKey } from "@zoralabs/coins-sdk";
 import { getAddress, isAddress } from "viem";
+import { z } from "zod";
 import { ipfsToHttp } from "@/lib/ipfs";
+import {
+  enforceRateLimit,
+  RequestSecurityError,
+  requestSecurityResponse,
+} from "@/lib/server/request-security";
 
 const ALCHEMY_RPC_BASES: Record<string, string> = {
   "8453": "https://base-mainnet.g.alchemy.com/v2",
@@ -25,7 +32,63 @@ export interface LookedUpToken {
   logoUrl: string | null;
 }
 
-export async function GET(req: NextRequest) {
+const getMetadata = unstable_cache(
+  async (chainId: string, address: string) => {
+    const key = process.env.ALCHEMY_API_KEY;
+    if (!key) throw new RequestSecurityError(503, "Token service is not configured.");
+    const response = await fetch(`${ALCHEMY_RPC_BASES[chainId]}/${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "alchemy_getTokenMetadata",
+        params: [address],
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) throw new RequestSecurityError(502, "Metadata request failed.");
+    const parsed = z
+      .object({
+        error: z.undefined().optional(),
+        result: z.object({
+          name: z.string().nullable(),
+          symbol: z.string().nullable(),
+          decimals: z.number().int().min(0).max(255).nullable(),
+          logo: z.string().nullable().optional(),
+        }),
+      })
+      .safeParse(await response.json());
+    if (!parsed.success) throw new RequestSecurityError(502, "Invalid metadata response.");
+    return parsed.data.result;
+  },
+  ["token-lookup-metadata-v1"],
+  { revalidate: 3600 },
+);
+
+const getZoraToken = unstable_cache(
+  async (address: string) => {
+    const key = process.env.NEXT_PUBLIC_ZORA_API_KEY;
+    if (key) setApiKey(key);
+    const response = await getCoin({ address: address as `0x${string}`, chain: 8453 }, {
+      signal: AbortSignal.timeout(8000),
+    } as NonNullable<Parameters<typeof getCoin>[1]>);
+    if (response.response?.status === 404) return null;
+    if (
+      ("error" in response && response.error) ||
+      (response.response && !response.response.ok) ||
+      !response.data ||
+      !("zora20Token" in response.data)
+    )
+      throw new Error("Zora metadata unavailable");
+    return response.data.zora20Token ?? null;
+  },
+  ["token-lookup-zora-v1"],
+  { revalidate: 3600 },
+);
+
+async function lookup(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const address = searchParams.get("address");
   const chainId = searchParams.get("chainId") ?? "8453";
@@ -44,47 +107,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unsupported chain" }, { status: 400 });
   }
 
+  await enforceRateLimit(req, { scope: "token-lookup", limit: 60, windowSeconds: 60 });
   const checksumAddr = getAddress(address);
-  const rpcUrl = `${rpcBase}/${alchemyKey}`;
+  const canonical = address.toLowerCase();
 
   // Fetch Alchemy metadata and Zora coin data in parallel.
   // Zora is only attempted on Base where creator coins live.
-  const [metaRes, zoraToken] = await Promise.all([
-    fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "alchemy_getTokenMetadata",
-        params: [checksumAddr],
-      }),
-      next: { revalidate: 3600 },
-    }),
+  let enrichmentAvailable = true;
+  const [meta, zoraToken] = await Promise.all([
+    getMetadata(chainId, canonical),
     chainId === "8453"
-      ? (async () => {
-          try {
-            const key = process.env.NEXT_PUBLIC_ZORA_API_KEY;
-            if (key) setApiKey(key);
-            const res = await getCoin({ address: checksumAddr, chain: 8453 });
-            return res?.data?.zora20Token ?? null;
-          } catch {
-            return null;
-          }
-        })()
+      ? getZoraToken(canonical).catch(() => {
+          enrichmentAvailable = false;
+          return null;
+        })
       : Promise.resolve(null),
   ]);
-
-  if (!metaRes.ok) {
-    return NextResponse.json({ error: "Metadata request failed" }, { status: 502 });
-  }
-
-  const meta: {
-    name: string | null;
-    symbol: string | null;
-    decimals: number | null;
-    logo: string | null;
-  } = (await metaRes.json())?.result ?? {};
 
   if (!meta.symbol || !meta.name || meta.decimals == null) {
     return NextResponse.json({ error: "Not a valid ERC-20 token" }, { status: 404 });
@@ -114,11 +152,28 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    address: checksumAddr,
-    symbol: meta.symbol,
-    name: meta.name,
-    decimals: meta.decimals,
-    logoUrl,
-  } satisfies LookedUpToken);
+  return NextResponse.json(
+    {
+      address: checksumAddr,
+      symbol: meta.symbol,
+      name: meta.name,
+      decimals: meta.decimals,
+      logoUrl,
+    } satisfies LookedUpToken,
+    {
+      headers: {
+        "Cache-Control": enrichmentAvailable
+          ? "public, s-maxage=3600, stale-while-revalidate=3600"
+          : "no-store",
+      },
+    },
+  );
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    return await lookup(req);
+  } catch (error) {
+    return requestSecurityResponse(error);
+  }
 }

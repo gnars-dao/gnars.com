@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import { POST } from "./route";
 
-const mocks = vi.hoisted(() => ({ budget: vi.fn(), save: vi.fn() }));
-vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+const mocks = vi.hoisted(() => ({ budget: vi.fn(), save: vi.fn(), invalidate: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidateTag: mocks.invalidate }));
 vi.mock("@/services/marketplace-orders", () => ({
   enforceMarketplaceBudget: mocks.budget,
   saveMarketplaceOrder: mocks.save,
@@ -24,6 +24,18 @@ describe("listing creation request boundaries", () => {
     );
     expect(response.status).toBe(413);
     expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.budget).not.toHaveBeenCalled();
+  });
+  it("invalidates local orders without flushing unrelated OpenSea or metadata caches", async () => {
+    mocks.save.mockResolvedValueOnce({ id: "gnars:test" });
+    const response = await POST(
+      new Request("https://gnars.com/api/marketplace/orders", {
+        method: "POST",
+        body: JSON.stringify({ listing: {} }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.invalidate).toHaveBeenCalledExactlyOnceWith("marketplace-orders", { expire: 0 });
   });
   it("stops expensive validation when the distributed budget is exhausted", async () => {
     mocks.budget.mockRejectedValueOnce(new RequestSecurityError(429, "Limit reached.", 30));

@@ -1,4 +1,12 @@
 import { NextResponse } from "next/server";
+import { isAddress } from "viem";
+import { z } from "zod";
+import {
+  enforceRateLimit,
+  readJsonBody,
+  RequestSecurityError,
+  requestSecurityResponse,
+} from "@/lib/server/request-security";
 import { getEthUsd, getTokenPricesUsd, type UsdPrice } from "@/services/prices";
 
 /**
@@ -16,9 +24,11 @@ export const dynamic = "force-dynamic";
 const CDN_TTL_SECONDS = 300;
 const WETH_ADDRESS_BASE = "0x4200000000000000000000000000000000000006";
 
-function normalizeAddresses(addrs: string[]): string[] {
-  return addrs.map((a) => (typeof a === "string" ? a.toLowerCase() : "")).filter(Boolean);
-}
+const addressesSchema = z
+  .array(z.string().refine(isAddress))
+  .min(1)
+  .max(100)
+  .transform((addresses) => [...new Set(addresses.map((address) => address.toLowerCase()))].sort());
 
 async function handlePrices(addresses: string[]) {
   if (addresses.length === 0) {
@@ -40,14 +50,14 @@ async function handlePrices(addresses: string[]) {
   }
   if (wantsWeth) prices[weth] = { usd: ethUsd };
 
-  // A fully-null map is an outage, not an answer — don't let the CDN hold it
-  // for the whole window.
-  const anyResolved = Object.values(prices).some((p) => p.usd !== null);
+  // A partial provider outage must not occupy the healthy CDN cache window.
+  const fullyResolved =
+    Object.values(prices).length > 0 && Object.values(prices).every((p) => p.usd !== null);
 
   return NextResponse.json(
     { prices },
     {
-      headers: anyResolved
+      headers: fullyResolved
         ? {
             "Cache-Control": `public, s-maxage=${CDN_TTL_SECONDS}, stale-while-revalidate=${CDN_TTL_SECONDS * 2}`,
           }
@@ -57,17 +67,31 @@ async function handlePrices(addresses: string[]) {
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const addresses = normalizeAddresses((searchParams.get("addresses") || "").split(","));
-  return handlePrices(addresses);
+  try {
+    await enforceRateLimit(request, { scope: "prices", limit: 60, windowSeconds: 60 });
+    const { searchParams } = new URL(request.url);
+    const parsed = addressesSchema.safeParse((searchParams.get("addresses") || "").split(","));
+    if (!parsed.success)
+      throw new RequestSecurityError(400, "Invalid addresses. Maximum batch size is 100.");
+    return await handlePrices(parsed.data);
+  } catch (error) {
+    return requestSecurityResponse(error);
+  }
 }
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { addresses?: string[] };
-    const addresses = normalizeAddresses(Array.isArray(body?.addresses) ? body.addresses : []);
-    return handlePrices(addresses);
-  } catch {
-    return NextResponse.json({ error: "invalid-request" }, { status: 400 });
+    await enforceRateLimit(req, { scope: "prices", limit: 60, windowSeconds: 60 });
+    const parsed = z
+      .object({ addresses: addressesSchema })
+      .strict()
+      .safeParse(await readJsonBody(req, 8192));
+    if (!parsed.success)
+      throw new RequestSecurityError(400, "Invalid addresses. Maximum batch size is 100.");
+    const response = await handlePrices(parsed.data.addresses);
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch (error) {
+    return requestSecurityResponse(error);
   }
 }

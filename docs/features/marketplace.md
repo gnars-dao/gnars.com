@@ -31,15 +31,25 @@ The collection grid does not claim that missing price data means an NFT is unlis
 - External basic, standard and advanced single-item Seaport fulfillments are
   supported. Criteria orders, partial fills, tips, batch matches, ERC20 payments,
   arbitrary destinations and arbitrary calldata are rejected.
+  Partial-enabled order types are accepted only as whole singleton ERC721 fills;
+  buyer routing is limited to no conduit or OpenSea's canonical conduit. Live
+  `seaport1.6` responses and hexadecimal integer fields are supported.
 - Cancellation is an onchain Seaport transaction. A database-only deletion does
   not cancel a valid signature. Filled/cancelled state is reconciled from chain.
 - EOA signatures are recovered directly. Deployed smart accounts must explicitly
   pass ERC1271. Counterfactual signatures are not accepted as EOA signatures.
 
-## Recovery
+## Drawer And Recovery
+
+Selected NFTs open in a right-side drawer at desktop widths (768px+) and a bottom
+drawer on mobile. A fixed header keeps close/back controls visible; the interior
+scrolls independently. Dismissal and dragging are disabled during a wallet action,
+and closing restores focus to the selected NFT. Breakpoint changes preserve the
+selected NFT and review state. The parent waits for the exit animation before
+unmounting the detail view.
 
 Wallet attempts are journaled in browser storage by Base account before requesting
-a transaction/signature. Web Locks coordinate tabs. Reloading, closing a modal,
+a transaction/signature. Web Locks coordinate tabs. Reloading, closing a drawer,
 or a WalletConnect timeout must not permit a duplicate submission.
 
 The recovery panel can check receipts, continue a confirmed approval into signing,
@@ -50,8 +60,9 @@ procedure. No private keys are stored.
 
 ## Configuration And Cost
 
-1. Configure `OPENSEA_API_KEY` as a server secret for external listing reads.
-2. Configure a pooled PostgreSQL URL in `MARKETPLACE_DATABASE_URL`. Existing
+1. Configure `OPENSEA_API_KEY` as a server secret for external listing reads and
+   purchases. OpenSea order fulfillment does not require a local order database.
+2. For Gnars-native listings, configure a pooled PostgreSQL URL in `MARKETPLACE_DATABASE_URL`. Existing
    `ROUNDS_DATABASE_URL`, `DATABASE_PUBLIC_URL`, `DATABASE_URL` are fallbacks,
    in that order. Apply `scripts/marketplace-schema.sql` to the selected database.
 3. Confirm `/api/marketplace/readiness` reports the expected capabilities.
@@ -61,17 +72,27 @@ procedure. No private keys are stored.
 5. Verify a real OpenSea API response and controlled wallet flow before announcing
    trading availability. Do not use production funds for automated tests.
 
-Missing configuration or failed readiness disables financial actions. Missing
-sources remain visible as unavailable, not empty successful results. A healthy
-PostgreSQL order table and rate-limit table are required even for OpenSea buying.
+Missing configuration disables only the dependent actions: an absent OpenSea key
+disables external buying; unavailable PostgreSQL disables local listing creation,
+purchase and cancellation through the local orderbook. Missing sources remain
+visible as unavailable, not empty successful results. OpenSea purchases still
+require fresh order/owner/price checks, exact-calldata validation and simulation.
 
 Pages use 24-item cursor pagination. Collection reads cache for 60 seconds,
 OpenSea list reads for 30 seconds, local listings for 15 seconds. Public API
 responses use short CDN caching; owned inventory and failed reads are no-store.
 Details load on demand, without a per-NFT external request for every grid card.
 There is no background browser polling or new cron job. Fulfillment is uncached.
-Costly POSTs have durable per-IP and global minute budgets in PostgreSQL; the pool
-is bounded to two connections per function instance with query timeouts.
+Local-order POSTs have durable per-IP and global minute budgets in PostgreSQL; the
+pool is bounded to two connections per function instance with query timeouts.
+OpenSea reads coalesce identical in-flight requests; different reads have bounded
+concurrency. Provider rate-limit responses trigger a shared per-instance cooldown
+using Retry-After. Outbound quotas use the distributed budget table when ready,
+otherwise bounded per-instance quotas. Instance-only quotas cannot guarantee the
+account-wide allowance across Vercel instances; WAF/distributed controls and
+monitoring remain necessary. A budget write that fails after readiness does not
+silently bypass the distributed guard. Local-order mutations invalidate only local
+order caches, preserving unrelated collection and OpenSea caches.
 
 ## Verification
 
@@ -87,6 +108,9 @@ is bounded to two connections per function instance with query timeouts.
 - `tests/e2e/marketplace.spec.ts`: localized desktop/mobile browsing and failure
   states. These tests are not evidence of a real OpenSea API trade or funded
   WalletConnect/smart-account production purchase.
+- A read-only authenticated OpenSea check on September 6 successfully encoded and
+  independently validated the live Gnars #1951 fulfillment response. This checks
+  provider response compatibility, not a funded production wallet transaction.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea fulfillment API](https://docs.opensea.io/reference/generate_listing_fulfillment_data_v2),

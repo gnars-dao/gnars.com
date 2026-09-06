@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCoin, getProfileCoins } from "@zoralabs/coins-sdk";
 import { GNARS_CREATOR_COIN, GNARS_ZORA_HANDLE } from "@/lib/config";
+import { mapConcurrent as runWithConcurrency } from "@/lib/server/map-concurrent";
 import { fetchGnarsPairedCoins } from "@/lib/zora-coins-subgraph";
 import { fetchDroposals } from "@/services/droposals";
 import {
@@ -72,41 +73,6 @@ interface CoinNode {
 
 interface CoinEdge {
   node?: CoinNode | { coin?: CoinNode };
-}
-
-/**
- * Run promises with concurrency limit
- */
-async function runWithConcurrency<T, R>(
-  items: T[],
-  fn: (item: T) => Promise<R>,
-  concurrency: number,
-): Promise<R[]> {
-  const results: R[] = [];
-  const executing: Promise<void>[] = [];
-
-  for (const item of items) {
-    const p = fn(item).then((result) => {
-      results.push(result);
-    });
-
-    executing.push(p);
-
-    if (executing.length >= concurrency) {
-      await Promise.race(executing);
-      // Remove completed promises
-      for (let i = executing.length - 1; i >= 0; i--) {
-        // Check if promise is settled by racing with an instant resolve
-        const settled = await Promise.race([executing[i].then(() => true), Promise.resolve(false)]);
-        if (settled) {
-          executing.splice(i, 1);
-        }
-      }
-    }
-  }
-
-  await Promise.all(executing);
-  return results;
 }
 
 const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mov"];

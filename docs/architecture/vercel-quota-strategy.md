@@ -41,6 +41,32 @@ Do not claim that CDN cache hits or WAF-blocked traffic are universally free: ch
 
 ## Verification
 
+### September 6 Request Audit
+
+- OpenSea: shared in-flight GET deduplication, bounded outbound concurrency,
+  short caches, Retry-After cooldowns and separate read/fulfillment budgets.
+  Purchasing external orders no longer depends on PostgreSQL. Distributed
+  budgets are used when the marketplace schema is ready; the fallback is
+  per-instance and cannot enforce account-wide quotas across Vercel instances.
+- TV: replaced a Promise.race limiter that lost track of running tasks with a
+  fixed worker pool. The limit is 15 per pipeline, not across all pipelines.
+- ENS: bounded/deduplicated batches, five workers, provider timeouts, weighted
+  request limits and in-flight deduplication. Failed responses are not cached as
+  missing names, including in the client forward-lookup cache.
+- Token lookup: normalized metadata cache keys, one-hour Alchemy/Zora caching,
+  bounded timeouts and request limits. Optional enrichment failures retain valid
+  metadata without granting a healthy shared-cache window.
+- Prices: normalize, sort and deduplicate before the data-cache boundary; cap
+  batches/body sizes and provider duration. Failed/partial reads do not receive
+  successful CDN caching or become cached zero prices.
+
+These changes have focused regression tests and local runtime read checks. No
+billing savings have been measured. Marketplace/ENS/price guards in memory are
+not replacements for distributed WAF controls. Treasury DeFi RPC batching remains
+a follow-up: it needs a separate financial-data correctness review.
+
+### Release Checks
+
 1. Run the relevant tests, typecheck, lint, and format check.
 2. Check EN/PT-BR runtime behavior at desktop and mobile widths, including wallet dialogs and navigation.
 3. Verify the exact production deployment SHA and the active WAF rules.

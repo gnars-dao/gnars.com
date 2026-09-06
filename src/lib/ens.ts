@@ -89,11 +89,66 @@ export async function resolveENS(address: string | Address): Promise<ENSData> {
   return request;
 }
 
+/** Resolve large address sets without exceeding the API's 50-address batch limit. */
+export async function resolveENSBatch(
+  addresses: readonly string[],
+  options: { signal?: AbortSignal; onBatch?: (entries: Record<string, ENSData>) => void } = {},
+): Promise<Record<string, ENSData>> {
+  const canonical = [...new Set(addresses.map((address) => address.toLowerCase()))].filter(
+    (address): address is Address => isAddress(address),
+  );
+  const resolved: Record<string, ENSData> = {};
+  const missing: Address[] = [];
+  if (options.signal?.aborted) return resolved;
+  for (const address of canonical) {
+    const cached = localEnsCache.get(address);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      resolved[address] = {
+        address,
+        ...cached.data,
+        displayName: cached.data.name || shorten(address),
+      };
+    } else missing.push(address);
+  }
+  if (Object.keys(resolved).length) options.onBatch?.({ ...resolved });
+
+  for (let index = 0; index < missing.length && !options.signal?.aborted; index += 50) {
+    const batch = missing.slice(index, index + 50);
+    try {
+      const response = await fetch(`${getApiBase()}/api/ens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addresses: batch }),
+        signal: options.signal,
+      });
+      if (response.status === 429 || response.status === 503) break;
+      if (!response.ok) continue;
+      const json = (await response.json()) as { ensMap?: Record<string, ENSData> };
+      if (options.signal?.aborted) break;
+      const entries: Record<string, ENSData> = {};
+      for (const address of batch) {
+        const value = json?.ensMap?.[address];
+        if (!value || !(value.name === null || typeof value.name === "string")) continue;
+        const data = {
+          name: value.name,
+          avatar: typeof value.avatar === "string" ? value.avatar : null,
+        };
+        localEnsCache.set(address, { data, timestamp: Date.now() });
+        entries[address] = { address, ...data, displayName: data.name || shorten(address) };
+      }
+      Object.assign(resolved, entries);
+      if (Object.keys(entries).length) options.onBatch?.(entries);
+    } catch {
+      // Preserve successful batches; failed lookups remain uncached and retryable.
+    }
+  }
+  return resolved;
+}
+
 async function fetchNameInternal(trimmed: string): Promise<Address | null> {
   const baseUrl = getApiBase();
   const res = await fetch(`${baseUrl}/api/ens?name=${encodeURIComponent(trimmed)}`);
   if (!res.ok) {
-    localNameToAddressCache.set(trimmed, { address: null, timestamp: Date.now() });
     return null;
   }
   const body = (await res.json()) as { address?: string | null };

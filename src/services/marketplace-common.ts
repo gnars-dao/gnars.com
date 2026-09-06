@@ -12,6 +12,7 @@ export const marketplaceUintSchema = z
   .refine((value) => BigInt(value) < 2n ** 256n);
 export const MARKETPLACE_PAGE_SIZE = 24;
 export const MARKETPLACE_CACHE_TAG = "marketplace";
+export const MARKETPLACE_ORDERS_CACHE_TAG = "marketplace-orders";
 
 export const marketplaceClient = createPublicClient({
   chain: base,

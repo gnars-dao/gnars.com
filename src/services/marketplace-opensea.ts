@@ -4,6 +4,7 @@ import { getAddress, zeroAddress, type Address } from "viem";
 import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { SEAPORT_ADDRESS } from "@/lib/marketplace/seaport";
+import { RequestSecurityError } from "@/lib/server/request-security";
 import {
   MARKETPLACE_CACHE_TAG,
   MARKETPLACE_PAGE_SIZE,
@@ -12,6 +13,7 @@ import {
   marketplaceUintSchema,
   marketplaceUnavailable,
 } from "@/services/marketplace-common";
+import { enforceOpenSeaProviderBudget } from "@/services/marketplace-orders";
 import type { MarketplaceOffer } from "@/types/marketplace";
 
 const itemSchema = z.object({
@@ -74,14 +76,42 @@ export function parseOpenSeaJson(text: string): unknown {
   });
 }
 
+const pendingReads = new Map<string, Promise<unknown>>();
+const providerBuckets = {
+  read: { window: -1, count: 0, retryAt: 0 },
+  fulfillment: { window: -1, count: 0, retryAt: 0 },
+};
+
+function reserveLocalRequest(operation: keyof typeof providerBuckets) {
+  const now = Date.now();
+  const bucket = providerBuckets[operation];
+  if (bucket.retryAt > now)
+    throw new RequestSecurityError(
+      503,
+      "OpenSea is temporarily unavailable.",
+      Math.ceil((bucket.retryAt - now) / 1000),
+    );
+  const window = Math.floor(now / 30_000);
+  if (bucket.window !== window) {
+    bucket.window = window;
+    bucket.count = 0;
+  }
+  if (bucket.count >= (operation === "read" ? 30 : 15))
+    throw new RequestSecurityError(
+      429,
+      "OpenSea request limit reached.",
+      30 - (Math.floor(now / 1000) % 30),
+    );
+  bucket.count += 1;
+}
+
 /** Server-owned paths only. Never forward arbitrary URLs, keys, or provider bodies to clients. */
-async function openSeaRequest(
-  path: string,
-  body?: unknown,
-  allowNotFound = false,
-): Promise<unknown> {
+async function fetchOpenSea(path: string, body?: unknown, allowNotFound = false): Promise<unknown> {
   const key = process.env.OPENSEA_API_KEY;
   if (!key) throw marketplaceUnavailable("OpenSea is not configured.");
+  const operation = body ? "fulfillment" : "read";
+  reserveLocalRequest(operation);
+  await enforceOpenSeaProviderBudget(operation);
   let response: Response;
   try {
     response = await fetch(`https://api.opensea.io/api/v2/${path}`, {
@@ -99,12 +129,39 @@ async function openSeaRequest(
     throw marketplaceUnavailable();
   }
   if (allowNotFound && response.status === 404) return null;
+  if (response.status === 429) {
+    const header = response.headers.get("retry-after");
+    const seconds =
+      header && /^\d+$/.test(header)
+        ? Number(header)
+        : header
+          ? (Date.parse(header) - Date.now()) / 1000
+          : 60;
+    const retryAfter = Math.max(
+      1,
+      Math.min(3600, Number.isFinite(seconds) ? Math.ceil(seconds) : 60),
+    );
+    providerBuckets[operation].retryAt = Date.now() + retryAfter * 1000;
+    throw new RequestSecurityError(503, "OpenSea is temporarily unavailable.", retryAfter);
+  }
   if (!response.ok) throw marketplaceUnavailable();
   try {
     return parseOpenSeaJson(await response.text());
   } catch {
     throw marketplaceUnavailable();
   }
+}
+
+function openSeaRequest(path: string, body?: unknown, allowNotFound = false): Promise<unknown> {
+  // Share concurrent cache misses only. Purchase revalidation is never served a saved result.
+  if (body) return fetchOpenSea(path, body, allowNotFound);
+  const pending = pendingReads.get(path);
+  if (pending) return pending;
+  if (pendingReads.size >= 16)
+    return Promise.reject(new RequestSecurityError(503, "OpenSea is temporarily unavailable.", 1));
+  const request = fetchOpenSea(path, body, allowNotFound).finally(() => pendingReads.delete(path));
+  pendingReads.set(path, request);
+  return request;
 }
 
 export function normalizeOpenSeaListing(
@@ -125,7 +182,7 @@ export function normalizeOpenSeaListing(
   if (order.price.current.currency !== "ETH" || order.price.current.decimals !== 18) return null;
   const parameters = order.protocol_data.parameters;
   if (order.protocol_address.toLowerCase() !== SEAPORT_ADDRESS.toLowerCase()) return null;
-  if (![0, 2].includes(parameters.orderType) || parameters.offer.length !== 1) return null;
+  if (![0, 1, 2, 3].includes(parameters.orderType) || parameters.offer.length !== 1) return null;
   const nft = parameters.offer[0];
   if (
     nft.itemType !== 2 ||
