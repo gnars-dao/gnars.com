@@ -36,6 +36,44 @@
       "pamtech": "And every milestone ships Morpheus marketing from our side: the Gnars TV ad at 10k, edits, swag, IRL activations."
     }
   },
+  "flow": {
+    "cancelled": "Transaction cancelled in your wallet. You can continue this step when ready.",
+    "previousTransactions": "Previous transactions",
+    "dialogTitle": "Morpheus stake",
+    "rider": "Rider:",
+    "title": "Continue your stake",
+    "completeTitle": "Stake configured",
+    "completeDescription": "The deposit and rewards receiver are confirmed.",
+    "depositSafe": "Your deposit is confirmed. Only the rewards receiver needs to be configured; no additional deposit is required.",
+    "uncertainDescription": "The transaction has not been fully verified yet. Do not repeat the deposit. Closing this window does not cancel a wallet request or an onchain transaction.",
+    "stepDescription": "The next action applies only to the remaining step. Confirmed steps will not be repeated.",
+    "steps": { "approval": "Token approval", "deposit": "Deposit", "receiver": "Rewards receiver" },
+    "states": {
+      "confirmed": "Confirmed",
+      "waiting": "Not started",
+      "ready": "Ready to continue",
+      "wallet": "Waiting for wallet",
+      "confirming": "Verifying transaction",
+      "pending": "Pending confirmation",
+      "unknown": "Needs verification",
+      "failed": "Not completed",
+      "complete": "Confirmed"
+    },
+    "actions": {
+      "approval": "Approve token",
+      "deposit": "Continue deposit",
+      "receiver": "Finish setup"
+    },
+    "check": "Check status",
+    "close": "Close",
+    "done": "Done",
+    "hashLabel": "Transaction hash from your wallet",
+    "verifyHash": "Verify transaction",
+    "viewTransaction": "View transaction: {step}",
+    "loading": "Checking for unfinished stakes...",
+    "readError": "Could not verify your stake status. Try checking again before depositing.",
+    "retry": "Check again"
+  },
   "title": "Stake or Die",
   "subtitle": "Pick your rider",
   "intro": "Choose a character to represent you. Use the thumbnails, arrows, or arrow keys to switch.",
@@ -54,7 +92,7 @@
   "treasuryLabel": "Gnars Treasury",
   "confirm": "Confirm stake",
   "cancel": "Cancel",
-  "disclaimer": "Your deposit stays yours and is withdrawable anytime. Rates vary; this isn't financial advice.",
+  "disclaimer": "Your deposit stays yours. Withdrawals follow the selected pool's rules. Rates vary; this isn't financial advice.",
   "prev": "Previous rider",
   "next": "Next rider",
   "playClip": "Play {name}'s clip",

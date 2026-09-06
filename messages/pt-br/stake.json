@@ -36,6 +36,48 @@
       "pamtech": "E cada marco entrega marketing da Morpheus do nosso lado: o anúncio na Gnars TV aos 10 mil, edits, swag, ativações IRL."
     }
   },
+  "flow": {
+    "cancelled": "Transação cancelada na carteira. Você pode retomar esta etapa quando quiser.",
+    "previousTransactions": "Transações anteriores",
+    "dialogTitle": "Stake Morpheus",
+    "rider": "Rider:",
+    "title": "Continuar seu stake",
+    "completeTitle": "Stake configurado",
+    "completeDescription": "O depósito e o recebedor das recompensas estão confirmados.",
+    "depositSafe": "Seu depósito está confirmado. Falta apenas configurar o recebedor das recompensas; não é necessário depositar novamente.",
+    "uncertainDescription": "A transação ainda não foi totalmente verificada. Não repita o depósito. Fechar esta janela não cancela uma solicitação na carteira nem uma transação na rede.",
+    "stepDescription": "A próxima ação executa apenas a etapa que falta. Etapas confirmadas não serão repetidas.",
+    "steps": {
+      "approval": "Aprovação do token",
+      "deposit": "Depósito",
+      "receiver": "Recebedor das recompensas"
+    },
+    "states": {
+      "confirmed": "Confirmado",
+      "waiting": "Não iniciado",
+      "ready": "Pronto para continuar",
+      "wallet": "Aguardando carteira",
+      "confirming": "Verificando transação",
+      "pending": "Aguardando confirmação",
+      "unknown": "Precisa de verificação",
+      "failed": "Não concluído",
+      "complete": "Confirmado"
+    },
+    "actions": {
+      "approval": "Aprovar token",
+      "deposit": "Continuar depósito",
+      "receiver": "Concluir configuração"
+    },
+    "check": "Verificar status",
+    "close": "Fechar",
+    "done": "Concluir",
+    "hashLabel": "Hash da transação na sua carteira",
+    "verifyHash": "Verificar transação",
+    "viewTransaction": "Ver transação: {step}",
+    "loading": "Verificando stakes incompletos...",
+    "readError": "Não foi possível verificar o status do seu stake. Tente verificar novamente antes de depositar.",
+    "retry": "Verificar novamente"
+  },
   "title": "Stake or Die",
   "subtitle": "Escolha seu rider",
   "intro": "Escolha um personagem para te representar. Use as miniaturas, as setas ou as teclas de seta para alternar.",
@@ -54,7 +96,7 @@
   "treasuryLabel": "Tesouro Gnars",
   "confirm": "Confirmar stake",
   "cancel": "Cancelar",
-  "disclaimer": "Seu depósito continua seu e pode ser sacado quando quiser. As taxas variam; isto não é aconselhamento financeiro.",
+  "disclaimer": "Seu depósito continua seu. Os saques seguem as regras do pool escolhido. As taxas variam; isto não é aconselhamento financeiro.",
   "prev": "Rider anterior",
   "next": "Próximo rider",
   "playClip": "Reproduzir o clipe de {name}",
