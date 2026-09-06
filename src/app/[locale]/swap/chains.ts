@@ -1,9 +1,9 @@
 import {
+  defineChain,
   arbitrum as thirdwebArbitrum,
   avalanche as thirdwebAvalanche,
   base as thirdwebBase,
   bsc as thirdwebBsc,
-  defineChain,
   ethereum as thirdwebEthereum,
   type Chain as ThirdwebChain,
 } from "thirdweb/chains";

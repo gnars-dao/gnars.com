@@ -3,6 +3,7 @@ import path from "path";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 import matter from "gray-matter";
+import { OPTIMIZED_IMAGE_HOSTS, OPTIMIZED_IMAGE_SUFFIXES } from "./src/lib/image-hosts";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -55,10 +56,16 @@ const nextConfig: NextConfig = {
     // Proposal banners / Zora media are immutable IPFS content — cache long.
     minimumCacheTTL: 2592000,
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**",
-      },
+      ...OPTIMIZED_IMAGE_HOSTS.map((hostname) => ({
+        protocol: "https" as const,
+        hostname,
+        port: "",
+      })),
+      ...OPTIMIZED_IMAGE_SUFFIXES.map((suffix) => ({
+        protocol: "https" as const,
+        hostname: `**${suffix}`,
+        port: "",
+      })),
     ],
   },
   typescript: {

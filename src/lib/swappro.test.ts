@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildQuoteUrl,
   NATIVE_SENTINEL,
+  SWAPPRO_CHAINS,
   toSwapProToken,
   toWidgetError,
   toWidgetQuote,
-  SWAPPRO_CHAINS,
   type SwapProQuote,
 } from "./swappro";
 

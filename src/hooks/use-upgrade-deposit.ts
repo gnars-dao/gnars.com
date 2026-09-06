@@ -14,14 +14,13 @@
  * not the address the terminal is reading, instead of letting the contract
  * revert with a generic "Not authorized".
  *
- * A transaction that was broadcast is never reported as failed: if the receipt
- * watch times out or the RPC drops, the hash is kept and shown, the position
- * is refetched, and the toast says "sent, confirmation pending".
+ * If receipt watching times out, the broadcast hash is kept and the outcome
+ * stays pending. A mined revert is reported as failed.
  */
 import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { isAddressEqual, type Address, type Hex } from "viem";
 import { useUserAddress } from "@/hooks/use-user-address";
@@ -29,7 +28,12 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall } from "@/lib/builder-code";
 import { isMigrationDepositLive, MIGRATION_UPGRADE_ID, UPGRADER_ADDRESS } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import {
+  ensureOnChain,
+  normalizeTxError,
+  TransactionRevertedError,
+  waitForSuccessfulReceipt,
+} from "@/lib/thirdweb-tx";
 import { claimCall, depositCall, withdrawCall } from "@/lib/upgrader-calls";
 
 export { UPGRADER_DEPOSIT_METHOD } from "@/lib/upgrader-calls";
@@ -110,14 +114,17 @@ export function useUpgradeDeposit() {
         if (!hash) setRunning(null);
       }
 
-      // Broadcast happened. From here on nothing is a failure of the deposit —
-      // only of our ability to see it.
+      // Preserve a broadcast hash on timeout, but a reverted receipt is a failure.
       try {
-        await waitForReceipt({ client, chain: base, transactionHash: hash });
+        await waitForSuccessfulReceipt({ client, chain: base, transactionHash: hash });
         setLastTx({ hash, action, confirmed: true });
         toast.success(t(`toasts.${action}Success`), { id: toastId });
         return "confirmed";
-      } catch {
+      } catch (err) {
+        if (err instanceof TransactionRevertedError) {
+          toast.error(t(`toasts.${action}Failed`), { id: toastId, description: err.message });
+          return "failed";
+        }
         toast.warning(t("toasts.sentPending"), {
           id: toastId,
           description: hash,

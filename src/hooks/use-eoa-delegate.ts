@@ -2,14 +2,14 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { isAddress, type Address, type Hex } from "viem";
 import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import { ensureOnChain, normalizeTxError, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 interface UseEoaDelegateArgs {
   onSubmitted?: (txHash: Hex) => void;
@@ -130,7 +130,7 @@ export function useEoaDelegate({ onSubmitted, onSuccess }: UseEoaDelegateArgs = 
         });
 
         setIsConfirming(true);
-        await waitForReceipt({
+        await waitForSuccessfulReceipt({
           client,
           chain: base,
           transactionHash: txHash,

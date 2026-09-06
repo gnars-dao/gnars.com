@@ -34,7 +34,6 @@
 // "10.000" instead of "10,000" right under a pt-BR total.
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { GnarsStakeDialog } from "@/components/stake/GnarsStakeDialog";
 import { RevealItem, RevealSection } from "@/components/stake/Reveal";
 import { SectionHeader } from "@/components/stake/SectionHeader";
@@ -50,6 +49,7 @@ import {
   MUTED,
 } from "@/components/stake/stake-ui";
 import { Button } from "@/components/ui/button";
+import Image from "@/components/ui/content-image";
 import { useGnarsSubnet } from "@/hooks/use-gnars-subnet";
 import { useUserAddress } from "@/hooks/use-user-address";
 import {

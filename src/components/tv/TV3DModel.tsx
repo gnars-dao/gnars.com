@@ -1606,6 +1606,12 @@ export function TV3DModel({
 
   // Handle video URL changes with static transition
   useEffect(() => {
+    if (!videoUrl) {
+      setCurrentVideoUrl(undefined);
+      setShowStatic(true);
+      invalidate();
+      return;
+    }
     if (videoUrl && videoUrl !== currentVideoUrl) {
       // Show static during transition (including first video load)
       setShowStatic(true);

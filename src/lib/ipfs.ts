@@ -33,7 +33,7 @@ function ipfsPath(uri: string): string | null {
  */
 export function ipfsToHttp(uri: string): string {
   const path = ipfsPath(uri);
-  return path ? IPFS_GATEWAYS[0] + path : uri ?? "";
+  return path ? IPFS_GATEWAYS[0] + path : (uri ?? "");
 }
 
 /**

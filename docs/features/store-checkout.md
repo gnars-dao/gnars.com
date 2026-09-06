@@ -1,147 +1,122 @@
-# Store Checkout & Payment
+# Store Checkout and Payment
 
-Status: **Phase 1 built (USDC on Base), sandbox-verified.** The customer-facing checkout
-exists at `/store/[slug]/checkout`: shipping form → payment → order → confirmation with
-polled status. Real payment is **gated to live mode** — in sandbox (`KEEPKEY_DROPSHIP_MODE=test`)
-the flow skips payment and places a free `KK-TEST-001` order so the whole UX is testable.
-Phase 2 (receipts, buyer order lookup) and Phase 3 (settlement automation, cards) are still
-open. This doc records the chosen approach and what's left.
+The customer checkout at `/store/[slug]/checkout` collects order details, accepts USDC
+on Base in live mode, verifies payment ownership, and creates a KeepKey fulfillment
+order. Sandbox mode uses `KK-TEST-001` without taking payment. Both customer modes
+require a connected wallet and a signed checkout request.
 
-## The flow we're completing
+The production configuration inspected during the audit has no KeepKey tokens or
+checkout database URL. Checkout therefore remains unavailable until those prerequisites
+are configured; implementing the payment gate does not activate fulfillment.
 
-```
-customer pays Gnars  →  Gnars verifies payment  →  POST /api/store/orders (KeepKey)
-                                                  →  KeepKey ships
-Gnars settles KeepKey in crypto (BTC deposit, drawn on the $500 credit line)
-```
+## Readiness and Setup
 
-Everything right of "verifies payment" already exists (`src/services/keepkey-dropship.ts`
+`GET /api/store/checkout` returns `{ ready, sandbox }`. Before a new live payment, the
+client requires `ready: true`. The server independently checks readiness during checkout.
 
-- `/api/store/orders`). We need the left side.
+| Mode    | Required configuration                                                                                                  |
+| ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Sandbox | `KEEPKEY_DROPSHIP_MODE=test`, `KEEPKEY_DROPSHIP_TEST_TOKEN`                                                             |
+| Live    | `KEEPKEY_DROPSHIP_MODE=live`, `KEEPKEY_DROPSHIP_LIVE_TOKEN`, configured checkout recipient, reachable migrated Postgres |
 
-## Constraints that decide the approach
+Live payment storage uses the first configured URL in this order:
+`ROUNDS_DATABASE_URL`, `DATABASE_PUBLIC_URL`, `DATABASE_URL`. A configured URL alone
+does not make checkout ready: the readiness query must also find the required table.
 
-- **KeepKey settles in crypto** (BTC deposit address per order). Wholesale ≈ $49, retail
-  $59.95 → margin ≈ $11.
-- **Gnars is a DAO** — no easy legal entity for a card merchant account, and card
-  processors (Stripe/Shopify) require one + KYC.
-- **PCI**: never touch raw card data (see the payments/liability note in
-  `docs/integrations/keepkey-fulfillment.md`).
-- **Stack already in place**: thirdweb (login + sponsored writes on Base) + wagmi/viem
-  reads, treasury address in `src/lib/config.ts`, `USDC_BASE`, and Postgres (`pg`, used by
-  `/rounds`) available for order persistence.
+Before enabling live mode, apply [scripts/security-schema.sql](../../scripts/security-schema.sql)
+to the selected database. It creates `store_payment_claims`, keyed by `(chain_id, tx_hash)`.
+Run the migration as a deployment operation; request handlers do not create tables.
+Use a database connection string with the TLS settings required by its provider.
 
-## Options
+Other configuration:
 
-### A. Crypto on Base (USDC) — **recommended for v1**
+- `NEXT_PUBLIC_STORE_CHECKOUT_ADDRESS` overrides the recipient in
+  `src/lib/config.ts` (`STORE_CHECKOUT.recipient`).
+- `KEEPKEY_DROPSHIP_BASE_URL` optionally overrides the fulfillment API endpoint.
+- `EMAIL_USER` / `EMAIL_PASS` and optional SMTP settings configure best-effort buyer
+  receipts. Missing email configuration does not fail a placed order.
+- `KEEPKEY_DROPSHIP_INTERNAL_SECRET` protects live calls to the separate internal
+  `/api/store/orders` creation endpoint. Customer checkout does not use that endpoint.
 
-Customer pays **USDC on Base** to a Gnars-controlled address; the server verifies the
-on-chain transfer, then forwards the order to KeepKey.
+## Customer Flow
 
-- **Pros**: no PCI, no merchant entity, matches the stack + audience, aligns with KeepKey's
-  crypto settlement, near-instant, self-custodial. thirdweb already handles wallet + AA.
-- **Cons**: crypto-only buyers (fine for this audience); refunds are manual crypto sends;
-  need on-chain tx verification + light order storage.
-- Use **USDC** (not ETH) so the charged amount is price-stable.
+1. Collect product finish, contact information, and a supported US shipping address.
+2. Connect the wallet. For a new live payment, check readiness before requesting USDC.
+3. `useUsdcPayment()` sends the retail amount through `useWriteAccount()` and waits for
+   a successful receipt. It returns the mined transaction hash, including for smart
+   accounts. A reverted receipt is rejected.
+4. Persist the paid hash and form locally before requesting fulfillment. A retry uses
+   that hash and never automatically makes another payment.
+5. Parse the order through `checkoutInputSchema`, which normalizes the transaction
+   hash to lowercase, then sign the canonical checkout payload.
+6. POST `{ checkout, authorization }` to `/api/store/checkout`.
+7. The server verifies the signature, product eligibility, shipping region, payment,
+   and durable claim before sending the order to KeepKey.
+8. Show confirmation and track the order using the returned access token.
 
-### B. Card via merchant-of-record (Shopify / Paddle / Lemon Squeezy)
+## Authorization and Payment Claims
 
-A third party is the MoR, absorbing PCI + sales tax.
+The authorization binds the Gnars audience, Base chain, method, path, complete order
+payload digest, signer, issue time, and nonce. It expires after five minutes. Verification
+supports EOAs and ERC-1271/ERC-6492 smart wallets. A public transaction hash is not proof
+of payment ownership.
 
-- **Pros**: cards, familiar UX, PCI/tax offloaded.
-- **Cons**: needs a legal entity + fees; duplicates the catalog; still must convert
-  fiat → crypto to settle KeepKey; most moving parts.
+For live orders, `verifyUsdcPayment()` requires a successful Base transaction with at
+least one confirmation and a Base USDC `Transfer` whose sender is the authenticated
+wallet, recipient is the configured checkout wallet, and value covers the retail price.
+Receipt propagation is retried for up to 25 seconds.
 
-### C. Hybrid
+The server reserves the normalized hash in Postgres against the payer and the exact
+order payload digest. Different payer or order details receive `409`. The fulfillment
+identifier is `gnars-<lowercase txHash>`; KeepKey's external-order idempotency handles
+concurrent or interrupted fulfillment attempts using that same identifier.
 
-Ship A now; add B later when an entity exists and card demand is proven.
+A completed claim returns the saved order and a refreshed tracking token without
+creating another order or sending another receipt email. An incomplete claim can retry
+the original payload. Once reserved, changing order details requires operator recovery;
+do not delete a claim until the upstream order state has been reconciled. If fulfillment
+succeeds but the local completion write fails, retry with the same payment and payload.
 
-## Recommendation
+The claim table stores payer, transaction hash, payload digest, completion result, and
+timestamps. It does not persist the complete shipping/contact form. Full buyer order
+history and automated refunds are separate, unimplemented workflows.
 
-**A (USDC on Base) for v1, hybrid later.** It clears the two hard blockers (no PCI, no
-entity), fits the existing web3 stack and the crypto settlement KeepKey requires, and gets
-a working checkout on gnars.com fastest.
+## Tracking and Request Limits
 
-## Build plan
+Checkout returns `orderAccessToken`, an HMAC-authenticated capability scoped to both
+the KeepKey order ID and external order ID, valid for 90 days. Its signing key is derived
+with a distinct purpose label from the active KeepKey token. Rotating that token also
+invalidates previously issued tracking tokens.
 
-**Phase 1 — MVP checkout (USDC → order) — BUILT**
+Both `GET /api/store/orders?externalOrderId=...` and `GET /api/store/orders/[id]` require
+the capability in `x-gnars-order-token`. Possession of an order ID alone does not authorize
+a read. Keep tokens private. A signed live checkout retry can recover a completed order
+with a new token.
 
-1. ✅ Checkout page `/store/[slug]/checkout`: finish + email + shipping address.
-2. ✅ Pay: thirdweb `sendTransaction` — USDC transfer of the retail amount to the store
-   checkout wallet, via `useUsdcPayment()`. Captures `txHash`. Signs through
-   `useWriteAccount()` so it honors the EOA/SA view mode.
-3. ✅ Server verifies the tx with viem (`verifyUsdcPayment`: recipient, token = Base USDC,
-   amount ≥ price, ≥1 confirmation, tx succeeded), then calls `createDropshipOrder`.
-4. ✅ Confirmation shows `keepKeyOrderId` + status polled via
-   `GET /api/store/orders?externalOrderId=…` (tracking appears once KeepKey ships).
-5. ⬜ Order persistence (Postgres) — deferred; KeepKey is currently the source of truth and
-   the order is recoverable by `externalOrderId`.
+The confirmation view polls every five minutes while visible and nonterminal; manual
+refresh remains available. The sandbox tester receives and sends tracking tokens too.
 
-**Phase 2 — status + receipts**
+Checkout caps JSON bodies at 32,000 bytes, with secondary process-local limits of 20
+requests per hour per IP and per wallet. Tracking has a local 30-per-minute IP limit;
+raw internal/sandbox creation has a local 10-per-hour IP limit. **These counters are not
+distributed quotas.** The four WAF rules published for this audit cover uploads
+(60/hour/IP), Alchemy (120/minute/IP), revalidation (20/minute/IP), and wallet endpoints
+(60/minute/IP); they do not provide a store-specific distributed limit. Add an appropriate
+store WAF rule before public fulfillment activation.
 
-- ✅ Email order receipt to the buyer on checkout (SMTP via `src/lib/email/`, best-effort —
-  never fails the order). Configured with `EMAIL_USER` / `EMAIL_PASS` (Gmail SMTP by default,
-  mirrors SkateHive); skipped with a log warning if unset.
-- ⬜ Tracking email once KeepKey ships (`order.shipped` webhook isn't live yet — see
-  `docs/integrations/keepkey-fulfillment.md`); buyer-facing order lookup (by email or wallet).
+## Code and Verification
 
-**Phase 3 — settle + cards**
+- `src/components/store/CheckoutFlow.tsx`, `src/hooks/use-usdc-payment.ts`: customer flow.
+- `src/app/api/store/checkout/route.ts`: readiness, authorization, fulfillment, receipts.
+- `src/services/store-payment.ts`: authenticated payer and receipt verification.
+- `src/services/store-payment-claims.ts`: durable reservation and completion.
+- `src/lib/schemas/checkout.ts`: order validation and hash normalization.
+- `src/lib/server/store-order-access.ts`: scoped tracking tokens.
+- `src/lib/wallet-authorization.ts`, `src/lib/server/request-security.ts`: shared request
+  authorization, byte limits, and local rate counters.
 
-- Automate/operate USDC → BTC settlement to KeepKey against the credit line.
-- Add card checkout via a MoR when a legal entity exists.
-
-## How it works (as built)
-
-```
-/store/[slug] ──Buy now──▶ /store/[slug]/checkout ──▶ POST /api/store/checkout
-                                                        │
-                          sandbox: no payment ──────────┤
-                          live: verify USDC tx ─────────┘──▶ createDropshipOrder → KeepKey
-```
-
-- **Mode gate** — `isSandbox()` decides everything. Sandbox: no payment, SKU forced to
-  `KK-TEST-001`, `externalOrderId` random. Live: `txHash` required and re-verified server-side,
-  real SKU, `externalOrderId = gnars-<txHash>`.
-- **Double-spend safety** — the live `externalOrderId` is derived from the payment tx hash, and
-  KeepKey dedupes on `externalOrderId`, so one payment can never place two orders.
-- **Eligibility** — only SKUs in `DROPSHIP_CATALOG_SKUS` (`src/lib/store/fulfillment.ts`) get a
-  checkout. The tees carry `keepkey` + `KK-TEE-*` SKUs but are print-on-demand elsewhere, so
-  they stay "coming soon" (enforced on the CTA, the page, and the API).
-- **Trust boundary** — the client only supplies a tx hash; amount/recipient/token are re-read
-  from chain. Never trust a client-reported payment.
-
-### Code map
-
-- `src/app/[locale]/store/[slug]/checkout/page.tsx` — checkout route.
-- `src/components/store/CheckoutFlow.tsx` — form, payment, confirmation + status polling.
-- `src/hooks/use-usdc-payment.ts` — USDC transfer on Base via thirdweb.
-- `src/app/api/store/checkout/route.ts` — payment gate → fulfillment order → receipt email.
-- `src/services/store-payment.ts` — on-chain payment verification (+ `.test.ts`).
-- `src/lib/email/mailer.ts` — shared SMTP transport; `order-receipt.ts` — receipt template +
-  send (+ `.test.ts`).
-- `src/lib/schemas/checkout.ts`, `src/lib/store/fulfillment.ts` (+ `.test.ts`).
-
-### Environment
-
-- `NEXT_PUBLIC_STORE_CHECKOUT_ADDRESS` — dedicated store wallet that receives USDC. Defaults to
-  the Gnars store wallet hardcoded in `src/lib/config.ts` (`STORE_CHECKOUT.recipient`); set the
-  env var only to override per-deploy. Only used in live mode (sandbox skips payment).
-- `EMAIL_USER` / `EMAIL_PASS` (+ optional `SMTP_HOST`/`SMTP_PORT`/`SMTP_SECURE`/`EMAIL_FROM`) —
-  SMTP for order receipts. Gmail SMTP by default (App Password required). Unset → receipts are
-  skipped (orders still succeed).
-
-## Open decisions for Vlad
-
-1. ~~Payment token/recipient~~ — decided: **USDC on Base → dedicated checkout wallet**
-   (`NEXT_PUBLIC_STORE_CHECKOUT_ADDRESS`).
-2. **Who operates settlement** — manual BTC deposit to KeepKey per order, or batched/automated?
-3. **Refund policy** — crypto refunds are manual; define window + who signs.
-4. **Order storage** — reuse the existing Postgres (`pg`) or a KV store (Phase 1 defers it).
-5. **Merchant-of-record / legal** — needed before any card path (option B).
-
-## What's testable now
-
-In sandbox, the full customer flow works free: `/store/keepkey-hardware-wallet` → **Buy now**
-→ fill the form → **Place test order** → confirmation with a live-polled status. Nothing is
-charged and nothing ships. The older `SandboxOrderTester` panel on the device page still
-places a raw `KK-TEST-001` order without the form.
+Tests cover foreign-payer rejection, mixed-case hash normalization, claim conflicts,
+completed retries, missing-storage readiness, and tracking token scope/expiry. Database
+and fulfillment calls are mocked in these tests. Before live activation, run the SQL
+migration, verify readiness, and test the signed flow with EOA and smart-account wallets
+in sandbox. Real payments, shipments, and credentials are not needed for unit tests.

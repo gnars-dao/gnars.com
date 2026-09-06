@@ -6,10 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { tradeCoin } from "@zoralabs/coins-sdk";
 import type { TradeParameters } from "@zoralabs/coins-sdk";
 import { toast } from "sonner";
-import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
-import { useActiveAccount, useActiveWallet } from "thirdweb/react";
 import { createPublicClient, http, parseEther, type PublicClient, type WalletClient } from "viem";
 import { base as viemBase } from "viem/chains";
 import { useMiniApp } from "@/components/miniapp/MiniAppProvider";
@@ -18,7 +17,12 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import {
+  assertSuccessfulReceipt,
+  ensureOnChain,
+  normalizeTxError,
+  waitForSuccessfulReceipt,
+} from "@/lib/thirdweb-tx";
 import { ZORA_PROTOCOL_REWARD, zoraNftMintAbi } from "@/utils/abis/zoraNftMintAbi";
 import { TVControls } from "./TVControls";
 import { TVHeader } from "./TVHeader";
@@ -93,8 +97,6 @@ export function GnarsTVFeed({ priorityCoinAddress }: GnarsTVFeedProps) {
   }, [searchParams]);
 
   const { address, isConnected } = useUserAddress();
-  const thirdwebAccount = useActiveAccount();
-  const wallet = useActiveWallet();
   const writer = useWriteAccount();
   const { isInMiniApp, share: miniAppShare } = useMiniApp();
 
@@ -399,7 +401,7 @@ export function GnarsTVFeed({ priorityCoinAddress }: GnarsTVFeedProps) {
       }
 
       const client = getThirdwebClient();
-      if (!client || !wallet || !thirdwebAccount) {
+      if (!client || !writer) {
         toast.error(t("toast.walletNotReady"));
         return;
       }
@@ -408,15 +410,9 @@ export function GnarsTVFeed({ priorityCoinAddress }: GnarsTVFeedProps) {
       const buyToast = toast.loading(t("toast.buying", { title: coinTitle }));
 
       try {
-        // Zora's `tradeCoin` SDK wants a viem WalletClient — it doesn't take
-        // a thirdweb account. We bridge via `viemAdapter` and sign from the
-        // active thirdweb wallet directly. This bypasses `useWriteAccount`,
-        // so view-mode toggles don't apply here (Zora SDK always signs from
-        // whatever thirdweb considers the active account). Revisit if the
-        // Zora path grows — migrate to `sendTransaction({ account })` once
-        // Zora exposes a lower-level call builder.
+        await ensureOnChain(writer.wallet, base);
         const walletClient = viemAdapter.wallet.toViem({
-          wallet,
+          wallet: writer.wallet,
           chain: base,
           client,
         }) as unknown as WalletClient;
@@ -430,15 +426,16 @@ export function GnarsTVFeed({ priorityCoinAddress }: GnarsTVFeedProps) {
           buy: { type: "erc20", address: coinAddress as `0x${string}` },
           amountIn: parseEther(supportAmount),
           slippage: 0.05,
-          sender: address,
+          sender: writer.account.address as `0x${string}`,
         };
 
-        await tradeCoin({
+        const receipt = await tradeCoin({
           tradeParameters,
           walletClient,
           account: walletClient.account!,
           publicClient,
         });
+        assertSuccessfulReceipt(receipt);
 
         toast.success(t("toast.buySuccess", { title: coinTitle }), { id: buyToast });
       } catch (err) {
@@ -518,7 +515,7 @@ export function GnarsTVFeed({ priorityCoinAddress }: GnarsTVFeedProps) {
         setIsBuying(false);
       }
     },
-    [isConnected, address, wallet, thirdwebAccount, supportAmount, t],
+    [isConnected, address, writer, supportAmount, t],
   );
 
   // Resolve token address from execution transaction hash
@@ -623,7 +620,7 @@ export function GnarsTVFeed({ priorityCoinAddress }: GnarsTVFeedProps) {
         const txHash = result.transactionHash as `0x${string}`;
 
         toast.loading(t("toast.waitingConfirmation"), { id: mintToast });
-        await waitForReceipt({ client, chain: base, transactionHash: txHash });
+        await waitForSuccessfulReceipt({ client, chain: base, transactionHash: txHash });
 
         toast.success(t("toast.mintSuccess", { title: item.title }), {
           id: mintToast,

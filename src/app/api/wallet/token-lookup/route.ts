@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { ipfsToHttp } from "@/lib/ipfs";
 import { getCoin, setApiKey } from "@zoralabs/coins-sdk";
 import { getAddress, isAddress } from "viem";
+import { ipfsToHttp } from "@/lib/ipfs";
 
 const ALCHEMY_RPC_BASES: Record<string, string> = {
   "8453": "https://base-mainnet.g.alchemy.com/v2",

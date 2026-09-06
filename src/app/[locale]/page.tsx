@@ -9,6 +9,7 @@ import { StakeSection } from "@/components/newhome/StakeSection";
 import { SwapSection } from "@/components/newhome/SwapSection";
 import { TVHeroSection } from "@/components/newhome/TVHeroSection";
 import { NOGGLES_RAILS } from "@/content/nogglesrails";
+import { RouteMessages } from "@/i18n/RouteMessages";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { fetchDaoStats } from "@/services/dao";
 import { fetchPoidhBounties } from "@/services/poidh";
@@ -78,60 +79,59 @@ export default async function Home({ params }: { params: Promise<{ locale: strin
   const t = await getTranslations("newhome");
 
   const [daoStats, treasury, bounties] = await Promise.all([
-    fetchDaoStats().catch(() => ({ totalSupply: 0, ownerCount: 0 })),
-    loadTreasurySnapshot(DAO_ADDRESSES.treasury).catch(() => ({
-      usdTotal: null,
-      ethBalance: 0,
-      totalAuctionSales: 0,
-    })),
-    fetchPoidhBounties({ status: "open", limit: 100, filterGnarly: true }).catch(() => ({
-      bounties: [],
-      total: 0,
-    })),
+    fetchDaoStats().catch(() => null),
+    loadTreasurySnapshot(DAO_ADDRESSES.treasury).catch(() => null),
+    fetchPoidhBounties({ status: "open", limit: 100, filterGnarly: true }).catch(() => undefined),
   ]);
 
   const treasuryLabel =
-    treasury.usdTotal == null ? "—" : `$${formatLargeNumber(treasury.usdTotal)}`;
+    treasury?.usdTotal == null ? t("dataUnavailable") : `$${formatLargeNumber(treasury.usdTotal)}`;
   const railCount = NOGGLES_RAILS.length;
 
   // No total-supply tile: `ownerCount` is the subgraph's distinct-owner count,
   // so Members already answers "how many people are in this" — the supply number
   // beside it just read as a second, larger membership figure.
   const heroStats: HeroStat[] = [
-    { value: String(daoStats.ownerCount), label: t("hero.stats.members"), icon: "members" },
+    {
+      value: daoStats ? String(daoStats.ownerCount) : t("dataUnavailable"),
+      label: t("hero.stats.members"),
+      icon: "members",
+    },
     { value: treasuryLabel, label: t("hero.stats.treasury"), icon: "treasury" },
     { value: String(railCount), label: t("hero.stats.rails"), icon: "rails" },
   ];
 
   return (
-    <div className="relative -mx-4 flex flex-1 flex-col text-foreground">
-      {/* Full-viewport ground. A fixed backdrop rather than a 100vw block: the
+    <RouteMessages route="home">
+      <div className="relative -mx-4 flex flex-1 flex-col text-foreground">
+        {/* Full-viewport ground. A fixed backdrop rather than a 100vw block: the
           page lives inside the layout's centred `main`, and widening past it
           would add a horizontal scrollbar on every platform that reserves one.
           `bg-background` rather than a hardcoded near-black: this route used to
           be pinned dark and ignored the theme toggle entirely. */}
-      <div aria-hidden className="fixed inset-0 -z-10 bg-background" />
+        <div aria-hidden className="fixed inset-0 -z-10 bg-background" />
 
-      <HeroSection stats={heroStats} />
-      <TVHeroSection />
+        <HeroSection stats={heroStats} />
+        <TVHeroSection />
 
-      <StakeSection />
-      <Interlude eyebrow={t("stake.whyEyebrow")}>{t("stake.whyBody")}</Interlude>
+        <StakeSection />
+        <Interlude eyebrow={t("stake.whyEyebrow")}>{t("stake.whyBody")}</Interlude>
 
-      <BountiesSection initialBounties={bounties} />
-      <Interlude eyebrow={t("bounties.whyEyebrow")} eyebrowClassName="text-[#FF2D2D]">
-        {t("bounties.whyBody")}
-      </Interlude>
+        <BountiesSection initialBounties={bounties} initialUnavailable={!bounties} />
+        <Interlude eyebrow={t("bounties.whyEyebrow")} eyebrowClassName="text-[#FF2D2D]">
+          {t("bounties.whyBody")}
+        </Interlude>
 
-      <RailsSection />
-      <Interlude eyebrow={t("rails.whyEyebrow")} eyebrowClassName="text-[#6699cc]">
-        {t("rails.whyBody")}
-      </Interlude>
+        <RailsSection />
+        <Interlude eyebrow={t("rails.whyEyebrow")} eyebrowClassName="text-[#6699cc]">
+          {t("rails.whyBody")}
+        </Interlude>
 
-      <GovSection />
+        <GovSection />
 
-      <SwapSection />
-      <Interlude eyebrow={t("swap.whyEyebrow")}>{t("swap.whyBody")}</Interlude>
-    </div>
+        <SwapSection />
+        <Interlude eyebrow={t("swap.whyEyebrow")}>{t("swap.whyBody")}</Interlude>
+      </div>
+    </RouteMessages>
   );
 }

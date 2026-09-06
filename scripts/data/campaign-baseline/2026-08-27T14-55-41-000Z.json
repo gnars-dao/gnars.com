@@ -169,23 +169,10 @@
     "collected": false,
     "reason": "GA4 needs credentials this repo does not hold. Retroactive pull is possible — GA retains aggregate reports — so this metric does not expire with the campaign.",
     "property": "G-S0R9RBJDKL",
-    "verifiedFiringOn": [
-      "/stake",
-      "/morpheus",
-      "/base",
-      "/pt-br/stake"
-    ],
+    "verifiedFiringOn": ["/stake", "/morpheus", "/base", "/pt-br/stake"],
     "reportToRun": {
-      "dimensions": [
-        "date",
-        "pagePath"
-      ],
-      "metrics": [
-        "screenPageViews",
-        "totalUsers",
-        "sessions",
-        "averageSessionDuration"
-      ],
+      "dimensions": ["date", "pagePath"],
+      "metrics": ["screenPageViews", "totalUsers", "sessions", "averageSessionDuration"],
       "pagePathFilter": [
         "/stake",
         "/morpheus",

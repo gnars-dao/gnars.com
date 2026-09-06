@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { FaEthereum } from "react-icons/fa";
 import { parseEther } from "viem";
+import Image from "@/components/ui/content-image";
 import { useBatchCoinPurchase } from "@/hooks/use-batch-coin-purchase";
 import { GNARS_CREATOR_COIN } from "@/lib/config";
 import { PurchaseFlowChart } from "./PurchaseFlowChart";

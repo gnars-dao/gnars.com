@@ -1,7 +1,7 @@
-// src/hooks/use-auction-bids.ts
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { subgraphQuery } from "@/lib/subgraph";
 
@@ -30,75 +30,54 @@ export interface AuctionBid {
   transactionHash: string;
 }
 
-interface UseAuctionBidsResult {
-  bids: AuctionBid[];
-  isLoading: boolean;
-  error: string | null;
-  newBidIds: Set<string>;
-}
+const NO_BIDS: AuctionBid[] = [];
+const NO_HIGHLIGHTS = new Set<string>();
 
 export function useAuctionBids(
   tokenId: string | undefined,
   enabled: boolean,
   pollIntervalMs = 10_000,
-): UseAuctionBidsResult {
-  const [bids, setBids] = useState<AuctionBid[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [newBidIds, setNewBidIds] = useState<Set<string>>(new Set());
-  const knownIds = useRef<Set<string>>(new Set());
-  const isFirstFetch = useRef(true);
-
-  const fetchBids = useCallback(async () => {
-    if (!tokenId) return;
-
-    try {
-      if (isFirstFetch.current) setIsLoading(true);
-
-      const auctionId = `${DAO_ADDRESSES.token}:${tokenId}`;
-      const data = await subgraphQuery<{ auctionBids: AuctionBid[] }>(AUCTION_BIDS_QUERY, {
-        auctionId,
-      });
-
-      const fetched = data.auctionBids ?? [];
-      setBids(fetched);
-
-      // Track new bids (not on first load)
-      if (!isFirstFetch.current) {
-        const incoming = new Set<string>();
-        for (const bid of fetched) {
-          if (!knownIds.current.has(bid.id)) {
-            incoming.add(bid.id);
-          }
-        }
-        if (incoming.size > 0) {
-          setNewBidIds(incoming);
-          // Clear highlight after 3s
-          setTimeout(() => setNewBidIds(new Set()), 3000);
-        }
-      }
-
-      // Update known IDs
-      knownIds.current = new Set(fetched.map((b) => b.id));
-      isFirstFetch.current = false;
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch bids");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [tokenId]);
+) {
+  const query = useQuery({
+    queryKey: ["auction-bids", DAO_ADDRESSES.token, tokenId],
+    queryFn: async ({ signal }) => {
+      const data = await subgraphQuery<{ auctionBids: AuctionBid[] }>(
+        AUCTION_BIDS_QUERY,
+        { auctionId: `${DAO_ADDRESSES.token}:${tokenId}` },
+        { signal },
+      );
+      return data.auctionBids ?? NO_BIDS;
+    },
+    enabled: enabled && !!tokenId,
+    staleTime: pollIntervalMs,
+    refetchInterval: enabled ? pollIntervalMs : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    // The shared subgraph gate already retries transient failures.
+    retry: false,
+  });
+  const bids = query.data ?? NO_BIDS;
+  const previous = useRef<{ tokenId: string; ids: Set<string> } | null>(null);
+  const [highlight, setHighlight] = useState<{ tokenId: string; ids: Set<string> } | null>(null);
 
   useEffect(() => {
-    if (!enabled || !tokenId) return;
+    if (!tokenId || !query.data) return;
+    const ids = new Set(query.data.map((bid) => bid.id));
+    const incoming =
+      previous.current?.tokenId === tokenId
+        ? new Set([...ids].filter((id) => !previous.current!.ids.has(id)))
+        : NO_HIGHLIGHTS;
+    previous.current = { tokenId, ids };
+    setHighlight({ tokenId, ids: incoming });
+    if (!incoming.size) return;
+    const timer = setTimeout(() => setHighlight(null), 3000);
+    return () => clearTimeout(timer);
+  }, [tokenId, query.data]);
 
-    isFirstFetch.current = true;
-    knownIds.current = new Set();
-    fetchBids();
-
-    const interval = setInterval(fetchBids, pollIntervalMs);
-    return () => clearInterval(interval);
-  }, [enabled, tokenId, fetchBids, pollIntervalMs]);
-
-  return { bids, isLoading, error, newBidIds };
+  return {
+    bids,
+    isLoading: query.isLoading,
+    error: query.error?.message ?? null,
+    newBidIds: highlight && highlight.tokenId === tokenId ? highlight.ids : NO_HIGHLIGHTS,
+  };
 }

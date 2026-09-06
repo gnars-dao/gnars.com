@@ -35,11 +35,11 @@
 // stake. The per-rider table below stays vault-only, since the fee is the only
 // part attributable per rider.
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ExternalLink, PiggyBank } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { useStakeGraphQuery } from "@/hooks/use-stake-graph";
 import { RIDER_LIST, type RiderId } from "@/lib/gnars-vaults";
 import { localizeFiat } from "@/lib/i18n/fiat";

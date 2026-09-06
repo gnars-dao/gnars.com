@@ -9,7 +9,7 @@
 // time, so the MOR is already sitting there. distribute() is permissionless —
 // whoever clicks pays the (tiny) Arbitrum gas.
 import { useCallback, useRef, useState } from "react";
-import { sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction } from "thirdweb";
 import { arbitrum } from "thirdweb/chains";
 import { encodeFunctionData, type Address } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
@@ -29,7 +29,7 @@ import {
 } from "@/lib/mor-split";
 import { ARBITRUM_PUSH_SPLIT_FACTORY, MOR_TOKEN } from "@/lib/morpheus";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 export type DistributePhase = "idle" | "deploy" | "distribute" | "collect" | "done" | "error";
 
@@ -83,7 +83,7 @@ export function useMorDistribute() {
             data: deployData,
           });
           const dHash = (await sendTransaction({ account, transaction: deployTx })).transactionHash;
-          await waitForReceipt({ client, chain: arbitrum, transactionHash: dHash });
+          await waitForSuccessfulReceipt({ client, chain: arbitrum, transactionHash: dHash });
         }
 
         setPhase("distribute");
@@ -94,7 +94,7 @@ export function useMorDistribute() {
         });
         const distTx = prepareTransaction({ client, chain: arbitrum, to: split, data: distData });
         const hash = (await sendTransaction({ account, transaction: distTx })).transactionHash;
-        await waitForReceipt({ client, chain: arbitrum, transactionHash: hash });
+        await waitForSuccessfulReceipt({ client, chain: arbitrum, transactionHash: hash });
 
         setPhase("done");
         return true;
@@ -152,7 +152,7 @@ export function useMorDistribute() {
         const tx = prepareTransaction({ client, chain: arbitrum, to: MULTICALL3, data });
         const hash = (await sendTransaction({ account: writer.account, transaction: tx }))
           .transactionHash;
-        await waitForReceipt({ client, chain: arbitrum, transactionHash: hash });
+        await waitForSuccessfulReceipt({ client, chain: arbitrum, transactionHash: hash });
         setPhase("done");
         return true;
       } catch (e) {

@@ -18,7 +18,10 @@ const ALLOWED_MEDIA_HOST_SUFFIXES = [".mypinata.cloud"];
 export function isAllowedMediaHost(url: string): boolean {
   let hostname: string;
   try {
-    hostname = new URL(url).hostname;
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || parsed.port || parsed.username || parsed.password)
+      return false;
+    hostname = parsed.hostname;
   } catch {
     return false;
   }

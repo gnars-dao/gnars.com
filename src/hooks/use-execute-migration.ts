@@ -30,7 +30,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { createTradeCall, setApiKey, tradeCoin, type TradeParameters } from "@zoralabs/coins-sdk";
 import { toast } from "sonner";
-import { getContract, sendBatchTransaction, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendBatchTransaction, sendTransaction } from "thirdweb";
 import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
 import {
@@ -55,7 +55,12 @@ import { kyberBuildCall, kyberQuoteToEth } from "@/lib/kyber-quote";
 import { referenceSlice } from "@/lib/price-impact";
 import { expectedFromZoraQuote, routeMarginFromQuotes } from "@/lib/route-margin";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import {
+  assertSuccessfulReceipt,
+  ensureOnChain,
+  normalizeTxError,
+  waitForSuccessfulReceipt,
+} from "@/lib/thirdweb-tx";
 import { depositCall } from "@/lib/upgrader-calls";
 import { stripPermitFromRouterCall } from "@/lib/zora-router-call";
 
@@ -445,7 +450,11 @@ async function runBatch({
   setAll("active");
   try {
     const result = await sendBatchTransaction({ account, transactions });
-    await waitForReceipt({ client, chain: base, transactionHash: result.transactionHash });
+    await waitForSuccessfulReceipt({
+      client,
+      chain: base,
+      transactionHash: result.transactionHash,
+    });
   } catch (err) {
     setAll("failed");
     throw err;
@@ -512,7 +521,7 @@ async function runSequential({
             params: [a.spender, a.amount],
           });
           const r = await sendTransaction({ account: writer.account, transaction: tx });
-          const rc = await waitForReceipt({
+          const rc = await waitForSuccessfulReceipt({
             client,
             chain: base,
             transactionHash: r.transactionHash,
@@ -528,7 +537,7 @@ async function runSequential({
             value: c.value,
           });
           const r = await sendTransaction({ account: writer.account, transaction: tx });
-          const rc = await waitForReceipt({
+          const rc = await waitForSuccessfulReceipt({
             client,
             chain: base,
             transactionHash: r.transactionHash,
@@ -551,7 +560,7 @@ async function runSequential({
       // Measure what actually arrived: balance delta plus the gas the swap
       // (and any approve inside the SDK) cost, which the receipts report.
       const before = await publicClient.getBalance({ address: sender });
-      const receipt = (await tradeCoin({
+      const receipt = await tradeCoin({
         tradeParameters: {
           sell: { type: "erc20", address: coins[i].address },
           buy: { type: "eth" },
@@ -562,9 +571,10 @@ async function runSequential({
         walletClient,
         account: walletClient.account!,
         publicClient,
-      })) as { gasUsed?: bigint; effectiveGasPrice?: bigint } | undefined;
+      });
+      assertSuccessfulReceipt(receipt);
       const after = await publicClient.getBalance({ address: sender });
-      const swapGas = (receipt?.gasUsed ?? 0n) * (receipt?.effectiveGasPrice ?? 0n);
+      const swapGas = BigInt(receipt.gasUsed ?? 0n) * BigInt(receipt.effectiveGasPrice ?? 0n);
       // An approve sent inside the SDK also cost gas we cannot see here; the
       // delta is therefore a floor on what was received, never a ceiling.
       const delta = after - before + swapGas;
@@ -611,7 +621,11 @@ async function runSequential({
       ...depositCall(MIGRATION_UPGRADE_ID as bigint, sender, amount),
     });
     const result = await sendTransaction({ account: writer.account, transaction });
-    await waitForReceipt({ client, chain: base, transactionHash: result.transactionHash });
+    await waitForSuccessfulReceipt({
+      client,
+      chain: base,
+      transactionHash: result.transactionHash,
+    });
     setStatus(depositIdx, "done");
   } catch (err) {
     console.error("[migration] deposit after sells failed", err);

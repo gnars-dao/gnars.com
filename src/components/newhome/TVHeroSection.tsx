@@ -23,15 +23,12 @@ function compact(value: number): string {
  */
 export async function TVHeroSection() {
   const t = await getTranslations("newhome.ticker");
+  const status = await getTranslations("newhome");
 
   const [droposals, daoStats, treasury] = await Promise.all([
     fetchDroposals(24).catch(() => []),
-    fetchDaoStats().catch(() => ({ totalSupply: 0, ownerCount: 0 })),
-    loadTreasurySnapshot(DAO_ADDRESSES.treasury).catch(() => ({
-      usdTotal: null,
-      ethBalance: 0,
-      totalAuctionSales: 0,
-    })),
+    fetchDaoStats().catch(() => null),
+    loadTreasurySnapshot(DAO_ADDRESSES.treasury).catch(() => null),
   ]);
 
   const base = droposals.length > 0 ? toChannels(droposals) : FALLBACK_CHANNELS;
@@ -52,20 +49,21 @@ export async function TVHeroSection() {
 
   const railCount = NOGGLES_RAILS.length;
   const countryCount = new Set(NOGGLES_RAILS.map((r) => r.country)).size;
-  const treasuryLabel = treasury.usdTotal == null ? "—" : compact(treasury.usdTotal);
+  const unavailable = status("dataUnavailable");
+  const treasuryLabel = treasury?.usdTotal == null ? unavailable : compact(treasury.usdTotal);
 
   // Two rows so the ticker never reads as one long loop; each scrolls at its own
   // rate, which is what makes a marquee look mechanical rather than animated.
   const ticker: [string[], string[]] = [
     [
       `RAILS ${railCount} BUILT ${countryCount} COUNTRIES`,
-      `MEMBERS ${daoStats.ownerCount}`,
-      `AUCTION ${treasury.totalAuctionSales.toFixed(1)} ETH`,
+      `MEMBERS ${daoStats?.ownerCount ?? unavailable}`,
+      `AUCTION ${treasury ? `${treasury.totalAuctionSales.toFixed(1)} ETH` : unavailable}`,
       t("cc0"),
     ],
     [
       `TREASURY ${treasuryLabel}`,
-      `GNARS ${daoStats.totalSupply}`,
+      `GNARS ${daoStats?.totalSupply ?? unavailable}`,
       `CHANNELS ${channels.length}`,
       "1 GNAR = 1 VOTE",
     ],

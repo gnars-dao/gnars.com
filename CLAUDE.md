@@ -139,7 +139,7 @@ Secrets never go in client code. `NEXT_PUBLIC_*` is public by definition.
 - Maps: `leaflet`, `react-leaflet`, `leaflet-draw`, `leaflet.markercluster`
 - Forms: `react-hook-form`, `zod`
 - Data/UX: `@tanstack/react-query`, `next-intl`, `sonner` (toasts), `framer-motion`, `minisearch`, `pg` (rounds)
-- `@rainbow-me/rainbowkit` is in `package.json` but unused in `src/` — slated for removal.
+- Content images use `@/components/ui/content-image`: known gateways are optimized; other NFT media loads directly.
 
 ## Important Notes
 

@@ -1,4 +1,4 @@
-import Image from "next/image";
+import Image from "@/components/ui/content-image";
 import type { Product } from "@/types/store";
 import KeepKeyDevice3D from "./KeepKeyDevice3D";
 

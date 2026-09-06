@@ -84,12 +84,12 @@ export function AuctionSettleButton({ isWinner }: AuctionSettleButtonProps) {
   }, [queryClient]);
 
   const settleTx = useAuctionTransaction({
-    onConfirmed: () => {
+    onConfirmed: (hash) => {
       toast.success(t("settle.confirmed"), {
         description: t("settle.confirmedDescription"),
       });
       invalidateAuctionData();
-      requestRevalidation(["auction", "auctions", "feed", "treasury"]);
+      requestRevalidation(["auction", "auctions", "feed", "treasury"], { transactionHash: hash });
       resetTimerRef.current = setTimeout(() => settleTx.reset(), 1500);
     },
     onError: (error) => {

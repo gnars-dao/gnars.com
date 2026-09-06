@@ -101,7 +101,6 @@ export async function GET(req: NextRequest) {
         usdValue: number | null;
       } => {
         const contract = b.contract ?? (b.caip ?? "").split("/")[1]?.replace(/^erc20:/, "") ?? "";
-        const price = b.priceUsd ? parseFloat(b.priceUsd) : 0;
         const value = b.valueUsd ? parseFloat(b.valueUsd) : 0;
         return {
           address: contract,

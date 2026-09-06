@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { Coins, FileImage, Send } from "lucide-react";
 import { AddressDisplay } from "@/components/ui/address-display";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { subgraphQuery } from "@/lib/subgraph";
 import { cn, getETHDisplayProps } from "@/lib/utils";

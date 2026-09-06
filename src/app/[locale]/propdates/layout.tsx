@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RouteMessages } from "@/i18n/RouteMessages";
 import { PROPDATES_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 
 // Adds this route's own Farcaster mini app embed so it launches here instead of
@@ -13,5 +14,5 @@ export function generateMetadata(): Metadata {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return <RouteMessages route="propdates">{<>{children}</>}</RouteMessages>;
 }

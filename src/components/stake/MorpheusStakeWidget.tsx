@@ -4,10 +4,9 @@
 // MorLootbox handles collecting; this invites a NEW backer to stake). Tapping it
 // opens the full GnarsStakeDialog (pitch + staking milestones + stake/withdraw).
 // Sits above the MiniTV (bottom-left); MorLootbox owns bottom-right.
-
-import Image from "next/image";
 import { useState } from "react";
 import { GnarsStakeDialog } from "@/components/stake/GnarsStakeDialog";
+import Image from "@/components/ui/content-image";
 
 export function MorpheusStakeWidget() {
   const [open, setOpen] = useState(false);
@@ -22,9 +21,18 @@ export function MorpheusStakeWidget() {
           className="group relative flex h-16 w-16 items-center justify-center rounded-full border border-emerald-300/50 bg-gradient-to-br from-emerald-600 to-emerald-500 shadow-[0_0_24px_rgba(43,229,139,.55)] transition hover:scale-105"
         >
           {!open && (
-            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/30" aria-hidden />
+            <span
+              className="absolute inset-0 animate-ping rounded-full bg-emerald-400/30"
+              aria-hidden
+            />
           )}
-          <Image src="/logos/morpheus.webp" alt="Morpheus" width={38} height={38} className="relative rounded-full" />
+          <Image
+            src="/logos/morpheus.webp"
+            alt="Morpheus"
+            width={38}
+            height={38}
+            className="relative rounded-full"
+          />
         </button>
       </div>
 

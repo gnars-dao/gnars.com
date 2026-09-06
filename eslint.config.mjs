@@ -16,6 +16,8 @@ const eslintConfig = [
       "references/**",
       "subgraphs/**",
       "scripts/**",
+      ".design-sync/**",
+      ".ds-sync/**",
     ],
   },
   {

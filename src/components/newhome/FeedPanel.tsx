@@ -55,7 +55,15 @@ const SUPPORT_COLOR = {
  * Mints, transfers and auction chatter are filtered out — the panel sits under
  * "Recent proposals" and is read as the governance ticker, not the whole chain.
  */
-export async function FeedPanel({ events, limit = 5 }: { events: FeedEvent[]; limit?: number }) {
+export async function FeedPanel({
+  events,
+  limit = 5,
+  unavailable = false,
+}: {
+  events: FeedEvent[];
+  limit?: number;
+  unavailable?: boolean;
+}) {
   const t = await getTranslations("newhome.gov");
   // One clock for the whole list so the ages are consistent with each other.
   // eslint-disable-next-line react-hooks/purity -- server component, rendered once per request; the timestamp IS the snapshot
@@ -84,7 +92,11 @@ export async function FeedPanel({ events, limit = 5 }: { events: FeedEvent[]; li
         </Link>
       </div>
 
-      {rows.length === 0 ? (
+      {unavailable ? (
+        <p role="status" className="py-4 text-sm text-muted-foreground">
+          {t("loadFailed")}
+        </p>
+      ) : rows.length === 0 ? (
         <p className="py-4 text-sm text-muted-foreground/70">{t("feedEmpty")}</p>
       ) : (
         rows.map((row) => (

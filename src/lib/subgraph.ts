@@ -36,7 +36,7 @@ const DEFAULT_REVALIDATE_SECONDS = 300;
 export async function subgraphQuery<TData>(
   query: string,
   variables?: Record<string, unknown>,
-  options?: { revalidate?: number; label?: string },
+  options?: { revalidate?: number; label?: string; signal?: AbortSignal },
 ): Promise<TData> {
   const body: GraphQLRequestBody = { query, variables };
 
@@ -47,6 +47,7 @@ export async function subgraphQuery<TData>(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
       next: { revalidate: options?.revalidate ?? DEFAULT_REVALIDATE_SECONDS },
     });
 

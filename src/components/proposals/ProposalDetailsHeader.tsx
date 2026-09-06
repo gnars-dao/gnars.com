@@ -2,17 +2,19 @@
 
 import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { Loader2, Upload, X } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import Image from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ipfsToGatewayUrl, uploadToPinata } from "@/lib/pinata";
+import { usePinataUpload } from "@/hooks/use-pinata-upload";
+import { ipfsToGatewayUrl } from "@/lib/pinata";
 import type { ProposalFormValues } from "./schema";
 
 export function ProposalDetailsHeader() {
+  const uploadToPinata = usePinataUpload();
   const t = useTranslations("propose");
   const {
     register,

@@ -1,3 +1,7 @@
+import type { Account } from "thirdweb/wallets";
+import { pinataUploadSchema } from "@/lib/pinata-policy";
+import { signWalletRequest } from "@/lib/wallet-authorization";
+
 export interface PinataUploadResponse {
   success: boolean;
   data?: {
@@ -22,19 +26,28 @@ export interface PinataUploadResponse {
  * our API route, which failed on Vercel due to serverless body size limits.
  */
 export async function uploadToPinata(
+  account: Account | undefined,
   file: File,
   name?: string,
   onProgress?: (progress: number) => void,
 ): Promise<PinataUploadResponse> {
   try {
+    if (!account) throw new Error("Connect your wallet before uploading.");
+    const upload = pinataUploadSchema.parse({
+      filename: name || file.name,
+      mimeType: file.type,
+      size: file.size,
+    });
+    const authorization = await signWalletRequest(account, {
+      method: "POST",
+      path: "/api/pinata/signed-url",
+      payload: upload,
+    });
     // Step 1: Get a presigned upload URL from our server
     const signedUrlResponse = await fetch("/api/pinata/signed-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filename: name || file.name,
-        mimeType: file.type,
-      }),
+      body: JSON.stringify({ upload, authorization }),
     });
 
     if (!signedUrlResponse.ok) {

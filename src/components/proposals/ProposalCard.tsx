@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { formatDistanceToNow } from "date-fns";
 import { ProposalStatusBadge } from "@/components/proposals/ProposalStatusBadge";
 import { Proposal } from "@/components/proposals/types";
@@ -10,6 +9,7 @@ import { extractFirstUrl, normalizeImageUrl } from "@/components/proposals/utils
 import { AddressDisplay } from "@/components/ui/address-display";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Card, CardContent } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "@/i18n/navigation";
 import { getDateFnsLocale, toIntlLocale } from "@/lib/i18n/format";

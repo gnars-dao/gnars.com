@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { getLocale, getTranslations } from "next-intl/server";
-import Image from "next/image";
+import Image from "@/components/ui/content-image";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { formatFiatUsd } from "@/lib/i18n/fiat";
 import { fetchSettledAuctionCount } from "@/services/dao";

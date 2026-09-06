@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SWAPPRO_CHAINS } from "@/lib/swappro";
 import { GNARS_SWAP_PAYOUT } from "@/lib/config";
+import { SWAPPRO_CHAINS } from "@/lib/swappro";
 import { getDefaultPair, NATIVE_TOKEN, SWAP_CHAINS } from "./chains";
 
 /**

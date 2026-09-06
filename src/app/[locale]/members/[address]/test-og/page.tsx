@@ -1,6 +1,6 @@
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { isAddress } from "viem";
+import Image from "@/components/ui/content-image";
 
 interface TestOGPageProps {
   params: Promise<{ address: string }>;

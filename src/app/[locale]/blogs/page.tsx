@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { BlogsPageSkeleton } from "@/components/blogs/BlogsPageSkeleton";
 import { BlogsView } from "@/components/blogs/BlogsView";
-import { getAllBlogSummaries } from "@/services/blogs";
 import { BLOGS_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
+import { getAllBlogSummaries } from "@/services/blogs";
 
 export async function generateMetadata({
   params,

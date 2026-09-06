@@ -6,10 +6,9 @@ import { serverPublicClient } from "@/lib/rpc";
 /**
  * Verify a customer's on-chain USDC payment for a /store order.
  *
- * Trust nothing from the client except the tx hash: we re-read the receipt on Base and
- * confirm an actual USDC `Transfer` to our checkout wallet for at least the retail amount.
- * The caller derives the order's idempotency key from the tx hash, so the same payment can
- * never place two orders. See docs/features/store-checkout.md.
+ * Re-read the receipt on Base and require a USDC Transfer from the authenticated payer
+ * to the checkout wallet for at least the retail amount. The checkout route verifies the
+ * signed order payload and reserves the canonical transaction hash in durable storage.
  *
  * NEVER import into client code.
  */
@@ -48,10 +47,12 @@ export type PaymentErrorCode = "not_configured" | "not_found" | "reverted" | "no
 /**
  * @param txHash        Base tx hash the customer says paid.
  * @param amountUsd     Retail price in USD (e.g. 59.95); converted to 6-decimal USDC.
+ * @param expectedPayer Wallet authenticated by the signed checkout request.
  */
 export async function verifyUsdcPayment(
   txHash: string,
   amountUsd: number,
+  expectedPayer: Address,
 ): Promise<PaymentVerification> {
   const recipient = STORE_CHECKOUT.recipient;
   if (!recipient) {
@@ -62,7 +63,7 @@ export async function verifyUsdcPayment(
     };
   }
 
-  const hash = txHash as Hex;
+  const hash = txHash.toLowerCase() as Hex;
   const minAmount = parseUnits(amountUsd.toString(), STORE_CHECKOUT.usdcDecimals);
 
   // Poll until the tx is on the server's RPC and has the required confirmations, absorbing
@@ -91,6 +92,7 @@ export async function verifyUsdcPayment(
   }).filter(
     (log) =>
       getAddress(log.address) === getAddress(STORE_CHECKOUT.usdc) &&
+      getAddress(log.args.from) === getAddress(expectedPayer) &&
       getAddress(log.args.to) === wantRecipient &&
       log.args.value >= minAmount,
   );

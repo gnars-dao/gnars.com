@@ -5,7 +5,7 @@
 // the lock. Rewards accrue at the subnet level (builder-claimed), so there's no
 // per-staker claim here. Mirrors use-morpheus-stake.ts but on Base.
 import { useCallback, useRef, useState } from "react";
-import { sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction } from "thirdweb";
 import { base as thirdwebBase } from "thirdweb/chains";
 import {
   createPublicClient,
@@ -28,7 +28,7 @@ import {
   MOR_DECIMALS,
 } from "@/lib/morpheus-builder";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 const rpc = createPublicClient({ chain: base, transport: fallback(BASE_RPCS.map((u) => http(u))) });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -114,7 +114,7 @@ export function useGnarsSubnetStake() {
             data: approveData,
           });
           const hash = (await sendTransaction({ account, transaction: approveTx })).transactionHash;
-          await waitForReceipt({ client, chain: thirdwebBase, transactionHash: hash });
+          await waitForSuccessfulReceipt({ client, chain: thirdwebBase, transactionHash: hash });
           await waitForAllowance(account.address as Address, amt);
         }
 
@@ -131,7 +131,7 @@ export function useGnarsSubnetStake() {
           data: depositData,
         });
         const stakeHash = (await sendTransaction({ account, transaction: tx })).transactionHash;
-        await waitForReceipt({ client, chain: thirdwebBase, transactionHash: stakeHash });
+        await waitForSuccessfulReceipt({ client, chain: thirdwebBase, transactionHash: stakeHash });
 
         setPhase("done");
         return true;
@@ -184,7 +184,7 @@ export function useGnarsSubnetStake() {
         });
         const tx = prepareTransaction({ client, chain: thirdwebBase, to: BUILDERS, data });
         const hash = (await sendTransaction({ account, transaction: tx })).transactionHash;
-        await waitForReceipt({ client, chain: thirdwebBase, transactionHash: hash });
+        await waitForSuccessfulReceipt({ client, chain: thirdwebBase, transactionHash: hash });
         setPhase("done");
         return true;
       } catch (e) {

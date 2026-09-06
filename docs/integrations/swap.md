@@ -47,12 +47,12 @@ typing, quote on click) is untouched, and the fee recipient is still set server-
 
 ## Configuration
 
-| Setting       | Source                                       | Notes                                                                                                 |
-| ------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Setting       | Source                                       | Notes                                                                                                  |
+| ------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | API key       | none                                         | SwapsPro is CORS-open and keyless. `ZEROX_API_KEY` is no longer read.                                  |
 | Fee recipient | `getSwapFeeRecipient` in `src/lib/config.ts` | Sent as SwapsPro's `partner`. An EVM address as partner is the opt-in to being paid the partner share. |
 | Fee rate      | `SWAP_FEE_BPS` in `src/lib/config.ts`        | Sent as `partnerFeeBps`. SwapsPro caps it at 100 bps (200 with a Pro Pass).                            |
-| Rate limit    | SwapsPro                                      | 60 quotes a minute per IP with no credential; the proxy shares the site's server IP.                  |
+| Rate limit    | SwapsPro                                     | 60 quotes a minute per IP with no credential; the proxy shares the site's server IP.                   |
 
 ## Affiliate fee behaviour — read this before merging
 

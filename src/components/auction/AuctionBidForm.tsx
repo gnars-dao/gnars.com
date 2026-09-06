@@ -125,10 +125,10 @@ export function AuctionBidForm({
         onBidConfirmed?.(pendingBidRef.current.comment, pendingBidRef.current.amount);
       }
     },
-    onConfirmed: () => {
+    onConfirmed: (hash) => {
       toast.success(t("bid.confirmed"), { description: t("bid.confirmedDescription") });
       invalidateAuctionData();
-      requestRevalidation(["auction", "feed"]);
+      requestRevalidation(["auction", "feed"], { transactionHash: hash });
       if (pendingBidRef.current) {
         const multiplier = 1 + minBidIncrementPct / 100;
         const raw = parseFloat(pendingBidRef.current.amount) * multiplier;

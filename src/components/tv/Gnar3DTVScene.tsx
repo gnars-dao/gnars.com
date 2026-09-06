@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { OrbitControls } from "@react-three/drei";
-import { Canvas } from "@react-three/fiber";
-import type { WebGLRenderer } from "three";
+import { Canvas, useThree } from "@react-three/fiber";
+import { PerspectiveCamera, type WebGLRenderer } from "three";
 import { WebGLGuard } from "@/components/webgl/WebGLGuard";
 import { TV3DModel } from "./TV3DModel";
 import { useTVTextureControls } from "./TVTextureControls";
@@ -16,6 +16,20 @@ interface Gnar3DTVSceneProps {
   creatorCoinImages?: CreatorCoinImage[];
   dpr?: number;
   enableOrbitControls?: boolean;
+}
+
+function ResponsiveCamera() {
+  const { camera, size, invalidate } = useThree();
+  useLayoutEffect(() => {
+    if (!(camera instanceof PerspectiveCamera) || size.height === 0) return;
+    // Preserve the cabinet's horizontal framing in tall fullscreen viewports.
+    const aspect = size.width / size.height;
+    const distance = Math.max(4, 1.8 / (Math.tan((camera.fov * Math.PI) / 360) * aspect));
+    camera.position.set(0, 0.5, distance);
+    camera.updateProjectionMatrix();
+    invalidate();
+  }, [camera, size.width, size.height, invalidate]);
+  return null;
 }
 
 export function Gnar3DTVScene({
@@ -85,6 +99,7 @@ export function Gnar3DTVScene({
           style={{ background: "transparent" }}
           dpr={dpr}
         >
+          <ResponsiveCamera />
           {/* Lighting - simplified for better performance */}
           <ambientLight intensity={3.5} />
           <directionalLight position={[5, 5, 5]} intensity={2.5} />

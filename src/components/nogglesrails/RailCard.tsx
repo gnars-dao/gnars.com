@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
+import Image from "@/components/ui/content-image";
 import { type NogglesRailLocation } from "@/content/nogglesrails";
 import { Link } from "@/i18n/navigation";
 

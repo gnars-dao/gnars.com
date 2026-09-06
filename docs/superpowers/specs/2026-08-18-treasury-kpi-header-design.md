@@ -22,12 +22,12 @@ component `TreasuryKpiRow` under one `Suspense`. It loads
 `loadTreasurySnapshot` once (today's three cards already share that load via
 React `cache`) plus the new `loadSubnetEarnings`, and renders four cards:
 
-| Card | Value | Note | Accent | Corner mark |
-| --- | --- | --- | --- | --- |
-| Total Treasury Value | usdTotal (fiat — BRL on PT, existing rule + fallback note) | "across {n} assets" (priced snapshot assets incl. ETH) | red | `public/red_noggles.png`, opacity .2 |
-| ETH Balance | ethBalance ETH | ETH in USD (fiat — converts on PT) | blue | ETH diamond SVG from mock |
-| Total Auction Sales | totalAuctionSales ETH | "{n} auctions settled" (real settled count from subgraph, not the mock's 12) | yellow | ETH diamond SVG |
-| Subnet Earnings | total USDC (token quantity — never converts to BRL, same rule as "6.8003 ETH") | "Morpheus · {n} claims" | green | USDC circle SVG from mock, value text green |
+| Card                 | Value                                                                          | Note                                                                         | Accent | Corner mark                                 |
+| -------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- | ------ | ------------------------------------------- |
+| Total Treasury Value | usdTotal (fiat — BRL on PT, existing rule + fallback note)                     | "across {n} assets" (priced snapshot assets incl. ETH)                       | red    | `public/red_noggles.png`, opacity .2        |
+| ETH Balance          | ethBalance ETH                                                                 | ETH in USD (fiat — converts on PT)                                           | blue   | ETH diamond SVG from mock                   |
+| Total Auction Sales  | totalAuctionSales ETH                                                          | "{n} auctions settled" (real settled count from subgraph, not the mock's 12) | yellow | ETH diamond SVG                             |
+| Subnet Earnings      | total USDC (token quantity — never converts to BRL, same rule as "6.8003 ETH") | "Morpheus · {n} claims"                                                      | green  | USDC circle SVG from mock, value text green |
 
 Card chrome, per the mock: border `color-mix(in oklab, <accent> 26%, <default border>)`,
 radial tint `color-mix(in oklab, <accent> 16%, transparent)` from the bottom-right

@@ -1,8 +1,8 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
 import { toIntlLocale } from "@/lib/i18n/format";
 import { DroposalListItem } from "@/services/droposals";

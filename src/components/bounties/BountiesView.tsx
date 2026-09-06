@@ -8,6 +8,7 @@ import { BountyGrid } from "@/components/bounties/BountyGrid";
 import { CreateBountyModal } from "@/components/bounties/CreateBountyModal";
 import { PendingWithdrawalBanner } from "@/components/bounties/PendingWithdrawalBanner";
 import { Button } from "@/components/ui/button";
+import ContentImage from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatEthToUsd, useEthPrice } from "@/hooks/use-eth-price";
@@ -132,8 +133,11 @@ export function BountiesView({ initialBounties }: BountiesViewProps) {
                 key={src}
                 className="flex h-[180px] items-center justify-center bg-background/40 md:h-[210px]"
               >
-                <img
+                <ContentImage
                   src={src}
+                  width={720}
+                  height={210}
+                  sizes="(max-width: 768px) 100vw, 33vw"
                   alt={`Gnars bounty banner image ${index + 1}`}
                   className={`h-full w-full ${fit === "cover" ? "object-cover" : "object-contain"}`}
                 />

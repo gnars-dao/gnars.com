@@ -21,7 +21,6 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import {
   ArrowLeftRight,
   BookOpen,
@@ -52,6 +51,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
+import Image from "@/components/ui/content-image";
 import {
   NavigationMenu,
   NavigationMenuContent,

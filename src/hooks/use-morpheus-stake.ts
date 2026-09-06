@@ -27,13 +27,7 @@
 //
 // Everything is a real mainnet tx (gas is not cheap) — the UI flags that.
 import { useCallback, useRef, useState } from "react";
-import {
-  getContract,
-  readContract,
-  sendTransaction,
-  waitForReceipt,
-  type ThirdwebClient,
-} from "thirdweb";
+import { getContract, readContract, sendTransaction, type ThirdwebClient } from "thirdweb";
 import { ethereum } from "thirdweb/chains";
 import {
   createPublicClient,
@@ -64,7 +58,7 @@ import {
 } from "@/lib/morpheus";
 import { requestRevalidation } from "@/lib/request-revalidation";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 /** Quote the LayerZero native fee for a claim (payload is fixed-size, so amount is nominal). */
 async function quoteClaimFee(user: Address, amount: bigint): Promise<bigint> {
@@ -95,7 +89,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const RECEIPT_TIMEOUT_MS = 120_000;
 async function waitReceipt(client: ThirdwebClient, transactionHash: `0x${string}`): Promise<void> {
   await Promise.race([
-    waitForReceipt({ client, chain: ethereum, transactionHash }),
+    waitForSuccessfulReceipt({ client, chain: ethereum, transactionHash }),
     new Promise((_, reject) =>
       setTimeout(
         () =>
@@ -306,7 +300,10 @@ export function useMorpheusStake() {
 
         // A MOR stake shows up in the orbit as a green stream — drop the server
         // `stake` cache so other users see it without waiting out the TTL.
-        requestRevalidation([CACHE_TAGS.stake]);
+        requestRevalidation([CACHE_TAGS.stake], {
+          transactionHash: stakeHash,
+          chainId: ethereum.id,
+        });
         setPhase("done");
         return true;
       } catch (e) {
@@ -360,7 +357,7 @@ export function useMorpheusStake() {
         const tx = prepareTransaction({ client, chain: ethereum, to: pool, data });
         const hash = (await sendTransaction({ account, transaction: tx })).transactionHash;
         await waitReceipt(client, hash);
-        requestRevalidation([CACHE_TAGS.stake]);
+        requestRevalidation([CACHE_TAGS.stake], { transactionHash: hash, chainId: ethereum.id });
         setPhase("done");
         return true;
       } catch (e) {
@@ -430,7 +427,7 @@ export function useMorpheusStake() {
         const tx = prepareTransaction({ client, chain: ethereum, to: pool, data, value: fee });
         const hash = (await sendTransaction({ account, transaction: tx })).transactionHash;
         await waitReceipt(client, hash);
-        requestRevalidation([CACHE_TAGS.stake]);
+        requestRevalidation([CACHE_TAGS.stake], { transactionHash: hash, chainId: ethereum.id });
         setPhase("done");
         return true;
       } catch (e) {
@@ -479,7 +476,7 @@ export function useMorpheusStake() {
         const tx = prepareTransaction({ client, chain: ethereum, to: pool, data });
         const hash = (await sendTransaction({ account, transaction: tx })).transactionHash;
         await waitReceipt(client, hash);
-        requestRevalidation([CACHE_TAGS.stake]);
+        requestRevalidation([CACHE_TAGS.stake], { transactionHash: hash, chainId: ethereum.id });
         setPhase("done");
         return true;
       } catch (e) {

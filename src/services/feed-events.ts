@@ -581,7 +581,7 @@ async function fetchFeedEventsUncached(_hoursBack: number = 24): Promise<FeedEve
     return events.sort((a, b) => b.timestamp - a.timestamp);
   } catch (error) {
     console.error("[feed-events] feedEvents query error:", error);
-    return [];
+    throw error;
   }
 }
 

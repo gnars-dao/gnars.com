@@ -42,7 +42,6 @@
 // subnet. Don't add a claim here without reading the contract first.
 import { useState, type ReactNode } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
 import { Clapperboard, Flag, MapPin, Rocket, Shirt, Tv } from "lucide-react";
 import { CHARACTERS } from "@/components/stake/CharacterSelector";
@@ -51,6 +50,7 @@ import { RoadmapSection } from "@/components/stake/RoadmapSection";
 import { CARD, CARD_PAD, GOLD, GOLD_CTA, GOLD_INK, MUTED } from "@/components/stake/stake-ui";
 import { SubnetSection } from "@/components/stake/SubnetSection";
 import { Button } from "@/components/ui/button";
+import Image from "@/components/ui/content-image";
 import { useGnarsSubnet } from "@/hooks/use-gnars-subnet";
 import { Link } from "@/i18n/navigation";
 import { EASE_OUT_ARRAY } from "@/lib/motion";

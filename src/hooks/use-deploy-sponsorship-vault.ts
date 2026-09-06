@@ -13,7 +13,7 @@
 // Safe proposal — and because the connected EOA is a Safe owner, proposing also
 // lands the first of the two required confirmations. No server key involved.
 import { useCallback, useState } from "react";
-import { sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import {
   createPublicClient,
@@ -53,7 +53,7 @@ import {
   type SafeCall,
 } from "@/lib/sponsorship-vaults";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 export type DeployPhase = "idle" | "split" | "vault" | "adapter" | "propose" | "done" | "error";
 
@@ -156,7 +156,7 @@ export function useDeploySponsorshipVault() {
           });
           const splitHash = (await sendTransaction({ account, transaction: splitTx }))
             .transactionHash;
-          const splitReceipt = await waitForReceipt({
+          const splitReceipt = await waitForSuccessfulReceipt({
             client,
             chain: base,
             transactionHash: splitHash,
@@ -185,7 +185,7 @@ export function useDeploySponsorshipVault() {
         });
         const vaultHash = (await sendTransaction({ account, transaction: vaultTx }))
           .transactionHash;
-        const vaultReceipt = await waitForReceipt({
+        const vaultReceipt = await waitForSuccessfulReceipt({
           client,
           chain: base,
           transactionHash: vaultHash,
@@ -223,7 +223,7 @@ export function useDeploySponsorshipVault() {
           await sleep(4000);
           adapterHash = await sendAdapter();
         }
-        const adapterReceipt = await waitForReceipt({
+        const adapterReceipt = await waitForSuccessfulReceipt({
           client,
           chain: base,
           transactionHash: adapterHash,

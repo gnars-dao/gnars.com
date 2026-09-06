@@ -2,14 +2,14 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { getContract, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { isAddress, type Address, type Hex } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 export interface UseDelegateArgs {
   onSubmitted?: (txHash: Hex) => void;
@@ -58,10 +58,7 @@ export function useDelegate({ onSubmitted, onSuccess }: UseDelegateArgs = {}) {
       setIsPending(true);
 
       try {
-        // Chain-switch on the underlying wallet. When the writer is the
-        // admin EOA (eoa view), the underlying wallet is still the AA wrap
-        // and `ensureOnChain` targets the wallet instance — same behavior
-        // as `use-eoa-delegate` to keep the EIP1193 provider aligned.
+        // The writer exposes the actual EOA provider in EOA mode.
         await ensureOnChain(writer.wallet, base);
 
         const contract = getContract({
@@ -91,7 +88,7 @@ export function useDelegate({ onSubmitted, onSuccess }: UseDelegateArgs = {}) {
         });
 
         setIsConfirming(true);
-        await waitForReceipt({
+        await waitForSuccessfulReceipt({
           client,
           chain: base,
           transactionHash: txHash,

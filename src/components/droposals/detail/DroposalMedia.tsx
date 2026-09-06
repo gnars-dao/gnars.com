@@ -7,7 +7,7 @@
  * - mediaAnimation?: http(s) URL for video
  * - alt: alt text for media
  */
-import Image from "next/image";
+import Image from "@/components/ui/content-image";
 
 export interface DroposalMediaProps {
   mediaImage?: string;

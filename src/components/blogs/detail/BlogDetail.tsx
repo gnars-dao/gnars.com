@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { Markdown } from "@/components/common/Markdown";
 import { extractFirstUrl, normalizeImageUrl } from "@/components/proposals/utils";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Blog } from "@/lib/schemas/blogs";
 import { formatSafeDistanceToNow } from "@/lib/utils/date";

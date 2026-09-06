@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { BarChart3, ChevronLeft, ChevronRight, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Image from "@/components/ui/content-image";
 import { useVaultTotal } from "@/hooks/use-vault-total";
 import { getRider } from "@/lib/gnars-vaults";
 import { cn } from "@/lib/utils";

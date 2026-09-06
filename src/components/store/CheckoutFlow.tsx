@@ -18,10 +18,13 @@ import {
 } from "@/components/ui/select";
 import { useUsdcPayment } from "@/hooks/use-usdc-payment";
 import { useUserAddress } from "@/hooks/use-user-address";
+import { useWriteAccount } from "@/hooks/use-write-account";
 import { STORE_CHECKOUT } from "@/lib/config";
+import { checkoutInputSchema } from "@/lib/schemas/checkout";
 import { isShippingSupported, SHIPPING_COUNTRY_OPTIONS } from "@/lib/store/countries";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { THIRDWEB_AA_CONFIG, THIRDWEB_WALLETS } from "@/lib/thirdweb-wallets";
+import { signWalletRequest } from "@/lib/wallet-authorization";
 import type { Currency } from "@/types/store";
 import { formatPrice } from "./shared";
 
@@ -43,6 +46,7 @@ interface CheckoutFlowProps {
 }
 
 interface OrderResult {
+  orderAccessToken: string;
   keepKeyOrderId: string;
   externalOrderId: string;
   status: string;
@@ -78,6 +82,7 @@ export function CheckoutFlow({
   const { isConnected } = useUserAddress();
   const { connect: openConnectModal } = useConnectModal();
   const { pay, isPaying } = useUsdcPayment();
+  const writer = useWriteAccount();
 
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [finish, setFinish] = useState(
@@ -148,25 +153,32 @@ export function CheckoutFlow({
   }
 
   async function placeOrder(txHash?: string) {
+    if (!writer) throw new Error(t("checkout.connectTitle"));
+    const checkout = checkoutInputSchema.parse({
+      slug,
+      finish,
+      customerName: form.customerName.trim(),
+      customerEmail: form.customerEmail.trim(),
+      shippingAddress: {
+        line1: form.line1.trim(),
+        line2: form.line2.trim(),
+        city: form.city.trim(),
+        state: form.state.trim(),
+        postalCode: form.postalCode.trim(),
+        country: form.country.trim().toUpperCase(),
+        phone: form.phone.trim(),
+      },
+      ...(txHash ? { txHash } : {}),
+    });
+    const authorization = await signWalletRequest(writer.account, {
+      method: "POST",
+      path: "/api/store/checkout",
+      payload: checkout,
+    });
     const res = await fetch("/api/store/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug,
-        finish,
-        customerName: form.customerName.trim(),
-        customerEmail: form.customerEmail.trim(),
-        shippingAddress: {
-          line1: form.line1.trim(),
-          line2: form.line2.trim(),
-          city: form.city.trim(),
-          state: form.state.trim(),
-          postalCode: form.postalCode.trim(),
-          country: form.country.trim().toUpperCase(),
-          phone: form.phone.trim(),
-        },
-        ...(txHash ? { txHash } : {}),
-      }),
+      body: JSON.stringify({ checkout, authorization }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -177,6 +189,7 @@ export function CheckoutFlow({
     }
     clearPending(); // order placed — the paid tx is now redeemed
     setOrder({
+      orderAccessToken: data.orderAccessToken,
       keepKeyOrderId: data.keepKeyOrderId,
       externalOrderId: data.externalOrderId,
       status: data.status,
@@ -192,6 +205,18 @@ export function CheckoutFlow({
 
     setSubmitting(true);
     try {
+      if (!isConnected || !writer) {
+        const client = getThirdwebClient();
+        if (client)
+          await openConnectModal({
+            client,
+            wallets: THIRDWEB_WALLETS,
+            accountAbstraction: THIRDWEB_AA_CONFIG,
+            size: "compact",
+            title: t("checkout.connectTitle"),
+          });
+        return;
+      }
       if (sandbox) {
         await placeOrder();
         return;
@@ -218,19 +243,6 @@ export function CheckoutFlow({
         .catch(() => null);
       if (!pre?.ready) {
         toast.error(t("checkout.errors.unavailable"));
-        return;
-      }
-      if (!isConnected) {
-        const client = getThirdwebClient();
-        if (client) {
-          await openConnectModal({
-            client,
-            wallets: THIRDWEB_WALLETS,
-            accountAbstraction: THIRDWEB_AA_CONFIG,
-            size: "compact",
-            title: t("checkout.connectTitle"),
-          });
-        }
         return;
       }
       const txHash = await pay({
@@ -460,13 +472,16 @@ function OrderConfirmation({
   const timer = useRef<ReturnType<typeof setInterval>>(undefined);
 
   const refresh = useCallback(async () => {
+    if (document.hidden) return;
     try {
       const res = await fetch(
         `/api/store/orders?externalOrderId=${encodeURIComponent(order.externalOrderId)}`,
+        { headers: { "x-gnars-order-token": order.orderAccessToken } },
       );
       if (!res.ok) return;
       const data = await res.json();
       setCurrent({
+        orderAccessToken: order.orderAccessToken,
         keepKeyOrderId: data.keepKeyOrderId,
         externalOrderId: data.externalOrderId,
         status: data.status,
@@ -477,11 +492,11 @@ function OrderConfirmation({
     } catch {
       // transient — next tick retries
     }
-  }, [order.externalOrderId]);
+  }, [order.externalOrderId, order.orderAccessToken]);
 
   useEffect(() => {
     if (TERMINAL.has(current.status)) return;
-    timer.current = setInterval(refresh, 12_000);
+    timer.current = setInterval(refresh, 300_000);
     return () => clearInterval(timer.current);
   }, [current.status, refresh]);
 

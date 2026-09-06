@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
  * disappears automatically in live mode. Never ships, never draws credit.
  */
 interface TesterOrder {
+  orderAccessToken: string;
   keepKeyOrderId: string;
   externalOrderId: string;
   status: string;
@@ -49,7 +50,12 @@ export function SandboxOrderTester() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
-      setOrder({ keepKeyOrderId: data.keepKeyOrderId, externalOrderId, status: data.status });
+      setOrder({
+        keepKeyOrderId: data.keepKeyOrderId,
+        externalOrderId,
+        status: data.status,
+        orderAccessToken: data.orderAccessToken,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to place order");
     } finally {
@@ -66,10 +72,12 @@ export function SandboxOrderTester() {
     try {
       const res = await fetch(
         `/api/store/orders?externalOrderId=${encodeURIComponent(order.externalOrderId)}`,
+        { headers: { "x-gnars-order-token": order.orderAccessToken } },
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
       setOrder({
+        orderAccessToken: order.orderAccessToken,
         keepKeyOrderId: data.keepKeyOrderId,
         externalOrderId: data.externalOrderId,
         status: data.status,

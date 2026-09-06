@@ -642,10 +642,23 @@ export async function GET() {
         fetchedAt: new Date().toISOString(),
         durationMs: elapsed,
       },
-      { headers: { "Cache-Control": CACHE_CONTROL_HEADER } },
+      {
+        headers: {
+          "Cache-Control":
+            creatorResult.report.status === "ok" && farcasterData.farcaster.status === "ok"
+              ? CACHE_CONTROL_HEADER
+              : "no-store",
+        },
+      },
     );
   } catch (error) {
     console.error("[api/tv] Feed fetch error:", error);
-    return NextResponse.json({ error: "Failed to fetch TV feed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch TV feed" },
+      {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   }
 }

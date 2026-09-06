@@ -1,9 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { AlertCircle, ArrowRight } from "lucide-react";
 import { AddressDisplay } from "@/components/ui/address-display";
+import Image from "@/components/ui/content-image";
 import { type TransactionFormValues } from "../schema";
 
 interface SendNftsTransactionDetailsProps {

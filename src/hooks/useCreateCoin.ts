@@ -19,7 +19,7 @@ import {
   setApiKey,
   type CreateCoinArgs,
 } from "@zoralabs/coins-sdk";
-import { sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import {
   decodeEventLog,
@@ -34,6 +34,7 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareTransaction } from "@/lib/builder-code";
 import { GNARS_CREATOR_COIN, PLATFORM_REFERRER } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 import { generateVideoThumbnail } from "@/lib/video-thumbnail";
 import { ZORA_FACTORY_ADDRESS, zoraFactoryAbi } from "@/lib/zora/factoryAbi";
 import { encodeContentPoolConfigForCreator } from "@/lib/zora/poolConfig";
@@ -334,6 +335,7 @@ export function useCreateCoin() {
       });
 
       setIsSending(true);
+      await ensureOnChain(writer.wallet, base);
       const sendResult = await sendTransaction({
         account: writer.account,
         transaction: tx,
@@ -343,7 +345,7 @@ export function useCreateCoin() {
       setTransactionHash(txHash);
 
       setIsConfirming(true);
-      const receipt = await waitForReceipt({
+      const receipt = await waitForSuccessfulReceipt({
         client,
         chain: base,
         transactionHash: txHash,

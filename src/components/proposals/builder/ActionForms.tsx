@@ -64,7 +64,13 @@ interface ActionFormsProps {
   onNftMultiSubmit?: (selectedIds: number[], imageMap: Record<number, string | undefined>) => void;
 }
 
-export function ActionForms({ index, actionType, onSubmit, onCancel, onNftMultiSubmit }: ActionFormsProps) {
+export function ActionForms({
+  index,
+  actionType,
+  onSubmit,
+  onCancel,
+  onNftMultiSubmit,
+}: ActionFormsProps) {
   const t = useTranslations("propose");
   const { handleSubmit, setValue, getValues } = useFormContext<ProposalFormValues>();
   const [isGenerating, setIsGenerating] = useState(false);

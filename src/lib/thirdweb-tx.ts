@@ -1,3 +1,4 @@
+import { waitForReceipt } from "thirdweb";
 import type { Chain } from "thirdweb/chains";
 import type { Wallet } from "thirdweb/wallets";
 
@@ -6,6 +7,27 @@ export type TxErrorCategory = "user-rejected" | "reverted" | "timeout" | "unknow
 export interface NormalizedTxError {
   category: TxErrorCategory;
   message: string;
+}
+
+export class TransactionRevertedError extends Error {
+  constructor(readonly transactionHash: string) {
+    super(`Transaction reverted (${transactionHash})`);
+    this.name = "TransactionRevertedError";
+  }
+}
+
+export function assertSuccessfulReceipt(receipt: {
+  status: string;
+  transactionHash: string;
+}): void {
+  if (receipt.status !== "success") throw new TransactionRevertedError(receipt.transactionHash);
+}
+
+/** A mined receipt is not necessarily a successful transaction. */
+export async function waitForSuccessfulReceipt(options: Parameters<typeof waitForReceipt>[0]) {
+  const receipt = await waitForReceipt(options);
+  assertSuccessfulReceipt(receipt);
+  return receipt;
 }
 
 /**

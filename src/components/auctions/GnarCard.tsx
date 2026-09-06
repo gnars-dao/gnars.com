@@ -1,9 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { AddressDisplay } from "@/components/ui/address-display";
 import { Card, CardContent } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { cn } from "@/lib/utils";
 
 export interface GnarCardProps {

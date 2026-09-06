@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { usePinataUpload } from "@/hooks/use-pinata-upload";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { usePoidhCreateClaim } from "@/hooks/usePoidhContract";
 import { CHAIN_NAMES, getTxUrl, SUPPORTED_CHAINS } from "@/lib/poidh/config";
@@ -38,6 +39,7 @@ interface ClaimBountyModalProps {
 }
 
 export function ClaimBountyModal({ bounty, children, onSuccess }: ClaimBountyModalProps) {
+  const uploadToPinata = usePinataUpload();
   const t = useTranslations("bounties");
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -86,11 +88,8 @@ export function ClaimBountyModal({ bounty, children, onSuccess }: ClaimBountyMod
 
     setIsUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/pinata/upload", { method: "POST", body: formData });
-      const json = await res.json();
-      if (!res.ok || !json?.data?.gatewayUrl) {
+      const json = await uploadToPinata(file, file.name);
+      if (!json.success || !json.data?.gatewayUrl) {
         throw new Error(json?.error ?? "upload_failed");
       }
       setMediaUrl(json.data.gatewayUrl);

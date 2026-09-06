@@ -11,8 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { usePinataUpload } from "@/hooks/use-pinata-upload";
 import { usePropdates } from "@/hooks/use-propdates";
-import { uploadToPinata } from "@/lib/pinata";
 import { type Propdate } from "@/services/propdates";
 
 interface PropdateFormProps {
@@ -23,6 +23,7 @@ interface PropdateFormProps {
 }
 
 export function PropdateForm({ proposalId, replyTo, onSuccess, onCancel }: PropdateFormProps) {
+  const uploadToPinata = usePinataUpload();
   const t = useTranslations("propdates");
   const [messageText, setMessageText] = useState("");
   const [uploading, setUploading] = useState(false);

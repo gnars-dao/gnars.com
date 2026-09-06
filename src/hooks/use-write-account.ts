@@ -71,6 +71,7 @@ export function useWriteAccount(): WriteAccount | undefined {
     if (admin && adminWallet) {
       return { account: admin, wallet: adminWallet, isEoaSigner: true };
     }
+    return undefined;
   }
 
   return { account: activeAccount, wallet, isEoaSigner: false };

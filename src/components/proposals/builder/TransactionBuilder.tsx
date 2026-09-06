@@ -90,7 +90,10 @@ export function TransactionBuilder({ onFormsVisibilityChange }: TransactionBuild
   // Called by ActionForms when the user selects multiple NFTs.
   // Replaces the stub at editingTransactionIndex with the first NFT and
   // appends one additional send-nfts transaction per remaining token.
-  const handleNftMultiSubmit = (selectedIds: number[], imageMap: Record<number, string | undefined>) => {
+  const handleNftMultiSubmit = (
+    selectedIds: number[],
+    imageMap: Record<number, string | undefined>,
+  ) => {
     if (editingTransactionIndex === null || selectedIds.length === 0) return;
     const currentValues = getValues();
     const baseTx = currentValues.transactions[editingTransactionIndex] as unknown as Extract<

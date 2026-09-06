@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
+import Image from "@/components/ui/content-image";
 import { ipfsCandidates } from "@/lib/ipfs";
 import { usePerformanceTracking } from "./useVideoPreloader";
 

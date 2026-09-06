@@ -11,10 +11,10 @@
 # optional dependencies, so nothing needs compiling here. Flip one to true only
 # with a reason — a missing native binary, not a hunch.
 allowBuilds:
-  '@parcel/watcher': false
-  '@sentry/cli': false
-  '@swc/core': false
-  '@tailwindcss/oxide': false
+  "@parcel/watcher": false
+  "@sentry/cli": false
+  "@swc/core": false
+  "@tailwindcss/oxide": false
   bufferutil: false
   esbuild: false
   keccak: false

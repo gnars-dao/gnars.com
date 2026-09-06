@@ -51,7 +51,13 @@ function timeMessage(
  * line, the title, then a single for/against bar with the tallies beneath —
  * dense enough that three of them sit beside the auction without scrolling.
  */
-export async function ProposalsPanel({ proposals }: { proposals: Proposal[] }) {
+export async function ProposalsPanel({
+  proposals,
+  unavailable = false,
+}: {
+  proposals: Proposal[];
+  unavailable?: boolean;
+}) {
   const t = await getTranslations("newhome.gov");
   // One clock for the list so the labels are consistent with each other.
   // eslint-disable-next-line react-hooks/purity -- server component, rendered once per request; the timestamp IS the snapshot
@@ -69,6 +75,11 @@ export async function ProposalsPanel({ proposals }: { proposals: Proposal[] }) {
         </Link>
       </div>
 
+      {unavailable && (
+        <p role="status" className="py-4 text-sm text-muted-foreground">
+          {t("loadFailed")}
+        </p>
+      )}
       {proposals.map((p) => {
         const [bg, fg, border] = STATUS_TONE[p.status] ?? NEUTRAL_TONE;
         const isOpen = p.status === ProposalStatus.ACTIVE || p.status === ProposalStatus.PENDING;

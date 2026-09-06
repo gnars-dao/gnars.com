@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { getContract, readContract, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, readContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { type Address, type Hex } from "viem";
 import { useSimulateContract } from "wagmi";
@@ -11,7 +11,7 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import { ensureOnChain, normalizeTxError, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 import { gnarsGovernorAbi } from "@/utils/abis/gnarsGovernorAbi";
 
 type VoteChoice = "FOR" | "AGAINST" | "ABSTAIN";
@@ -184,7 +184,7 @@ export function useCastVote({ proposalId, onSubmitted, onSuccess }: UseCastVoteA
         });
 
         setIsConfirming(true);
-        await waitForReceipt({ client, chain: base, transactionHash: txHash });
+        await waitForSuccessfulReceipt({ client, chain: base, transactionHash: txHash });
         setIsConfirming(false);
         setIsConfirmed(true);
 

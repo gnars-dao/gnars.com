@@ -174,7 +174,9 @@ export function ProposalDetail({ proposal }: ProposalDetailProps) {
       // Local state above is optimistic for the voter themselves; kick the
       // server caches so other users see the vote without waiting out the
       // ISR/segment-cache TTLs (docs/architecture/caching-standard.md Rule 3).
-      requestRevalidation([`proposal:${proposal.proposalNumber}`, "proposals", "feed"]);
+      requestRevalidation([`proposal:${proposal.proposalNumber}`, "proposals", "feed"], {
+        transactionHash: txHash,
+      });
     },
     [
       setUserVote,

@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { dropshipOrderInputSchema } from "@/lib/schemas/dropship";
 import {
+  enforceRateLimit,
+  RequestSecurityError,
+  requestSecurityResponse,
+} from "@/lib/server/request-security";
+import { createOrderAccessToken, verifyOrderAccessToken } from "@/lib/server/store-order-access";
+import {
   createDropshipOrder,
   DropshipApiError,
   getDropshipOrderByExternalId,
@@ -35,6 +41,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    verifyOrderAccessToken(request, { externalOrderId });
+    await enforceRateLimit(request, { scope: "order-status", limit: 30, windowSeconds: 60 });
     const order = await getDropshipOrderByExternalId(externalOrderId);
     if (!order) {
       return NextResponse.json(
@@ -44,6 +52,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json(order);
   } catch (error) {
+    if (error instanceof RequestSecurityError) return requestSecurityResponse(error);
     if (error instanceof DropshipApiError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message } },
@@ -61,10 +70,9 @@ export async function GET(request: NextRequest) {
 /**
  * Forward a paid order to KeepKey for fulfillment.
  *
- * TODO(checkout): this route is meant to run AFTER payment settles on the Gnars side.
- * Until checkout exists, live-mode creation (which draws the KeepKey credit line and
- * ships a real device) is gated behind KEEPKEY_DROPSHIP_INTERNAL_SECRET so it can't be
- * called by the public. Sandbox (KEEPKEY_DROPSHIP_MODE=test) is open for dry-runs.
+ * Internal fulfillment entry point. Customer orders use /api/store/checkout, which
+ * verifies payment ownership. Live calls here require KEEPKEY_DROPSHIP_INTERNAL_SECRET;
+ * sandbox requests place test orders only.
  */
 export async function POST(request: NextRequest) {
   if (!isDropshipConfigured()) {
@@ -82,8 +90,7 @@ export async function POST(request: NextRequest) {
         {
           error: {
             code: "forbidden",
-            message:
-              "Live order creation requires internal authorization (payment gate not built yet)",
+            message: "Live order creation requires internal authorization",
           },
         },
         { status: 403 },
@@ -104,9 +111,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    await enforceRateLimit(request, { scope: "raw-orders", limit: 10, windowSeconds: 3600 });
     const result = await createDropshipOrder(parsed.data);
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(
+      {
+        ...result,
+        orderAccessToken: createOrderAccessToken({
+          keepKeyOrderId: result.keepKeyOrderId,
+          externalOrderId: parsed.data.externalOrderId,
+        }),
+      },
+      { status: 201 },
+    );
   } catch (error) {
+    if (error instanceof RequestSecurityError) return requestSecurityResponse(error);
     if (error instanceof DropshipApiError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message } },

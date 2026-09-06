@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getCoin, setApiKey } from "@zoralabs/coins-sdk";
 import { ArrowRight, Check, ChevronDown, Info, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
-import { sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction } from "thirdweb";
 import { useActiveWallet, useActiveWalletChain } from "thirdweb/react";
 import { formatUnits, isAddress, maxUint256, parseUnits, type Address, type Hex } from "viem";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ import { prepareContractCall, prepareTransaction } from "@/lib/builder-code";
 import { chainPaysTreasury, DAO_ADDRESSES } from "@/lib/config";
 import { ipfsToHttp } from "@/lib/ipfs";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import { ensureOnChain, normalizeTxError, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 import { cn } from "@/lib/utils";
 import { getDefaultPair, NATIVE_TOKEN, type SwapToken } from "./chains";
 import type { SwapChain } from "./chains";
@@ -613,7 +613,11 @@ export function SwapWidget() {
       toast.success(t("toasts.approvalSubmitted"), {
         description: `${txHash.slice(0, 10)}…${txHash.slice(-4)}`,
       });
-      await waitForReceipt({ client, chain: chain.thirdwebChain, transactionHash: txHash });
+      await waitForSuccessfulReceipt({
+        client,
+        chain: chain.thirdwebChain,
+        transactionHash: txHash,
+      });
       setNeedsApproval(false);
       setApprovalTarget(null);
       toast.success(t("toasts.tokenApproved", { symbol: sellToken.symbol }));
@@ -681,7 +685,11 @@ export function SwapWidget() {
         description: `${txHash.slice(0, 10)}…${txHash.slice(-4)}`,
       });
 
-      await waitForReceipt({ client, chain: chain.thirdwebChain, transactionHash: txHash });
+      await waitForSuccessfulReceipt({
+        client,
+        chain: chain.thirdwebChain,
+        transactionHash: txHash,
+      });
       toast.success(t("toasts.swapConfirmed"), {
         description: t("toasts.swapConfirmedDesc", {
           amount: formatTokenAmount(quote.buyAmount, buyToken.decimals),

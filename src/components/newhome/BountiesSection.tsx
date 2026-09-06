@@ -57,23 +57,28 @@ export function BountiesSection({
    * instead of popping in after hydration.
    */
   initialBounties,
+  initialUnavailable = false,
 }: {
   initialBounties?: PoidhBountiesResponse;
+  initialUnavailable?: boolean;
 }) {
   const t = useTranslations("newhome.bounties");
   const tb = useTranslations("bounties");
+  const status = useTranslations("newhome");
   const locale = useLocale();
   const { ethPrice } = useEthPrice();
-  const { data, isLoading } = usePoidhBounties({
+  const { data, isLoading, isError } = usePoidhBounties({
     status: "open",
     limit: 100,
     filterGnarly: true,
     initialData: initialBounties,
   });
+  const unavailable = !data && (isError || initialUnavailable);
+  const pendingValue = unavailable ? status("dataUnavailable") : "…";
 
   const bounties = useMemo(() => data?.bounties ?? [], [data]);
 
-  const { hand, pool, showcaseCount, usdTotal } = useMemo(() => {
+  const { hand, pool, showcaseCount } = useMemo(() => {
     const ranked = selectShowcaseBounties(bounties);
     const total = showcasePool(ranked);
     const top = ranked.slice(0, HAND_SIZE);
@@ -117,7 +122,6 @@ export function BountiesSection({
       hand: dealCenterOut(cards),
       pool: total,
       showcaseCount: ranked.length,
-      usdTotal: total * ethPrice,
     };
   }, [bounties, ethPrice, locale, t, tb]);
 
@@ -134,13 +138,18 @@ export function BountiesSection({
           body={t("body")}
           aside={
             <>
-              <StatTile value={`${pool.toFixed(2)} ETH`} label={t("stats.pool")} />
-              <StatTile value={showcaseCount} label={t("stats.open")} />
+              <StatTile
+                value={data ? `${pool.toFixed(2)} ETH` : pendingValue}
+                label={t("stats.pool")}
+              />
+              <StatTile value={data ? showcaseCount : pendingValue} label={t("stats.open")} />
               <StatTile
                 value={
-                  ethPrice > 0
-                    ? formatEthToUsd(pool, ethPrice, toIntlLocale(locale))
-                    : `$${Math.round(usdTotal)}`
+                  !data
+                    ? pendingValue
+                    : ethPrice > 0
+                      ? formatEthToUsd(pool, ethPrice, toIntlLocale(locale))
+                      : status("dataUnavailable")
                 }
                 label={t("stats.usd")}
               />
@@ -148,7 +157,11 @@ export function BountiesSection({
           }
         />
 
-        {isLoading && hand.length === 0 ? (
+        {unavailable ? (
+          <p role="status" className="py-8 text-sm text-muted-foreground">
+            {status("gov.loadFailed")}
+          </p>
+        ) : isLoading && hand.length === 0 ? (
           <div className="flex h-[420px] items-center justify-center rounded-[22px] border border-border bg-muted/30 font-mono text-sm text-muted-foreground/70">
             …
           </div>
