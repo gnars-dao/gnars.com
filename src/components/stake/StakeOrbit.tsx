@@ -18,6 +18,7 @@ import { useActiveAccount } from "thirdweb/react";
 import { useStakeGraphQuery } from "@/hooks/use-stake-graph";
 import type { RiderId } from "@/lib/gnars-vaults";
 import { EASE_IN_OUT, EASE_OUT } from "@/lib/motion";
+import { formatMorpheusPrincipal, hasVerifiedRewardRouting } from "@/lib/stake-graph-display";
 import { cn } from "@/lib/utils";
 import type { OrbitBacker, StakeGraph } from "@/services/stake-graph";
 
@@ -438,7 +439,13 @@ export function StakeOrbit({
       const anchor: "start" | "middle" | "end" = ux > 0.3 ? "start" : ux < -0.3 ? "end" : "middle";
       const lx = r1(q.x + ux * (nr + 9));
       const ly = r1(q.y + uy * (nr + 9));
-      const nameY = anchor !== "middle" ? ly - 1 : uy < 0 ? ly - 16 : ly + 12;
+      const principal = formatMorpheusPrincipal(b, locale);
+      const routing =
+        b.kind === "mor" && !hasVerifiedRewardRouting(b)
+          ? t(`orbit.routing.${b.routing ?? "unknown"}`)
+          : null;
+      const extraLines = Number(Boolean(principal)) + Number(Boolean(routing));
+      const nameY = anchor !== "middle" ? ly - 1 : uy < 0 ? ly - 16 - extraLines * 14 : ly + 12;
       const name = isYou ? t("orbit.you") : nameOrShort(b, ensNames);
       const amount = usdStake(b.amount, locale);
       return {
@@ -452,10 +459,20 @@ export function StakeOrbit({
           x: lx,
           nameY,
           amtY: nameY + 14,
+          principalY: nameY + 28,
+          routingY: nameY + (principal ? 42 : 28),
+          lastY: nameY + 14 + extraLines * 14,
           anchor,
           name,
           amount,
-          w: Math.max(textW(name, 12), textW(amount, 12)),
+          principal,
+          routing,
+          w: Math.max(
+            textW(name, 12),
+            textW(amount, 12),
+            textW(principal ?? "", 11),
+            textW(routing ?? "", 11),
+          ),
         },
       };
     });
@@ -513,9 +530,9 @@ export function StakeOrbit({
     for (const bk of nd.backers) {
       box(bk.x - bk.nr - 3, bk.y - bk.nr - 3, bk.x + bk.nr + 3, bk.y + bk.nr + 3);
       if (!nd.isCenter) continue; // labels only exist in focus mode
-      const { x, w, anchor, nameY, amtY } = bk.label;
+      const { x, w, anchor, nameY, lastY } = bk.label;
       const x0 = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
-      box(x0, Math.min(nameY, amtY) - 11, x0 + w, Math.max(nameY, amtY) + 4);
+      box(x0, nameY - 11, x0 + w, lastY + 4);
     }
   }
   const cx = (minX + maxX) / 2;
@@ -556,9 +573,11 @@ export function StakeOrbit({
           so the page can too. `=== false` on purpose — a payload cached by
           react-query from before this field existed is `undefined`, and that is
           not a claim of failure. */}
-      {graph.backersResolved === false && (
+      {(graph.backersResolved === false || graph.morResolved === false) && (
         <p className="mb-3 rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-xs text-white/70">
-          {t("orbit.backersUnavailable")}
+          {t(
+            graph.morResolved === false ? "orbit.morpheusUnavailable" : "orbit.backersUnavailable",
+          )}
         </p>
       )}
 
@@ -662,7 +681,7 @@ export function StakeOrbit({
                   stroke={nd.isCenter ? EDGE_FOCUS : EDGE}
                   strokeWidth={nd.lit ? 2 : 1}
                 />
-                {nd.lit && (
+                {(nd.a.vaultTvl > 0 || nd.a.backers.some(hasVerifiedRewardRouting)) && (
                   <line
                     x1={nd.p.x}
                     y1={nd.p.y}
@@ -690,17 +709,19 @@ export function StakeOrbit({
                       strokeWidth={supW(bk.b.amount)}
                       strokeLinecap="round"
                     />
-                    <line
-                      x1={bk.x}
-                      y1={bk.y}
-                      x2={nd.p.x}
-                      y2={nd.p.y}
-                      className="so-flow"
-                      stroke={GOLD}
-                      strokeOpacity={nd.isCenter ? 0.7 : 0.32}
-                      strokeWidth={supW(bk.b.amount)}
-                      strokeLinecap="round"
-                    />
+                    {hasVerifiedRewardRouting(bk.b) && (
+                      <line
+                        x1={bk.x}
+                        y1={bk.y}
+                        x2={nd.p.x}
+                        y2={nd.p.y}
+                        className="so-flow"
+                        stroke={GOLD}
+                        strokeOpacity={nd.isCenter ? 0.7 : 0.32}
+                        strokeWidth={supW(bk.b.amount)}
+                        strokeLinecap="round"
+                      />
+                    )}
                   </g>
                 ))}
               </g>
@@ -715,6 +736,9 @@ export function StakeOrbit({
                 return (
                   <g
                     key={`b-${bkKey}`}
+                    data-backer={bk.b.address}
+                    data-protocol={bk.b.kind}
+                    data-routing={bk.b.routing}
                     // Mouse only: on touch, mouseenter fires on tap and the label
                     // would stick. Focus mode ignores hover entirely.
                     onPointerEnter={(e) => {
@@ -734,6 +758,18 @@ export function StakeOrbit({
                     }}
                     onPointerLeave={() => setHotBk((cur) => (cur === bkKey ? null : cur))}
                   >
+                    <title>
+                      {[
+                        bk.label.name,
+                        bk.label.amount,
+                        bk.label.principal,
+                        bk.b.kind === "mor"
+                          ? t(`orbit.routing.${bk.b.routing ?? "unknown"}`)
+                          : "Morpho",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </title>
                     {/* so-node gives the group a fill-box center origin, so the
                         scale grows the dot in place instead of around the frame. */}
                     <g
@@ -795,6 +831,30 @@ export function StakeOrbit({
                         >
                           {bk.label.amount}
                         </text>
+                        {bk.label.principal && (
+                          <text
+                            x={bk.label.x}
+                            y={bk.label.principalY}
+                            textAnchor={bk.label.anchor}
+                            fontSize="11"
+                            fill="rgba(255,255,255,.7)"
+                            style={HALO}
+                          >
+                            {bk.label.principal}
+                          </text>
+                        )}
+                        {bk.label.routing && (
+                          <text
+                            x={bk.label.x}
+                            y={bk.label.routingY}
+                            textAnchor={bk.label.anchor}
+                            fontSize="11"
+                            fill={GOLD}
+                            style={HALO}
+                          >
+                            {bk.label.routing}
+                          </text>
+                        )}
                       </>
                     )}
                   </g>

@@ -150,6 +150,13 @@
     }
   },
   "orbit": {
+    "morpheusUnavailable": "Os dados da Morpheus estão incompletos. Mostrando os valores verificados disponíveis, não o total completo.",
+    "routing": {
+      "verified-split": "Recompensas configuradas",
+      "unconfigured": "Recompensas por configurar",
+      "custom": "Outro recebedor de recompensas",
+      "unknown": "Recebedor indisponível"
+    },
     "title": "Fluxo de patrocínio",
     "you": "você",
     "loading": "carregando o fluxo…",
@@ -162,6 +169,8 @@
     "retry": "Tentar de novo"
   },
   "backing": "<b>{amount}</b> apoiando {name}",
+  "backingPartial": "<b>{amount}</b> verificados para {name} (dados parciais)",
+  "supportUnavailable": "Valor do apoio indisponível",
   "loadingSupport": "carregando apoio…",
   "vaultSoon": "cofre de patrocínio em breve",
   "vaultPaused": "cofre de patrocínio pausado",
@@ -321,6 +330,9 @@
     "socialDesc": "O tesouro no centro, atletas na primeira órbita, apoiadores na segunda.",
     "stats": {
       "staked": "em stake",
+      "stakedPartial": "stake verificado (parcial)",
+      "backersPartial": "apoiadores identificados",
+      "treasuryPartial": "valor verificado do tesouro (parcial)",
       "backers": "{n, plural, one {apoiador} other {apoiadores}}",
       "treasury": "rendeu pro tesouro"
     },

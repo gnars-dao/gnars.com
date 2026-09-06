@@ -391,6 +391,7 @@ export function useMorpheusStakeFlow({
       refreshedTransactions.add(hash);
       requestRevalidation([CACHE_TAGS.stake], { transactionHash: hash, chainId: 1 });
       void queryClient.invalidateQueries({ queryKey: ["morpheus-position", visibleFlow.account] });
+      void queryClient.invalidateQueries({ queryKey: ["stake-graph"] });
     }
   }, [queryClient, visibleFlow]);
 

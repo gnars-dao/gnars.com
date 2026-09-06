@@ -33,8 +33,8 @@ export function useStakeGraphQuery(nonce = 0) {
     // Note a `nonce` bump changes only this query key, not the request URL, so
     // it forces a network fetch but can still be answered by that same CDN
     // entry — it is not a way to see your own deposit immediately.
-    staleTime: 300_000,
-    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -15,6 +15,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { MICRO, MUTED, ROW_LIST, ROW_PAD } from "@/components/stake/stake-ui";
 import { useStakeGraphQuery } from "@/hooks/use-stake-graph";
 import { Link } from "@/i18n/navigation";
+import { formatMorpheusPrincipal } from "@/lib/stake-graph-display";
 import { cn } from "@/lib/utils";
 import type { StakeGraph } from "@/services/stake-graph";
 
@@ -36,6 +37,7 @@ export function BackerList({ data }: { data?: StakeGraph } = {}) {
   // This used to print the raw id under a `capitalize` class, which forced a
   // capital on every rider — including the one whose name is lowercase.
   const tc = useTranslations("stake.characters");
+  const to = useTranslations("stake.orbit");
   const locale = useLocale();
   const { data: live, isError, refetch, isFetching } = useStakeGraphQuery();
   const graph = data ?? live ?? null;
@@ -67,17 +69,26 @@ export function BackerList({ data }: { data?: StakeGraph } = {}) {
   // holder index can be down, in which case we simply do not know. Say the
   // thing we actually know instead. (`=== false`, not falsy — a react-query
   // payload from before this field shipped is `undefined`, not a failure.)
-  const backersUnknown = graph.backersResolved === false;
+  const backersUnknown = graph.backersResolved === false || graph.morResolved === false;
 
   if (ranked.length === 0)
-    return <p className={cn("text-sm", MUTED)}>{t(backersUnknown ? "unavailable" : "empty")}</p>;
+    return (
+      <p className={cn("text-sm", MUTED)}>
+        {graph.morResolved === false
+          ? to("morpheusUnavailable")
+          : t(backersUnknown ? "unavailable" : "empty")}
+      </p>
+    );
 
   return (
     <>
-      {/* The rider totals below are exact even now — they come from the vault's
-          own `totalAssets()`, not from the backer list — so the list degrades
-          without taking the amounts down with it. */}
-      {backersUnknown && <p className={cn("mb-2 text-xs", MUTED)}>{t("unavailable")}</p>}
+      {/* Vault-holder failures leave vault TVL intact; Morpheus failures make
+          the combined amounts partial, so name the affected source. */}
+      {backersUnknown && (
+        <p className={cn("mb-2 text-xs", MUTED)}>
+          {graph.morResolved === false ? to("morpheusUnavailable") : t("unavailable")}
+        </p>
+      )}
       {/* No sub-cards: one hairline between riders. No padding of its own — the
           section card's padding is what keeps the rows off the frame. */}
       <ul className={ROW_LIST}>
@@ -106,13 +117,26 @@ export function BackerList({ data }: { data?: StakeGraph } = {}) {
                     Every identity on the site links to the internal profile, never
                     to an explorer — and below `md` this list IS the social proof,
                     so an unlinked backer is a dead end on the primary surface. */}
-                  <Link
-                    href={`/members/${b.address}`}
-                    className="truncate font-mono hover:text-foreground hover:underline"
-                  >
-                    {b.ens ?? short(b.address)}
-                  </Link>
-                  <span className="shrink-0 font-mono tabular-nums">{usd(b.amount, locale)}</span>
+                  <div className="min-w-0">
+                    <Link
+                      href={`/members/${b.address}`}
+                      className="truncate font-mono hover:text-foreground hover:underline"
+                    >
+                      {b.ens ?? short(b.address)}
+                    </Link>
+                    <p className="mt-1">{b.kind === "mor" ? "Morpheus" : "Morpho"}</p>
+                    {b.kind === "mor" && b.routing !== "verified-split" && (
+                      <p className="mt-1 text-amber-600 dark:text-amber-300">
+                        {to(`routing.${b.routing ?? "unknown"}`)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right font-mono tabular-nums">
+                    <span>{usd(b.amount, locale)}</span>
+                    {formatMorpheusPrincipal(b, locale) && (
+                      <p className="mt-1">{formatMorpheusPrincipal(b, locale)}</p>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

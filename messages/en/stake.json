@@ -146,6 +146,13 @@
     }
   },
   "orbit": {
+    "morpheusUnavailable": "Morpheus data is incomplete. Showing the verified amounts available, not the full total.",
+    "routing": {
+      "verified-split": "Rewards configured",
+      "unconfigured": "Rewards setup pending",
+      "custom": "Different rewards receiver",
+      "unknown": "Rewards receiver unavailable"
+    },
     "title": "Sponsorship flow",
     "you": "you",
     "loading": "loading the flow…",
@@ -158,6 +165,8 @@
     "retry": "Try again"
   },
   "backing": "<b>{amount}</b> backing {name}",
+  "backingPartial": "<b>{amount}</b> verified for {name} (partial data)",
+  "supportUnavailable": "Support amount unavailable",
   "loadingSupport": "loading support…",
   "vaultSoon": "sponsorship vault coming soon",
   "vaultPaused": "sponsorship vault paused",
@@ -317,6 +326,9 @@
     "socialDesc": "The treasury at the centre, athletes in the first orbit, backers in the second.",
     "stats": {
       "staked": "staked",
+      "stakedPartial": "verified stake (partial)",
+      "backersPartial": "identified backers",
+      "treasuryPartial": "verified treasury value (partial)",
       "backers": "{n, plural, one {backer} other {backers}}",
       "treasury": "earned for the treasury"
     },

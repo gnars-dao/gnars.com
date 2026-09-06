@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { BarChart3, ChevronLeft, ChevronRight, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Image from "@/components/ui/content-image";
-import { useVaultTotal } from "@/hooks/use-vault-total";
+import { useStakeGraphQuery } from "@/hooks/use-stake-graph";
 import { getRider } from "@/lib/gnars-vaults";
 import { cn } from "@/lib/utils";
 import { StakeDialog } from "./StakeDialog";
@@ -397,10 +397,12 @@ export function CharacterSelector({
     STAT_KEYS.reduce((sum, k) => sum + active.stats[k], 0) / STAT_KEYS.length,
   );
 
-  // What the community has staked behind this rider, live from their vault.
+  // Share the orbit's combined Morpho + Morpheus total.
   const rider = getRider(active.id);
   const vault = rider?.vault;
-  const staked = useVaultTotal(vault);
+  const { data: graph, isError: supportError } = useStakeGraphQuery();
+  const staked = graph?.athletes.find((athlete) => athlete.id === active.id)?.total ?? null;
+  const supportIncomplete = graph?.morResolved === false;
 
   // True once the READER has changed rider — go/select set it, nothing else
   // does. This is what gates the URL sync below to user-driven picks: an
@@ -777,10 +779,12 @@ export function CharacterSelector({
               {isPaused ? (
                 <span className="opacity-70">{t("vaultPaused")}</span>
               ) : vault ? (
-                staked === null ? (
+                (supportError && !graph) || (supportIncomplete && !staked) ? (
+                  <span>{t("supportUnavailable")}</span>
+                ) : staked === null ? (
                   <span className="opacity-60">{t("loadingSupport")}</span>
                 ) : (
-                  t.rich("backing", {
+                  t.rich(supportIncomplete ? "backingPartial" : "backing", {
                     name,
                     amount: usd(staked, locale),
                     b: (chunks) => (
