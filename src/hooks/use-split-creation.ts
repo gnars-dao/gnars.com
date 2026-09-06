@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { SplitsClient } from "@0xsplits/splits-sdk";
-import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
 import { useActiveAccount, useActiveWallet } from "thirdweb/react";
 import type { PublicClient, WalletClient } from "viem";
+import { viemAdapter } from "@/lib/builder-code-viem";
 import type { SplitConfig } from "@/lib/splits-utils";
 import { prepareSplitConfigForSDK } from "@/lib/splits-utils";
 import { getThirdwebClient } from "@/lib/thirdweb";

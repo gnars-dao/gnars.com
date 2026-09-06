@@ -2,6 +2,7 @@ import { base } from "thirdweb/chains";
 import { createWallet } from "thirdweb/wallets";
 import { inAppWallet } from "thirdweb/wallets/in-app";
 import type { SmartWalletOptions } from "thirdweb/wallets/smart";
+import { builderCodeAccountOverrides } from "@/lib/builder-code";
 
 /**
  * Singleton wallet list used by every thirdweb hook entry point in the app.
@@ -49,5 +50,8 @@ export const THIRDWEB_AA_CONFIG: SmartWalletOptions = {
   chain: base,
   sponsorGas: true,
   factoryAddress: THIRDWEB_ACCOUNT_FACTORY_V0_6,
-  overrides: { entrypointAddress: THIRDWEB_ENTRYPOINT_V0_6 },
+  overrides: {
+    entrypointAddress: THIRDWEB_ENTRYPOINT_V0_6,
+    ...builderCodeAccountOverrides,
+  },
 };

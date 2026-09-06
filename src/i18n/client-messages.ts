@@ -4,6 +4,7 @@ export const ROOT_NAMESPACES = ["common", "footer", "nav", "stake", "wallet"] as
 export const ROUTE_NAMESPACES = {
   home: ["auctions", "bounties", "home", "installations", "map", "newhome", "swap", "tv"],
   auctions: ["auctions"],
+  marketplace: ["marketplace"],
   base: ["auctions", "base", "droposals", "newhome", "swap"],
   blogs: ["blogs"],
   "coin-proposal": ["coinProposal", "proposals", "propose"],

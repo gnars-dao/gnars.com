@@ -3,6 +3,7 @@ import {
   prepareTransaction as thirdwebPrepareTransaction,
   type PreparedTransaction,
 } from "thirdweb";
+import type { SmartWalletOptions } from "thirdweb/wallets/smart";
 import { BUILDER_CODE_SUFFIX } from "@/lib/config";
 
 /**
@@ -17,11 +18,9 @@ import { BUILDER_CODE_SUFFIX } from "@/lib/config";
  * `concatHex([data, extraCallData])` when it builds the final calldata. Contracts
  * ignore the trailing bytes, which is the whole premise of ERC-8021.
  *
- * Verified onchain on Base (2026-09-01) across every calldata shape the app
- * produces — raw value transfer, ABI-encoded arguments, and a bare no-arg selector
- * — signed both directly by an EOA and wrapped in an ERC-4337 userop under
- * sponsored gas. In the userop case the suffix rides on the inner `execute()`
- * calldata rather than the top-level transaction, and Base credits it there too.
+ * Smart-account writes additionally use builderCodeAccountOverrides below:
+ * ERC-4337 attribution belongs at the end of userOp.callData, outside the
+ * account's ABI-encoded execute/executeBatch arguments.
  */
 export const prepareContractCall: typeof thirdwebPrepareContractCall = (options) =>
   thirdwebPrepareContractCall({ ...options, extraCallData: BUILDER_CODE_SUFFIX });
@@ -36,3 +35,27 @@ export const prepareTransaction: typeof thirdwebPrepareTransaction = (options, i
 export function withBuilderCode<T extends PreparedTransaction>(transaction: T): T {
   return { ...transaction, extraCallData: BUILDER_CODE_SUFFIX };
 }
+
+/** Preserve thirdweb's pinned account ABI and gas behavior while tagging the userop. */
+export const builderCodeAccountOverrides: Pick<
+  NonNullable<SmartWalletOptions["overrides"]>,
+  "execute" | "executeBatch"
+> = {
+  execute: (contract, transaction) =>
+    prepareContractCall({
+      contract,
+      gas: transaction.gas ? transaction.gas + 21_000n : undefined,
+      method: "function execute(address, uint256, bytes)",
+      params: [transaction.to || "", transaction.value || 0n, transaction.data || "0x"],
+    }),
+  executeBatch: (contract, transactions) =>
+    prepareContractCall({
+      contract,
+      method: "function executeBatch(address[], uint256[], bytes[])",
+      params: [
+        transactions.map((transaction) => transaction.to || ""),
+        transactions.map((transaction) => transaction.value || 0n),
+        transactions.map((transaction) => transaction.data || "0x"),
+      ],
+    }),
+};

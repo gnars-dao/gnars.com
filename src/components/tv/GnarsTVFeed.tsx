@@ -7,7 +7,6 @@ import { tradeCoin } from "@zoralabs/coins-sdk";
 import type { TradeParameters } from "@zoralabs/coins-sdk";
 import { toast } from "sonner";
 import { getContract, sendTransaction } from "thirdweb";
-import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
 import { createPublicClient, http, parseEther, type PublicClient, type WalletClient } from "viem";
 import { base as viemBase } from "viem/chains";
@@ -15,6 +14,7 @@ import { useMiniApp } from "@/components/miniapp/MiniAppProvider";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall } from "@/lib/builder-code";
+import { viemAdapter } from "@/lib/builder-code-viem";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import {

@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { setApiKey, tradeCoin, type TradeParameters } from "@zoralabs/coins-sdk";
 import { toast } from "sonner";
-import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
 import { parseEther, type PublicClient, type WalletClient } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { viemAdapter } from "@/lib/builder-code-viem";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { assertSuccessfulReceipt, ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
 

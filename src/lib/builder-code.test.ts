@@ -6,10 +6,12 @@ import {
   prepareTransaction,
 } from "thirdweb";
 import { base } from "thirdweb/chains";
+import { decodeFunctionData, getAddress, parseAbi } from "viem";
 import { describe, expect, it } from "vitest";
 import {
   prepareContractCall as attributedContractCall,
   prepareTransaction as attributedTransaction,
+  builderCodeAccountOverrides,
   withBuilderCode,
 } from "@/lib/builder-code";
 import { BUILDER_CODE, BUILDER_CODE_SUFFIX, TREASURY_TOKEN_ALLOWLIST } from "@/lib/config";
@@ -94,5 +96,44 @@ describe("the prepare* wrappers", () => {
 
     expect(await encode(prepareTransaction(options))).toBe(quoteCalldata);
     expect(await encode(attributedTransaction(options))).toBe(quoteCalldata + suffixBody);
+  });
+});
+
+describe("smart-account attribution", () => {
+  const accountContract = getContract({ client, chain: base, address: someone });
+  const abi = parseAbi([
+    "function execute(address, uint256, bytes)",
+    "function executeBatch(address[], uint256[], bytes[])",
+  ]);
+
+  it("puts attribution outside the encoded execute arguments, at the end of userOp.callData", async () => {
+    const tx = builderCodeAccountOverrides.execute!(accountContract, {
+      chainId: 8453,
+      to: TREASURY_TOKEN_ALLOWLIST.USDC,
+      value: 7n,
+      data: "0xdeadbeef",
+      gas: 50_000n,
+    });
+    const data = await encode(tx);
+    expect(data.endsWith(suffixBody)).toBe(true);
+    expect(decodeFunctionData({ abi, data })).toEqual({
+      functionName: "execute",
+      args: [getAddress(TREASURY_TOKEN_ALLOWLIST.USDC), 7n, "0xdeadbeef"],
+    });
+    expect(tx.gas).toBe(71_000n);
+  });
+
+  it("tags a migration batch without changing its approvals, swap or deposit calls", async () => {
+    const calls = ["0x095ea7b3", "0xdeadbeef", "0xd0e30db0"] as const;
+    const tx = builderCodeAccountOverrides.executeBatch!(
+      accountContract,
+      calls.map((data, index) => ({ chainId: 8453, to: someone, value: BigInt(index), data })),
+    );
+    const data = await encode(tx);
+    expect(data.endsWith(suffixBody)).toBe(true);
+    expect(decodeFunctionData({ abi, data })).toEqual({
+      functionName: "executeBatch",
+      args: [[someone, someone, someone], [0n, 1n, 2n], calls],
+    });
   });
 });

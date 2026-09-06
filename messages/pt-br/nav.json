@@ -33,6 +33,7 @@
     },
     "money": {
       "label": "Dinheiro",
+      "marketplace": { "title": "Marketplace", "description": "Colecione e negocie Gnars na Base" },
       "treasury": {
         "title": "Tesouro",
         "description": "ETH, ERC-20s, NFTs e analytics onchain do tesouro da DAO"

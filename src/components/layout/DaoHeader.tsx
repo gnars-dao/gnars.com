@@ -131,6 +131,12 @@ function buildNavigationItems(t: NavTranslations) {
       title: t("items.money.label"),
       items: [
         {
+          title: t("items.money.marketplace.title"),
+          href: "/marketplace",
+          icon: ShoppingBag,
+          description: t("items.money.marketplace.description"),
+        },
+        {
           title: t("items.money.treasury.title"),
           href: "/treasury",
           icon: Wallet,

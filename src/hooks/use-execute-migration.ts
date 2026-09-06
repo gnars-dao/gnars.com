@@ -31,7 +31,6 @@ import { useTranslations } from "next-intl";
 import { createTradeCall, setApiKey, tradeCoin, type TradeParameters } from "@zoralabs/coins-sdk";
 import { toast } from "sonner";
 import { getContract, sendBatchTransaction, sendTransaction } from "thirdweb";
-import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
 import {
   formatEther,
@@ -45,6 +44,7 @@ import { MIGRATION_SLIPPAGE } from "@/hooks/use-gnars-migration";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { prepareContractCall, prepareTransaction } from "@/lib/builder-code";
+import { viemAdapter } from "@/lib/builder-code-viem";
 import {
   isMigrationDepositLive,
   MIGRATION_UPGRADE_ID,

@@ -20,6 +20,7 @@ This is the canonical entry point for project documentation. Everything below sh
 
 ## Features
 
+- `docs/features/marketplace.md` — Base Gnars marketplace, Seaport settlement, OpenSea integration, recovery, configuration and cost controls
 - `docs/features/stake-orbit-data.md` — combined Morpho/Morpheus backing, reward routing, partial data and cache refresh
 - `docs/features/morpheus-stake-recovery.md` — resumable Ethereum staking, transaction checkpoints, and receiver-only recovery
 - `docs/features/tv.md` — Gnars TV data flow, UX, and mini-app integration

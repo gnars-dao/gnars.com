@@ -1,0 +1,42 @@
+import type { Address, Hex } from "viem";
+
+export type MarketplaceSource = "opensea" | "gnars";
+export type MarketplaceOffer = {
+  id: string;
+  source: MarketplaceSource;
+  orderHash: Hex;
+  protocolAddress: Address;
+  seller: Address;
+  priceWei: string;
+  currency: "ETH";
+  expiresAt: number;
+};
+
+export type MarketplaceItem = {
+  tokenId: string;
+  name: string;
+  image: string | null;
+  owner: Address | null;
+  offers: MarketplaceOffer[];
+};
+
+export type MarketplaceAvailability = {
+  available: boolean;
+  error?: "not_configured" | "unavailable";
+};
+
+export type MarketplacePage = {
+  items: MarketplaceItem[];
+  nextCursor: string | null;
+  sources: {
+    catalogue: MarketplaceAvailability;
+    opensea: MarketplaceAvailability;
+    gnars: MarketplaceAvailability;
+  };
+  capabilities: { openseaBuy: boolean; localTrading: boolean };
+};
+
+export type MarketplaceFulfillment = {
+  transaction: { chainId: 8453; to: Address; data: Hex; value: string };
+  offer: MarketplaceOffer;
+};
