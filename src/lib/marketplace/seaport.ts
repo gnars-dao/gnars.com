@@ -231,6 +231,15 @@ export const listingSchema = z
   .strict();
 export type SignedListing = z.infer<typeof listingSchema>;
 export type OrderComponents = SignedListing["parameters"];
+export type ListingSourceOptions = { source?: "gnars" | "opensea" };
+const openSeaListingSchema = listingSchema.extend({
+  parameters: listingSchema.shape.parameters.extend({
+    consideration: z
+      .array(item.extend({ recipient: address }))
+      .min(1)
+      .max(10),
+  }),
+});
 export type ListingStatus =
   | "active"
   | "cancelled"
@@ -242,9 +251,9 @@ export type ListingStatus =
 
 export function validateListingStructure(
   raw: unknown,
-  options: { now?: number; allowExpired?: boolean } = {},
+  options: ListingSourceOptions & { now?: number; allowExpired?: boolean } = {},
 ): SignedListing {
-  const listing = listingSchema.parse(raw),
+  const listing = (options.source === "opensea" ? openSeaListingSchema : listingSchema).parse(raw),
     p = listing.parameters,
     nft = p.offer[0];
   if (
@@ -345,8 +354,9 @@ export async function getListingRoyalty(client: SeaportClient, tokenId: bigint, 
 export async function getListingStatus(
   client: SeaportClient,
   listing: SignedListing,
+  options: ListingSourceOptions = {},
 ): Promise<ListingStatus> {
-  validateListingStructure(listing, { allowExpired: true });
+  validateListingStructure(listing, { ...options, allowExpired: true });
   if ((await client.getChainId()) !== 8453) throw new Error("Base chain required");
   const p = listing.parameters,
     hash = getListingOrderHash(p);
@@ -397,11 +407,11 @@ export async function getListingStatus(
 export async function validateListingOnchain(
   client: SeaportClient,
   raw: SignedListing,
-  options: { requireApproval?: boolean } = {},
+  options: ListingSourceOptions & { requireApproval?: boolean } = {},
 ) {
-  const listing = validateListingStructure(raw),
+  const listing = validateListingStructure(raw, options),
     p = listing.parameters;
-  const status = await getListingStatus(client, listing);
+  const status = await getListingStatus(client, listing, options);
   if (status !== "active" && !(status === "unapproved" && options.requireApproval === false))
     throw new Error(`Listing is ${status}`);
   const orderHash = getListingOrderHash(p);
@@ -432,6 +442,8 @@ export async function validateListingOnchain(
     )
   )
     throw new Error("Invalid owner signature");
+  // OpenSea fees are checked against a fresh collection quote at publication.
+  if (options.source === "opensea") return { orderHash };
   const royalty = await getListingRoyalty(
     client,
     BigInt(p.offer[0].identifierOrCriteria),
@@ -447,8 +459,8 @@ export async function validateListingOnchain(
     throw new Error("Listing does not match the collection royalty");
   return { orderHash };
 }
-export function getListingFulfillment(listing: SignedListing) {
-  validateListingStructure(listing);
+export function getListingFulfillment(listing: SignedListing, options: ListingSourceOptions = {}) {
+  validateListingStructure(listing, options);
   const p = orderValues(listing.parameters);
   return {
     to: SEAPORT_ADDRESS,
@@ -466,8 +478,8 @@ export function getListingFulfillment(listing: SignedListing) {
     value: getListingPriceWei(listing),
   };
 }
-export function getListingCancellation(listing: SignedListing) {
-  validateListingStructure(listing, { allowExpired: true });
+export function getListingCancellation(listing: SignedListing, options: ListingSourceOptions = {}) {
+  validateListingStructure(listing, { ...options, allowExpired: true });
   return {
     to: SEAPORT_ADDRESS,
     data: encodeFunctionData({

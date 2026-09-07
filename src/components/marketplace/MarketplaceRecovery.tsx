@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ExternalLink, RefreshCw, X } from "lucide-react";
 import type { Hex } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ export function MarketplaceRecovery() {
   const query = useQueryClient();
   const id = useId();
   const [hash, setHash] = useState("");
+  const [confirmCancel, setConfirmCancel] = useState(false);
   if (
     !actions.recovery ||
     actions.isBusy ||
@@ -48,7 +49,7 @@ export function MarketplaceRecovery() {
       </p>
       {actions.error && (
         <p role="alert" className="text-xs text-destructive">
-          {t("errors.generic")}
+          {t(actions.phase === "saving" ? "errors.publication" : "errors.generic")}
         </p>
       )}
       <div className="flex flex-wrap gap-2">
@@ -77,7 +78,39 @@ export function MarketplaceRecovery() {
             {t("abandonSignature")}
           </Button>
         )}
+        {actions.canCancelSavedListing && !confirmCancel && (
+          <Button size="sm" variant="outline" onClick={() => setConfirmCancel(true)}>
+            <X className="size-4" />
+            {t("cancelSaved")}
+          </Button>
+        )}
       </div>
+      {actions.canCancelSavedListing && confirmCancel && (
+        <div className="space-y-2 border-t pt-3">
+          <p className="text-xs text-muted-foreground">{t("cancelSavedConfirm")}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                setConfirmCancel(false);
+                void run(actions.cancelSavedListing);
+              }}
+            >
+              <X className="size-4" />
+              {t("confirmCancel")}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={t("back")}
+              onClick={() => setConfirmCancel(false)}
+            >
+              <ArrowLeft className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
       {actions.phase === "unknown" && !actions.txHash && !resumable && (
         <div className="space-y-2">
           <Label htmlFor={id}>{t("transactionHash")}</Label>

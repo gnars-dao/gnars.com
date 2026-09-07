@@ -64,7 +64,15 @@ export async function getMarketplaceReadiness() {
           error: marketplaceStorageConfigured() ? "unavailable" : "not_configured",
         },
   };
-  return { sources, capabilities: { openseaBuy: opensea, localTrading: local } };
+  return {
+    sources,
+    capabilities: {
+      openseaBuy: opensea,
+      openseaSell: opensea,
+      openseaCancel: opensea,
+      localTrading: local,
+    },
+  };
 }
 
 const cachedLocalOrders = unstable_cache(listMarketplaceOrders, ["marketplace-orders-v1"], {
@@ -169,6 +177,8 @@ export async function loadMarketplacePage({
     sources,
     capabilities: {
       openseaBuy: readiness.capabilities.openseaBuy && !unavailable(sources.opensea),
+      openseaSell: readiness.capabilities.openseaSell && !unavailable(sources.opensea),
+      openseaCancel: readiness.capabilities.openseaCancel && !unavailable(sources.opensea),
       localTrading: readiness.capabilities.localTrading && !unavailable(sources.gnars),
     },
   };
@@ -219,6 +229,8 @@ export async function loadMarketplaceToken(tokenId: string): Promise<Marketplace
     sources,
     capabilities: {
       openseaBuy: readiness.capabilities.openseaBuy && sources.opensea.available,
+      openseaSell: readiness.capabilities.openseaSell && sources.opensea.available,
+      openseaCancel: readiness.capabilities.openseaCancel && sources.opensea.available,
       localTrading: readiness.capabilities.localTrading && sources.gnars.available,
     },
   };

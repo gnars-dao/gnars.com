@@ -9,10 +9,11 @@ export const marketplaceHashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 export const marketplaceUintSchema = z
   .string()
   .regex(/^(0|[1-9][0-9]{0,77})$/)
-  .refine((value) => BigInt(value) < 2n ** 256n);
+  .pipe(z.string().refine((value) => BigInt(value) < 2n ** 256n));
 export const MARKETPLACE_PAGE_SIZE = 24;
 export const MARKETPLACE_CACHE_TAG = "marketplace";
 export const MARKETPLACE_ORDERS_CACHE_TAG = "marketplace-orders";
+export const MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG = "marketplace-opensea-orders";
 
 export const marketplaceClient = createPublicClient({
   chain: base,

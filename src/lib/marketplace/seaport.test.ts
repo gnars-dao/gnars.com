@@ -348,4 +348,67 @@ describe("canonical Gnars Seaport orders", () => {
     ).resolves.toBeDefined();
     await expect(validateListingOnchain(client(order), order)).rejects.toThrow("royalty");
   });
+  it("allows required OpenSea fee items only through the explicit source path", async () => {
+    const order = listing();
+    for (let i = 0; i < 9; i++)
+      order.parameters.consideration.push({
+        ...order.parameters.consideration[0],
+        recipient: royaltyRecipient,
+        startAmount: "100",
+        endAmount: "100",
+      });
+    expect(() => validateListingStructure(order)).toThrow();
+    expect(validateListingStructure(order, { source: "opensea" })).toEqual(order);
+    order.signature = await account.signTypedData(getListingTypedData(order.parameters));
+    const reader = client(order, {
+      supportsInterface: new Error("Must not request native royalty"),
+    });
+    await expect(validateListingOnchain(reader, order, { source: "opensea" })).resolves.toEqual({
+      orderHash: getListingOrderHash(order.parameters),
+    });
+    expect(
+      vi
+        .mocked(reader.readContract)
+        .mock.calls.some(([call]) => call.functionName === "supportsInterface"),
+    ).toBe(false);
+    expect(getListingFulfillment(order, { source: "opensea" }).value).toBe(
+      getListingPriceWei(order),
+    );
+    expect(getListingCancellation(order, { source: "opensea" }).value).toBe(0n);
+    order.parameters.consideration.push({ ...order.parameters.consideration[1] });
+    expect(() => validateListingStructure(order, { source: "opensea" })).toThrow();
+  });
+  it.each(["orderType", "zone", "conduit"])("keeps authored OpenSea %s restricted", (field) => {
+    const order = listing();
+    if (field === "orderType") Object.assign(order.parameters, { orderType: 1 });
+    if (field === "zone") order.parameters.zone = royaltyRecipient;
+    if (field === "conduit") order.parameters.conduitKey = `0x${"11".repeat(32)}`;
+    expect(() => validateListingStructure(order, { source: "opensea" })).toThrow();
+  });
+  it.each([
+    ["counter", { getCounter: 1n }],
+    ["owner", { ownerOf: royaltyRecipient }],
+    ["approval", { getApproved: zeroAddress }],
+    ["hash", { getOrderHash: zeroHash }],
+  ])("still verifies OpenSea %s onchain", async (_name, overrides) => {
+    const order = listing();
+    order.signature = await account.signTypedData(getListingTypedData(order.parameters));
+    await expect(
+      validateListingOnchain(client(order, overrides), order, { source: "opensea" }),
+    ).rejects.toThrow();
+  });
+  it("still verifies OpenSea EOA and smart account signatures", async () => {
+    const order = listing();
+    order.signature = await privateKeyToAccount(`0x${"22".repeat(32)}`).signTypedData(
+      getListingTypedData(order.parameters),
+    );
+    await expect(
+      validateListingOnchain(client(order), order, { source: "opensea" }),
+    ).rejects.toThrow("owner signature");
+    const reader = client(order, { isValidSignature: "0xffffffff" });
+    vi.mocked(reader.getCode).mockResolvedValue("0x6000");
+    await expect(validateListingOnchain(reader, order, { source: "opensea" })).rejects.toThrow(
+      "Smart account",
+    );
+  });
 });

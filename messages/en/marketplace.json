@@ -29,6 +29,8 @@
   "buy": "Buy",
   "sell": "List for sale",
   "cancel": "Cancel listing",
+  "cancelSaved": "Cancel signed order",
+  "cancelSavedConfirm": "Cancel this signed order on Base, even if publication was not confirmed? A network fee may apply. The order is only revoked after confirmation.",
   "seller": "Seller",
   "owner": "Owner",
   "expires": "Expires",
@@ -44,6 +46,13 @@
   "days": "{count, plural, one {# day} other {# days}}",
   "total": "Total price",
   "royalties": "Creator royalty",
+  "openSeaFeeNote": "Required OpenSea fees are deducted from your price. Optional creator fees are not included. No additional Gnars fee.",
+  "openSeaFees": "Required OpenSea fees",
+  "outcomes": {
+    "filled": "This signed order has already been filled.",
+    "cancelled": "This signed order has been cancelled on Base.",
+    "expired": "This signed order has expired."
+  },
   "proceeds": "You receive",
   "gas": "Network fee is additional.",
   "cancelConfirm": "Cancel this listing on Base? It remains executable until the cancellation is confirmed.",
@@ -68,6 +77,7 @@
     "error": "Action not completed"
   },
   "errors": {
+    "publication": "Publication could not be confirmed. Your signed listing is saved. Continue to check and retry publication with the same signature.",
     "generic": "Couldn't complete this action. Your wallet and onchain status will be checked before retrying.",
     "rejected": "Request declined in your wallet.",
     "wallet": "Connect the wallet that owns this NFT.",

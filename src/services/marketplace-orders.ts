@@ -104,12 +104,12 @@ export async function enforceMarketplaceBudget(
 }
 
 /** Count only outbound cache misses, across instances when marketplace storage is ready. */
-export async function enforceOpenSeaProviderBudget(operation: "read" | "fulfillment") {
+export async function enforceOpenSeaProviderBudget(operation: "read" | "fulfillment" | "posting") {
   if (!marketplaceStorageConfigured()) return;
   if (!(await marketplaceStorageReady())) return;
   const now = Math.floor(Date.now() / 1000);
   const window = Math.floor(now / 30);
-  // A rolling minute intersects at most three buckets: <=90 reads / 45 fulfillments.
+  // A rolling minute intersects at most three buckets: <=90 reads / 45 per write category.
   // Leave headroom because OpenSea shares the account's quota across all API keys.
   const limit = operation === "read" ? 30 : 15;
   const bucket = createHash("sha256")

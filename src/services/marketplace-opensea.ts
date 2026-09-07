@@ -1,14 +1,30 @@
 import "server-only";
-import { unstable_cache } from "next/cache";
-import { getAddress, zeroAddress, type Address } from "viem";
+import { revalidateTag, unstable_cache } from "next/cache";
+import { getAddress, zeroAddress, type Address, type Hex } from "viem";
 import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { SEAPORT_ADDRESS } from "@/lib/marketplace/seaport";
+import {
+  buildOpenSeaListingQuote,
+  getOpenSeaCancellation,
+  parseOpenSeaListingFees,
+  validateOpenSeaListingFees,
+} from "@/lib/marketplace/opensea-listing";
+import {
+  getListingOrderHash,
+  getListingPriceWei,
+  SEAPORT_ADDRESS,
+  seaportAbi,
+  validateListingOnchain,
+  validateListingStructure,
+  type SignedListing,
+} from "@/lib/marketplace/seaport";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import {
   MARKETPLACE_CACHE_TAG,
+  MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG,
   MARKETPLACE_PAGE_SIZE,
   marketplaceAddressSchema,
+  marketplaceClient,
   marketplaceHashSchema,
   marketplaceUintSchema,
   marketplaceUnavailable,
@@ -77,9 +93,34 @@ export function parseOpenSeaJson(text: string): unknown {
 }
 
 const pendingReads = new Map<string, Promise<unknown>>();
+const OPENSEA_FEES_CACHE_TAG = "marketplace-opensea-listing-fees";
+let lastOrdersInvalidation: number | null = null;
+const invalidatedOrders = new Map<string, number>();
+
+/** Per-instance protection against replay-driven global cache misses, not a distributed limit. */
+export function invalidateOpenSeaOrdersCache(orderHash: Hex): boolean {
+  const now = Date.now();
+  const key = orderHash.toLowerCase();
+  const previous = invalidatedOrders.get(key);
+  if (
+    (lastOrdersInvalidation !== null && now - lastOrdersInvalidation < 5_000) ||
+    (previous !== undefined && now - previous < 30_000)
+  )
+    return false;
+  revalidateTag(MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG, { expire: 0 });
+  lastOrdersInvalidation = now;
+  if (invalidatedOrders.size >= 1000) {
+    const oldest = invalidatedOrders.keys().next().value;
+    if (oldest !== undefined) invalidatedOrders.delete(oldest);
+  }
+  invalidatedOrders.delete(key);
+  invalidatedOrders.set(key, now);
+  return true;
+}
 const providerBuckets = {
   read: { window: -1, count: 0, retryAt: 0 },
   fulfillment: { window: -1, count: 0, retryAt: 0 },
+  posting: { window: -1, count: 0, retryAt: 0 },
 };
 
 function reserveLocalRequest(operation: keyof typeof providerBuckets) {
@@ -106,10 +147,14 @@ function reserveLocalRequest(operation: keyof typeof providerBuckets) {
 }
 
 /** Server-owned paths only. Never forward arbitrary URLs, keys, or provider bodies to clients. */
-async function fetchOpenSea(path: string, body?: unknown, allowNotFound = false): Promise<unknown> {
+async function fetchOpenSea(
+  path: string,
+  body?: unknown,
+  allowNotFound = false,
+  operation: keyof typeof providerBuckets = body ? "fulfillment" : "read",
+): Promise<unknown> {
   const key = process.env.OPENSEA_API_KEY;
   if (!key) throw marketplaceUnavailable("OpenSea is not configured.");
-  const operation = body ? "fulfillment" : "read";
   reserveLocalRequest(operation);
   await enforceOpenSeaProviderBudget(operation);
   let response: Response;
@@ -129,6 +174,19 @@ async function fetchOpenSea(path: string, body?: unknown, allowNotFound = false)
     throw marketplaceUnavailable();
   }
   if (allowNotFound && response.status === 404) return null;
+  // OpenSea's canonical lookup also uses this exact 400 response for absent orders.
+  if (
+    allowNotFound &&
+    !body &&
+    response.status === 400 &&
+    path.startsWith(`orders/chain/base/protocol/${SEAPORT_ADDRESS}/`)
+  ) {
+    const missing = z
+      .object({ errors: z.tuple([z.literal("Order not found")]) })
+      .strict()
+      .safeParse(await response.json().catch(() => null));
+    if (missing.success) return null;
+  }
   if (response.status === 429) {
     const header = response.headers.get("retry-after");
     const seconds =
@@ -144,7 +202,13 @@ async function fetchOpenSea(path: string, body?: unknown, allowNotFound = false)
     providerBuckets[operation].retryAt = Date.now() + retryAfter * 1000;
     throw new RequestSecurityError(503, "OpenSea is temporarily unavailable.", retryAfter);
   }
-  if (!response.ok) throw marketplaceUnavailable();
+  if (!response.ok) {
+    console.warn("[marketplace-opensea] Provider request failed", {
+      operation,
+      status: response.status,
+    });
+    throw marketplaceUnavailable();
+  }
   try {
     return parseOpenSeaJson(await response.text());
   } catch {
@@ -242,7 +306,7 @@ export const listOpenSeaMarketplace = unstable_cache(
     return { offers, nextCursor: response.data.next || null };
   },
   ["marketplace-opensea-v1"],
-  { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG] },
+  { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG] },
 );
 
 export async function getOpenSeaMarketplaceOrder(orderHash: string) {
@@ -271,8 +335,146 @@ export const getOpenSeaTokenListing = unstable_cache(
     return listing;
   },
   ["marketplace-opensea-token-v1"],
-  { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG] },
+  { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG] },
 );
+
+async function readOpenSeaListingFees() {
+  const raw = await openSeaRequest("collections/gnars-dao");
+  try {
+    return parseOpenSeaListingFees(raw);
+  } catch {
+    throw marketplaceUnavailable("OpenSea collection fees could not be verified.");
+  }
+}
+
+const cachedOpenSeaListingFees = unstable_cache(
+  readOpenSeaListingFees,
+  ["marketplace-opensea-listing-fees-v1"],
+  { revalidate: 300, tags: [OPENSEA_FEES_CACHE_TAG] },
+);
+
+export async function getOpenSeaListingQuote(priceWei: string) {
+  const fees = await cachedOpenSeaListingFees();
+  try {
+    return buildOpenSeaListingQuote(priceWei, fees);
+  } catch {
+    throw new RequestSecurityError(400, "Price is too small for the required OpenSea fees.");
+  }
+}
+
+async function readOpenSeaRawOrder(orderHash: string, allowNotFound = false) {
+  const raw = await openSeaRequest(
+    `orders/chain/base/protocol/${SEAPORT_ADDRESS}/${orderHash}`,
+    undefined,
+    allowNotFound,
+  );
+  if (raw === null) return null;
+  const parsed = z.object({ order: z.object({}).passthrough() }).safeParse(raw);
+  if (!parsed.success) throw marketplaceUnavailable("OpenSea returned an invalid order response.");
+  return parsed.data.order;
+}
+
+/** Cancellation remains possible after an order has expired or left the active listing feed. */
+export async function getOpenSeaCancellationOrder(orderHash: string) {
+  const raw = await readOpenSeaRawOrder(orderHash, true);
+  if (!raw) throw new RequestSecurityError(404, "Listing was not found.");
+  const identity = z
+    .object({
+      protocol_data: z.object({
+        parameters: z.object({
+          offerer: marketplaceAddressSchema,
+          offer: z.array(itemSchema).length(1),
+        }),
+      }),
+    })
+    .safeParse(raw);
+  if (!identity.success) throw marketplaceUnavailable("OpenSea returned an invalid order.");
+  try {
+    getOpenSeaCancellation(raw, {
+      orderHash: orderHash as Hex,
+      seller: getAddress(identity.data.protocol_data.parameters.offerer),
+      tokenId: identity.data.protocol_data.parameters.offer[0].identifierOrCriteria,
+    });
+  } catch {
+    throw marketplaceUnavailable("OpenSea order could not be verified.");
+  }
+  return raw;
+}
+
+function verifyPublishedOpenSeaOrder(raw: unknown, listing: SignedListing): MarketplaceOffer {
+  const orderHash = getListingOrderHash(listing.parameters);
+  const tokenId = listing.parameters.offer[0].identifierOrCriteria;
+  const normalized = normalizeOpenSeaListing(raw);
+  if (
+    !normalized ||
+    normalized.offer.orderHash.toLowerCase() !== orderHash.toLowerCase() ||
+    normalized.tokenId !== tokenId ||
+    normalized.offer.seller.toLowerCase() !== listing.parameters.offerer.toLowerCase() ||
+    normalized.offer.priceWei !== getListingPriceWei(listing).toString() ||
+    normalized.offer.expiresAt !== Number(listing.parameters.endTime)
+  )
+    throw marketplaceUnavailable("OpenSea publication could not be verified.");
+  try {
+    getOpenSeaCancellation(raw, { orderHash, tokenId, seller: listing.parameters.offerer });
+  } catch {
+    throw marketplaceUnavailable("OpenSea publication could not be verified.");
+  }
+  return normalized.offer;
+}
+
+export async function publishOpenSeaListing(raw: unknown): Promise<MarketplaceOffer> {
+  let listing: SignedListing;
+  try {
+    listing = validateListingStructure(raw, { source: "opensea" });
+    getListingPriceWei(listing);
+  } catch {
+    throw new RequestSecurityError(400, "Invalid OpenSea listing.");
+  }
+  if (!marketplaceOpenSeaConfigured()) throw marketplaceUnavailable("OpenSea is not configured.");
+  await validateListingOnchain(marketplaceClient, listing, {
+    source: "opensea",
+    requireApproval: true,
+  });
+  const hash = getListingOrderHash(listing.parameters);
+  // A response can be lost after acceptance. Only the identical verified order makes a retry succeed.
+  const existing = await readOpenSeaRawOrder(hash, true);
+  if (existing) return verifyPublishedOpenSeaOrder(existing, listing);
+  const fees = await readOpenSeaListingFees();
+  try {
+    const quote = buildOpenSeaListingQuote(getListingPriceWei(listing).toString(), fees);
+    validateOpenSeaListingFees(listing, quote);
+  } catch {
+    revalidateTag(OPENSEA_FEES_CACHE_TAG, { expire: 0 });
+    throw new RequestSecurityError(409, "OpenSea fees changed. Review and sign the listing again.");
+  }
+  await fetchOpenSea(
+    "orders/base/seaport/listings",
+    {
+      parameters: {
+        ...listing.parameters,
+        totalOriginalConsiderationItems: listing.parameters.consideration.length,
+      },
+      signature: listing.signature,
+      protocol_address: SEAPORT_ADDRESS,
+    },
+    false,
+    "posting",
+  );
+  const published = await readOpenSeaRawOrder(hash, true);
+  if (!published)
+    throw marketplaceUnavailable("OpenSea publication has not been confirmed. Retry this listing.");
+  return verifyPublishedOpenSeaOrder(published, listing);
+}
+
+export async function reconcileOpenSeaOrder(orderHash: Hex) {
+  const [, cancelled, filled, size] = await marketplaceClient.readContract({
+    address: SEAPORT_ADDRESS,
+    abi: seaportAbi,
+    functionName: "getOrderStatus",
+    args: [orderHash],
+  });
+  return { status: cancelled ? "cancelled" : size > 0n && filled >= size ? "filled" : "active" };
+}
 
 export async function requestOpenSeaFulfillment(
   orderHash: string,

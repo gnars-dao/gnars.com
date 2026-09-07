@@ -29,6 +29,8 @@
   "buy": "Comprar",
   "sell": "Anunciar",
   "cancel": "Cancelar anúncio",
+  "cancelSaved": "Cancelar ordem assinada",
+  "cancelSavedConfirm": "Cancelar esta ordem assinada na Base, mesmo sem confirmação da publicação? Pode haver taxa de rede. A ordem só é revogada após a confirmação.",
   "seller": "Vendedor",
   "owner": "Proprietário",
   "expires": "Expira em",
@@ -44,6 +46,13 @@
   "days": "{count, plural, one {# dia} other {# dias}}",
   "total": "Preço total",
   "royalties": "Royalty do criador",
+  "openSeaFeeNote": "As taxas obrigatórias da OpenSea são descontadas do preço. Royalties opcionais não estão incluídos. Sem taxa adicional da Gnars.",
+  "openSeaFees": "Taxas obrigatórias da OpenSea",
+  "outcomes": {
+    "filled": "Esta ordem assinada já foi executada.",
+    "cancelled": "Esta ordem assinada foi cancelada na Base.",
+    "expired": "Esta ordem assinada expirou."
+  },
   "proceeds": "Você recebe",
   "gas": "A taxa de rede é adicional.",
   "cancelConfirm": "Cancelar este anúncio na Base? Ele continua válido até a confirmação do cancelamento.",
@@ -68,6 +77,7 @@
     "error": "Ação não concluída"
   },
   "errors": {
+    "publication": "Não foi possível confirmar a publicação. Seu anúncio assinado está salvo. Continue para verificar e tentar publicar com a mesma assinatura.",
     "generic": "Não foi possível concluir esta ação. A carteira e o status onchain serão verificados antes de tentar novamente.",
     "rejected": "Solicitação recusada na carteira.",
     "wallet": "Conecte a carteira que possui este NFT.",

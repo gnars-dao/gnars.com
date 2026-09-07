@@ -1,19 +1,39 @@
-import { zeroAddress } from "viem";
+import { zeroAddress, zeroHash, type Hex } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { SEAPORT_ADDRESS } from "@/lib/marketplace/seaport";
 import {
+  getListingOrderHash,
+  SEAPORT_ADDRESS,
+  type SignedListing,
+} from "@/lib/marketplace/seaport";
+import {
+  getOpenSeaCancellationOrder,
+  getOpenSeaListingQuote,
   getOpenSeaMarketplaceOrder,
   getOpenSeaTokenListing,
+  invalidateOpenSeaOrdersCache,
   listOpenSeaMarketplace,
   normalizeOpenSeaListing,
   parseOpenSeaJson,
+  publishOpenSeaListing,
+  reconcileOpenSeaOrder,
   requestOpenSeaFulfillment,
 } from "./marketplace-opensea";
 
-vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
+const invalidate = vi.hoisted(() => vi.fn());
+vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn, revalidateTag: invalidate }));
 const budget = vi.hoisted(() => vi.fn());
+const onchain = vi.hoisted(() => vi.fn());
+const readContract = vi.hoisted(() => vi.fn());
 vi.mock("./marketplace-orders", () => ({ enforceOpenSeaProviderBudget: budget }));
+vi.mock("@/lib/marketplace/seaport", async (original) => ({
+  ...(await original<typeof import("@/lib/marketplace/seaport")>()),
+  validateListingOnchain: onchain,
+}));
+vi.mock("@/services/marketplace-common", async (original) => ({
+  ...(await original<typeof import("@/services/marketplace-common")>()),
+  marketplaceClient: { readContract },
+}));
 
 const hash = `0x${"a".repeat(64)}`;
 const seller = "0x1111111111111111111111111111111111111111";
@@ -28,7 +48,7 @@ function listing() {
     status: "ACTIVE",
     remaining_quantity: 1,
     order_hash: hash,
-    protocol_address: SEAPORT_ADDRESS,
+    protocol_address: SEAPORT_ADDRESS as string,
     price: { current: { currency: "ETH", decimals: 18, value: "10000000000000000" } },
     protocol_data: {
       parameters: {
@@ -64,9 +84,325 @@ beforeEach(() => {
   testTime += 7_200_000;
   vi.setSystemTime(testTime);
   budget.mockReset().mockResolvedValue(undefined);
+  onchain.mockReset().mockResolvedValue({});
+  readContract.mockReset();
+  invalidate.mockReset();
   vi.stubEnv("OPENSEA_API_KEY", "test-secret");
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
+});
+
+function collection() {
+  return {
+    collection: "gnars-dao",
+    contracts: [{ address: DAO_ADDRESSES.token, chain: "base" }],
+    required_zone: zeroAddress,
+    fees: [{ fee: 1, recipient: "0x2222222222222222222222222222222222222222", required: true }],
+  };
+}
+
+function signedListing(): SignedListing {
+  const raw = listing();
+  const item = raw.protocol_data.parameters.consideration[0];
+  return {
+    parameters: {
+      ...raw.protocol_data.parameters,
+      offerer: seller,
+      zone: zeroAddress,
+      zoneHash: zeroHash,
+      conduitKey: zeroHash,
+      salt: "123",
+      counter: "0",
+      orderType: 0,
+      offer: raw.protocol_data.parameters.offer.map((nft) => ({
+        ...nft,
+        token: DAO_ADDRESSES.token,
+      })),
+      consideration: [
+        {
+          ...item,
+          token: zeroAddress,
+          recipient: seller,
+          startAmount: "9900000000000000",
+          endAmount: "9900000000000000",
+        },
+        {
+          ...item,
+          token: zeroAddress,
+          recipient: "0x2222222222222222222222222222222222222222",
+          startAmount: "100000000000000",
+          endAmount: "100000000000000",
+        },
+      ],
+    },
+    signature: "0x1234",
+  };
+}
+
+function publishedOrder(order = signedListing()) {
+  return {
+    ...listing(),
+    order_hash: getListingOrderHash(order.parameters),
+    protocol_data: order,
+  };
+}
+
+describe("OpenSea listing publication", () => {
+  it("reads required collection fees without a database and ignores optional fees", async () => {
+    const raw = collection();
+    raw.fees.push({ fee: 5, recipient: seller, required: false });
+    fetchMock.mockResolvedValueOnce(Response.json(raw));
+    expect(await getOpenSeaListingQuote("10000")).toEqual({
+      priceWei: "10000",
+      sellerWei: "9900",
+      fees: [{ recipient: raw.fees[0].recipient, basisPoints: 100, amountWei: "100" }],
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/collections/gnars-dao");
+    expect(budget).toHaveBeenCalledExactlyOnceWith("read");
+  });
+
+  it("does not convert a malformed collection or outage into zero fees", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ ...collection(), contracts: [] }));
+    await expect(getOpenSeaListingQuote("10000")).rejects.toMatchObject({ status: 503 });
+    fetchMock.mockResolvedValueOnce(new Response("offline", { status: 503 }));
+    await expect(getOpenSeaListingQuote("10000")).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("rejects a price too small for a required fee as a client error", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    await expect(getOpenSeaListingQuote("1")).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("validates malformed or wrong-collection listings before RPC or provider work", async () => {
+    await expect(publishOpenSeaListing({})).rejects.toMatchObject({ status: 400 });
+    const wrong = signedListing();
+    wrong.parameters.offer[0].token = seller;
+    await expect(publishOpenSeaListing(wrong)).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onchain).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid onchain authorization before publishing or fetching provider data", async () => {
+    onchain.mockRejectedValueOnce(new Error("Invalid owner signature"));
+    await expect(publishOpenSeaListing(signedListing())).rejects.toThrow("Invalid owner signature");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("publishes only after fresh fee validation and verifies the canonical accepted order", async () => {
+    const signed = signedListing();
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ order_hash: getListingOrderHash(signed.parameters) }),
+    );
+    fetchMock.mockResolvedValueOnce(Response.json({ order: publishedOrder(signed) }));
+    expect(await publishOpenSeaListing(signed)).toMatchObject({
+      source: "opensea",
+      orderHash: getListingOrderHash(signed.parameters),
+      priceWei: "10000000000000000",
+    });
+    expect(onchain).toHaveBeenCalledWith(expect.anything(), signed, {
+      source: "opensea",
+      requireApproval: true,
+    });
+    expect(String(fetchMock.mock.calls[2][0])).toContain("/orders/base/seaport/listings");
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
+      ...signed,
+      parameters: {
+        ...signed.parameters,
+        totalOriginalConsiderationItems: signed.parameters.consideration.length,
+      },
+      protocol_address: SEAPORT_ADDRESS,
+    });
+    expect(budget.mock.calls.map(([operation]) => operation)).toEqual([
+      "read",
+      "read",
+      "posting",
+      "read",
+    ]);
+  });
+
+  it("treats the canonical GET's exact HTTP 400 Order not found as an unpublished order", async () => {
+    const signed = signedListing();
+    const originalHash = getListingOrderHash(signed.parameters);
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ errors: ["Order not found"] }, { status: 400 }),
+    );
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    fetchMock.mockResolvedValueOnce(Response.json({ order_hash: originalHash }));
+    fetchMock.mockResolvedValueOnce(Response.json({ order: publishedOrder(signed) }));
+    expect(await publishOpenSeaListing(signed)).toMatchObject({ orderHash: originalHash });
+    const wire = JSON.parse(String(fetchMock.mock.calls[2][1]?.body));
+    expect(wire.parameters.totalOriginalConsiderationItems).toBe(2);
+    expect(signed.parameters).not.toHaveProperty("totalOriginalConsiderationItems");
+    expect(getListingOrderHash(signed.parameters)).toBe(originalHash);
+    expect(wire.signature).toBe(signed.signature);
+  });
+
+  it.each([
+    { errors: ["Invalid protocol"] },
+    { errors: ["Order not found", "Unauthorized"] },
+    { errors: "Order not found" },
+    { errors: [] },
+    { error: "Order not found" },
+    null,
+  ])("does not publish after an arbitrary or malformed canonical GET 400", async (body) => {
+    fetchMock.mockResolvedValueOnce(Response.json(body, { status: 400 }));
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("GET");
+  });
+
+  it("does not treat invalid JSON in a canonical GET 400 as a missing order", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("not json", { status: 400 }));
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat a publication POST 400 Order not found as success", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ errors: ["Order not found"] }, { status: 400 }),
+    );
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
+  });
+
+  it("limits the HTTP 400 compatibility case to optional canonical order reads", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ errors: ["Order not found"] }, { status: 400 }),
+    );
+    await expect(getOpenSeaTokenListing("12")).rejects.toMatchObject({ status: 503 });
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ errors: ["Order not found"] }, { status: 400 }),
+    );
+    await expect(getOpenSeaMarketplaceOrder(hash)).rejects.toMatchObject({ status: 503 });
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ errors: ["Order not found"] }, { status: 400 }),
+    );
+    await expect(getOpenSeaCancellationOrder(hash)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("does not reuse an earlier quote when collection fees change", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    await getOpenSeaListingQuote("10000000000000000");
+    const changed = collection();
+    changed.fees[0].fee = 2;
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(changed));
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({ status: 409 });
+    expect(fetchMock.mock.calls.every(([, options]) => options?.method === "GET")).toBe(true);
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith("marketplace-opensea-listing-fees", {
+      expire: 0,
+    });
+  });
+
+  it("retries only the same verifiable existing signed order without posting twice", async () => {
+    const signed = signedListing();
+    fetchMock.mockResolvedValueOnce(Response.json({ order: publishedOrder(signed) }));
+    expect(await publishOpenSeaListing(signed)).toMatchObject({
+      orderHash: getListingOrderHash(signed.parameters),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["hash", "price", "seller", "token", "components", "chain", "protocol"])(
+    "rejects a mismatched publication %s",
+    async (field) => {
+      const signed = signedListing();
+      const raw = publishedOrder(signedListing());
+      if (field === "hash") raw.order_hash = zeroHash;
+      if (field === "price") raw.price.current.value = "1";
+      if (field === "seller")
+        raw.protocol_data.parameters.offerer = "0x3333333333333333333333333333333333333333";
+      if (field === "token") raw.protocol_data.parameters.offer[0].identifierOrCriteria = "13";
+      if (field === "components") raw.protocol_data.parameters.salt = "124";
+      if (field === "chain") raw.chain = "ethereum";
+      if (field === "protocol") raw.protocol_address = zeroAddress;
+      fetchMock.mockResolvedValueOnce(Response.json({ order: raw }));
+      await expect(publishOpenSeaListing(signed)).rejects.toMatchObject({ status: 503 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not call a generic conflict a successful publication", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    fetchMock.mockResolvedValueOnce(Response.json({ errors: ["duplicate"] }, { status: 409 }));
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("retrieves verified expired orders for cancellation and rejects missing or forged orders", async () => {
+    const signed = signedListing();
+    signed.parameters.startTime = String(Math.floor(Date.now() / 1000) - 7200);
+    signed.parameters.endTime = String(Math.floor(Date.now() / 1000) - 3600);
+    const raw = { ...publishedOrder(signed), status: "EXPIRED" };
+    fetchMock.mockResolvedValueOnce(Response.json({ order: raw }));
+    expect(await getOpenSeaCancellationOrder(raw.order_hash)).toEqual(raw);
+    fetchMock.mockResolvedValueOnce(Response.json({ order: raw }));
+    await expect(getOpenSeaCancellationOrder(hash)).rejects.toMatchObject({ status: 503 });
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    await expect(getOpenSeaCancellationOrder(hash)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("keeps posting cooldown separate from fulfillment and reads", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    fetchMock.mockResolvedValueOnce(
+      new Response("limited", { status: 429, headers: { "retry-after": "90" } }),
+    );
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({
+      status: 503,
+      retryAfter: 90,
+    });
+    fetchMock.mockResolvedValueOnce(Response.json({ ok: true }));
+    expect(await requestOpenSeaFulfillment(hash, "12", seller)).toEqual({ ok: true });
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({ status: 503 });
+    expect(budget.mock.calls.filter(([operation]) => operation === "posting")).toHaveLength(1);
+  });
+
+  it.each([
+    [false, 0n, 0n, "active"],
+    [true, 0n, 0n, "cancelled"],
+    [false, 1n, 1n, "filled"],
+    [false, 1n, 2n, "active"],
+  ])("reconciles only confirmed final onchain status", async (cancelled, filled, size, status) => {
+    readContract.mockResolvedValueOnce([false, cancelled, filled, size]);
+    expect(await reconcileOpenSeaOrder(hash as `0x${string}`)).toEqual({ status });
+    expect(readContract).toHaveBeenCalledWith(
+      expect.objectContaining({ functionName: "getOrderStatus", args: [hash] }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("OpenSea order cache invalidation cooldown", () => {
+  it("bounds global invalidation to 5 seconds and duplicate orders to 30 seconds per instance", () => {
+    expect(invalidateOpenSeaOrdersCache(hash as Hex)).toBe(true);
+    for (let index = 0; index < 20; index++)
+      expect(invalidateOpenSeaOrdersCache(hash as Hex)).toBe(false);
+    vi.setSystemTime(testTime + 4_999);
+    expect(invalidateOpenSeaOrdersCache(zeroHash)).toBe(false);
+    vi.setSystemTime(testTime + 5_000);
+    expect(invalidateOpenSeaOrdersCache(zeroHash)).toBe(true);
+    vi.setSystemTime(testTime + 29_999);
+    expect(invalidateOpenSeaOrdersCache(hash as Hex)).toBe(false);
+    expect(invalidate).toHaveBeenCalledWith("marketplace-opensea-orders", { expire: 0 });
+    vi.setSystemTime(testTime + 30_000);
+    expect(invalidateOpenSeaOrdersCache(hash as Hex)).toBe(true);
+    expect(invalidate).toHaveBeenCalledTimes(3);
+  });
+  it("does not record a successful invalidation when the cache backend fails", () => {
+    invalidate.mockImplementationOnce(() => {
+      throw new Error("Cache unavailable");
+    });
+    expect(() => invalidateOpenSeaOrdersCache(hash as Hex)).toThrow("Cache unavailable");
+    expect(invalidateOpenSeaOrdersCache(hash as Hex)).toBe(true);
+  });
 });
 afterEach(() => {
   vi.useRealTimers();

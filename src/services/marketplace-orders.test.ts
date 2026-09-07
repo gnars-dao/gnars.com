@@ -171,16 +171,18 @@ describe("distributed paid-operation budgets", () => {
       mocks.query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO marketplace_rate_limits")),
     ).toHaveLength(1);
   });
-  it("budgets actual OpenSea reads separately from fulfillment across instances", async () => {
+  it("budgets OpenSea reads, fulfillment and posting separately across instances", async () => {
     await enforceOpenSeaProviderBudget("read");
     await enforceOpenSeaProviderBudget("fulfillment");
+    await enforceOpenSeaProviderBudget("posting");
     const budgets = mocks.query.mock.calls.filter(([sql]) =>
       sql.includes("INSERT INTO marketplace_rate_limits"),
     );
-    expect(budgets).toHaveLength(2);
+    expect(budgets).toHaveLength(3);
     expect(budgets[0][1][2]).toBe(30);
     expect(budgets[1][1][2]).toBe(15);
-    expect(budgets[0][1][0]).not.toBe(budgets[1][1][0]);
+    expect(budgets[2][1][2]).toBe(15);
+    expect(new Set(budgets.map(([, parameters]) => parameters[0])).size).toBe(3);
   });
   it("does not make an existing database without marketplace tables block OpenSea", async () => {
     mocks.query.mockRejectedValueOnce(new Error("marketplace schema is missing"));
@@ -204,6 +206,7 @@ describe("distributed paid-operation budgets", () => {
     ])
       vi.stubEnv(key, "");
     await enforceOpenSeaProviderBudget("read");
+    await enforceOpenSeaProviderBudget("posting");
     expect(mocks.query).not.toHaveBeenCalled();
   });
 });

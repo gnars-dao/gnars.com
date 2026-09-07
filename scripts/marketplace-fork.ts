@@ -8,7 +8,6 @@ import {
   concatHex,
   createPublicClient,
   createWalletClient,
-  encodeFunctionData,
   erc721Abi,
   http,
   parseAbi,
@@ -22,6 +21,12 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { BUILDER_CODE_SUFFIX, DAO_ADDRESSES } from "../src/lib/config";
 import { encodeOpenSeaFulfillment } from "../src/lib/marketplace/opensea-fulfillment";
+import {
+  buildOpenSeaListingQuote,
+  getOpenSeaCancellation,
+  parseOpenSeaListingFees,
+  validateOpenSeaListingFees,
+} from "../src/lib/marketplace/opensea-listing";
 import {
   getListingCancellation,
   getListingFulfillment,
@@ -220,10 +225,10 @@ async function main() {
       assert((await client.getTransaction({ hash })).input.endsWith(BUILDER_CODE_SUFFIX.slice(2)));
       return client.waitForTransactionReceipt({ hash });
     };
-    const executeBuy = async (call: { to: Address; data: Hex; value: bigint }) => {
+    const executeBuy = async (call: { to: Address; data: Hex; value: bigint }, fee = royalty) => {
       const beforeSeller = await client.getBalance({ address: seller.address });
       const beforeBuyer = await client.getBalance({ address: buyer.address });
-      const beforeRoyalty = await client.getBalance({ address: royalty.recipient });
+      const beforeFee = await client.getBalance({ address: fee.recipient });
       const receipt = await send(call);
       assert.equal(receipt.status, "success");
       assert.equal(
@@ -239,13 +244,10 @@ async function main() {
       );
       assert.equal(
         (await client.getBalance({ address: seller.address })) - beforeSeller,
-        price - royalty.amount,
+        price - fee.amount,
       );
-      if (royalty.amount)
-        assert.equal(
-          (await client.getBalance({ address: royalty.recipient })) - beforeRoyalty,
-          royalty.amount,
-        );
+      if (fee.amount)
+        assert.equal((await client.getBalance({ address: fee.recipient })) - beforeFee, fee.amount);
       assert(
         beforeBuyer - (await client.getBalance({ address: buyer.address })) >= price,
         "Buyer must pay sale price plus gas",
@@ -346,6 +348,69 @@ async function main() {
       );
       await returnToken();
     }
+
+    // Fixture-only fee policy: never publish this signed order to an upstream orderbook.
+    const feeRecipient = privateKeyToAccount(generatePrivateKey()).address;
+    const feeConfigs = parseOpenSeaListingFees({
+      collection: "gnars-dao",
+      contracts: [{ address: DAO_ADDRESSES.token, chain: "base" }],
+      fees: [{ recipient: feeRecipient, fee: 1, required: true }],
+    });
+    const quote = buildOpenSeaListingQuote(price.toString(), feeConfigs);
+    const buildOpenSea = async (salt: string) => {
+      const order = await build(salt);
+      order.parameters.consideration = [
+        { recipient: seller.address, amountWei: quote.sellerWei },
+        ...quote.fees,
+      ].map(({ recipient, amountWei }) => ({
+        itemType: 0,
+        token: zeroAddress,
+        identifierOrCriteria: "0",
+        startAmount: amountWei,
+        endAmount: amountWei,
+        recipient,
+      }));
+      order.signature = await seller.signTypedData(getListingTypedData(order.parameters));
+      validateOpenSeaListingFees(order, quote);
+      await validateListingOnchain(client, order, { source: "opensea" });
+      return order;
+    };
+    const publishedShape = await buildOpenSea("3001");
+    assert.equal(publishedShape.parameters.conduitKey, zeroHash);
+    assert.equal(publishedShape.parameters.zone, zeroAddress);
+    await executeBuy(getListingFulfillment(publishedShape, { source: "opensea" }), {
+      recipient: feeRecipient,
+      amount: BigInt(quote.fees[0].amountWei),
+    });
+    assert.equal(await getListingStatus(client, publishedShape, { source: "opensea" }), "filled");
+    console.log(
+      "PASS [fork] authored OpenSea signature/quote/approval; NFT, seller and 1% fee settle exactly",
+    );
+    await returnToken();
+
+    const externalCancel = await buildOpenSea("3002");
+    const cancelHash = getListingOrderHash(externalCancel.parameters);
+    const cancelCall = getOpenSeaCancellation(
+      {
+        chain: "base",
+        order_hash: cancelHash,
+        protocol_address: SEAPORT_ADDRESS,
+        protocol_data: externalCancel,
+      },
+      { orderHash: cancelHash, seller: seller.address, tokenId: tokenId.toString() },
+    );
+    assert.equal((await send(cancelCall, sellerWallet)).status, "success");
+    assert.equal(
+      await getListingStatus(client, externalCancel, { source: "opensea" }),
+      "cancelled",
+    );
+    assert.equal(
+      (await send(getListingFulfillment(externalCancel, { source: "opensea" }))).status,
+      "reverted",
+    );
+    console.log(
+      "PASS [fork] exact OpenSea cancellation with builder suffix; cancelled listing cannot sell",
+    );
     console.log(
       "PASS [fork] all marketplace smoke checks; no upstream writes or user credentials used",
     );

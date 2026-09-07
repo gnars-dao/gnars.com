@@ -55,21 +55,41 @@ describe("marketplace source availability", () => {
       opensea: { available: false, error: "not_configured" },
       gnars: { available: false, error: "not_configured" },
     });
-    expect(page.capabilities).toEqual({ openseaBuy: false, localTrading: false });
+    expect(page.capabilities).toEqual({
+      openseaBuy: false,
+      openseaSell: false,
+      openseaCancel: false,
+      localTrading: false,
+    });
     expect(mocks.external).not.toHaveBeenCalled();
   });
   it("enables OpenSea purchases with only an API key, without enabling local order storage", async () => {
     mocks.key.mockReturnValue(true);
     expect(await getMarketplaceReadiness()).toMatchObject({
       sources: { opensea: { available: true } },
-      capabilities: { openseaBuy: true, localTrading: false },
+      capabilities: {
+        openseaBuy: true,
+        openseaSell: true,
+        openseaCancel: true,
+        localTrading: false,
+      },
     });
     expect(await loadMarketplacePage({ view: "listings" })).toMatchObject({
-      capabilities: { openseaBuy: true, localTrading: false },
+      capabilities: {
+        openseaBuy: true,
+        openseaSell: true,
+        openseaCancel: true,
+        localTrading: false,
+      },
     });
     mocks.detail.mockResolvedValueOnce(null);
     expect(await loadMarketplaceToken("12")).toMatchObject({
-      capabilities: { openseaBuy: true, localTrading: false },
+      capabilities: {
+        openseaBuy: true,
+        openseaSell: true,
+        openseaCancel: true,
+        localTrading: false,
+      },
     });
   });
   it("marks a catalogue read failure explicitly unavailable", async () => {
@@ -107,7 +127,7 @@ describe("marketplace source availability", () => {
     mocks.external.mockRejectedValueOnce(new Error("quota exceeded"));
     expect(await loadMarketplacePage({ view: "listings" })).toMatchObject({
       sources: { opensea: { available: false, error: "unavailable" } },
-      capabilities: { openseaBuy: false },
+      capabilities: { openseaBuy: false, openseaSell: false, openseaCancel: false },
     });
   });
   it("loads NFT offers on demand and checks the current on-chain owner", async () => {

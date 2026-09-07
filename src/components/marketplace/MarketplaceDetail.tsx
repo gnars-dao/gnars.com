@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
 import {
   Drawer,
+  DrawerClose,
   DrawerContent,
   DrawerDescription,
   DrawerHeader,
@@ -32,7 +33,12 @@ import { Link } from "@/i18n/navigation";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { parseMarketplacePrice } from "@/lib/marketplace-display";
 import { cn } from "@/lib/utils";
-import type { MarketplaceItem, MarketplaceOffer, MarketplacePage } from "@/types/marketplace";
+import type {
+  MarketplaceItem,
+  MarketplaceOffer,
+  MarketplacePage,
+  MarketplaceSource,
+} from "@/types/marketplace";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { NftArtwork } from "./NftArtwork";
 
@@ -76,6 +82,9 @@ export default function MarketplaceDetail({
   const [offer, setOffer] = useState<MarketplaceOffer | null>(null);
   const [price, setPrice] = useState("");
   const [duration, setDuration] = useState(7);
+  const [listingDestination, setListingDestination] = useState<MarketplaceSource>(
+    initialCapabilities.openseaSell ? "opensea" : "gnars",
+  );
   const [submitted, setSubmitted] = useState(false);
   const [quotePrice, setQuotePrice] = useState("");
   const detail = useQuery({
@@ -97,11 +106,19 @@ export default function MarketplaceDetail({
     return () => clearTimeout(timer);
   }, [price]);
   const quote = useQuery({
-    queryKey: ["marketplace", "quote", writer?.account.address, item.tokenId, quotePrice],
+    queryKey: [
+      "marketplace",
+      "quote",
+      writer?.account.address,
+      item.tokenId,
+      quotePrice,
+      listingDestination,
+    ],
     queryFn: () =>
       actions.quote({
         tokenId: item.tokenId,
         priceEth: formatEther(parseMarketplacePrice(quotePrice)!),
+        source: listingDestination,
       }),
     enabled: mode === "sell" && !!writer && !!parseMarketplacePrice(quotePrice),
     staleTime: 15_000,
@@ -121,7 +138,12 @@ export default function MarketplaceDetail({
     actions.phase,
   );
   const quoteReady =
-    quote.data?.priceWei === priceWei?.toString() && !quote.isFetching && !quote.isError;
+    quote.data?.priceWei === priceWei?.toString() &&
+    quote.data?.source === listingDestination &&
+    !quote.isFetching &&
+    !quote.isError;
+  const canList =
+    listingDestination === "opensea" ? capabilities.openseaSell : capabilities.localTrading;
 
   async function execute() {
     setSubmitted(true);
@@ -132,9 +154,11 @@ export default function MarketplaceDetail({
         priceEth: formatEther(priceWei!),
         durationDays: duration,
         expectedRoyaltyWei: quote.data!.royaltyWei,
+        expectedQuote: quote.data!,
+        source: listingDestination,
       });
     else if (mode === "buy" && offer) await actions.buy({ tokenId: item.tokenId, offer });
-    else if (mode === "cancel" && offer) await actions.cancel(offer);
+    else if (mode === "cancel" && offer) await actions.cancel(offer, item.tokenId);
     void queryClient.invalidateQueries({ queryKey: ["marketplace"] });
   }
 
@@ -144,6 +168,7 @@ export default function MarketplaceDetail({
     setSubmitted(false);
     setOffer(listing ?? null);
     setMode(next);
+    if (next === "sell") setListingDestination(capabilities.openseaSell ? "opensea" : "gnars");
     scrollRef.current?.scrollTo({ top: 0 });
   }
 
@@ -213,16 +238,17 @@ export default function MarketplaceDetail({
               </DrawerDescription>
             </div>
           </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label={t("close")}
-            onClick={() => setOpen(false)}
-            disabled={busy}
-            className="shrink-0 cursor-pointer"
-          >
-            <X className="size-4" />
-          </Button>
+          <DrawerClose asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={t("close")}
+              disabled={busy}
+              className="shrink-0 cursor-pointer"
+            >
+              <X className="size-4" />
+            </Button>
+          </DrawerClose>
         </DrawerHeader>
         <div
           ref={scrollRef}
@@ -301,20 +327,23 @@ export default function MarketplaceDetail({
                       </p>
                       {writer &&
                       listing.seller.toLowerCase() === writer.account.address.toLowerCase() ? (
-                        listing.source === "gnars" && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => choose("cancel", listing)}
-                            disabled={
-                              busy || unresolved || !verifiedDetail || !capabilities.localTrading
-                            }
-                            className="w-full cursor-pointer"
-                          >
-                            <X className="size-3.5" />
-                            {t("cancel")}
-                          </Button>
-                        )
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => choose("cancel", listing)}
+                          disabled={
+                            busy ||
+                            unresolved ||
+                            !verifiedDetail ||
+                            !(listing.source === "opensea"
+                              ? capabilities.openseaCancel
+                              : capabilities.localTrading)
+                          }
+                          className="w-full cursor-pointer"
+                        >
+                          <X className="size-3.5" />
+                          {t("cancel")}
+                        </Button>
                       ) : (
                         <Button
                           size="sm"
@@ -343,13 +372,18 @@ export default function MarketplaceDetail({
                     <Button
                       variant="outline"
                       onClick={() => choose("sell")}
-                      disabled={busy || unresolved || !verifiedDetail || !capabilities.localTrading}
+                      disabled={
+                        busy ||
+                        unresolved ||
+                        !verifiedDetail ||
+                        !(capabilities.openseaSell || capabilities.localTrading)
+                      }
                       className="w-full cursor-pointer"
                     >
                       <Tag className="size-4" />
                       {t("sell")}
                     </Button>
-                    {!capabilities.localTrading && (
+                    {!(capabilities.openseaSell || capabilities.localTrading) && (
                       <p role="status" className="text-xs text-muted-foreground">
                         {t("listingUnavailable")}
                       </p>
@@ -364,6 +398,27 @@ export default function MarketplaceDetail({
                 </h3>
                 {mode === "sell" ? (
                   <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="market-destination">{t("source")}</Label>
+                      {capabilities.openseaSell && capabilities.localTrading ? (
+                        <select
+                          id="market-destination"
+                          value={listingDestination}
+                          onChange={(event) =>
+                            setListingDestination(event.target.value as MarketplaceSource)
+                          }
+                          disabled={busy || success || unresolved}
+                          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        >
+                          <option value="opensea">OpenSea</option>
+                          <option value="gnars">Gnars</option>
+                        </select>
+                      ) : (
+                        <p id="market-destination" className="text-sm font-medium">
+                          {listingDestination === "opensea" ? "OpenSea" : "Gnars"}
+                        </p>
+                      )}
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="market-price">{t("price")}</Label>
                       <Input
@@ -398,13 +453,25 @@ export default function MarketplaceDetail({
                         ))}
                       </select>
                     </div>
-                    <p className="text-xs text-muted-foreground">{t("royaltyNote")}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(listingDestination === "opensea" ? "openSeaFeeNote" : "royaltyNote")}
+                    </p>
                     {quoteReady && quote.data ? (
                       <dl className="space-y-2 text-xs">
                         <div className="flex flex-wrap justify-between gap-2">
-                          <dt className="text-muted-foreground">{t("royalties")}</dt>
+                          <dt className="text-muted-foreground">
+                            {t(listingDestination === "opensea" ? "openSeaFees" : "royalties")}
+                          </dt>
                           <dd className="break-all font-mono">
-                            {formatEther(BigInt(quote.data.royaltyWei))} ETH
+                            {formatEther(
+                              listingDestination === "opensea"
+                                ? quote.data.fees.reduce(
+                                    (sum, fee) => sum + BigInt(fee.amountWei),
+                                    0n,
+                                  )
+                                : BigInt(quote.data.royaltyWei),
+                            )}{" "}
+                            ETH
                           </dd>
                         </div>
                         <div className="flex flex-wrap justify-between gap-2">
@@ -456,17 +523,21 @@ export default function MarketplaceDetail({
                     ) : busy ? (
                       <LoaderCircle className="size-4 shrink-0 animate-spin" />
                     ) : null}
-                    {t(`steps.${phase}`)}
+                    {actions.listingOutcome
+                      ? t(`outcomes.${actions.listingOutcome}`)
+                      : t(`steps.${phase}`)}
                   </p>
                 )}
                 {actions.error && (
                   <p role="alert" className="text-sm text-destructive">
                     {t(
-                      actions.error.code === "wallet"
-                        ? writer
-                          ? "errors.rejected"
-                          : "errors.wallet"
-                        : "errors.generic",
+                      actions.phase === "saving"
+                        ? "errors.publication"
+                        : actions.error.code === "wallet"
+                          ? writer
+                            ? "errors.rejected"
+                            : "errors.wallet"
+                          : "errors.generic",
                     )}
                   </p>
                 )}
@@ -489,9 +560,9 @@ export default function MarketplaceDetail({
                 {!writer ? (
                   <ConnectButton />
                 ) : success ? (
-                  <Button onClick={() => setOpen(false)} className="w-full">
-                    {t("newAction")}
-                  </Button>
+                  <DrawerClose asChild>
+                    <Button className="w-full">{t("newAction")}</Button>
+                  </DrawerClose>
                 ) : (
                   <Button
                     disabled={
@@ -500,9 +571,11 @@ export default function MarketplaceDetail({
                       (mode === "sell" && !quoteReady) ||
                       !verifiedDetail ||
                       (mode === "sell"
-                        ? !capabilities.localTrading
+                        ? !canList
                         : offer?.source === "opensea"
-                          ? !capabilities.openseaBuy
+                          ? !(mode === "cancel"
+                              ? capabilities.openseaCancel
+                              : capabilities.openseaBuy)
                           : !capabilities.localTrading)
                     }
                     onClick={() => void execute()}

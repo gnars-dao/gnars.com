@@ -33,7 +33,12 @@ export type MarketplacePage = {
     opensea: MarketplaceAvailability;
     gnars: MarketplaceAvailability;
   };
-  capabilities: { openseaBuy: boolean; localTrading: boolean };
+  capabilities: {
+    openseaBuy: boolean;
+    openseaSell: boolean;
+    openseaCancel: boolean;
+    localTrading: boolean;
+  };
 };
 
 export type MarketplaceFulfillment = {
