@@ -4,6 +4,7 @@ import {
   compactTokenBalance,
   filterPickerTokens,
   mergePickerTokens,
+  prioritizeOwnedTokens,
   walletPickerTokens,
 } from "./tokenPickerModel";
 
@@ -65,5 +66,33 @@ describe("token picker model", () => {
     expect(compactTokenBalance("3996443.39", "pt-BR").length).toBeLessThan(12);
     expect(compactTokenBalance("0.000000001", "en")).not.toBe("0");
     expect(compactTokenBalance("bad", "en")).toBe("--");
+  });
+  it("puts positive holdings first and retains discovery order without mutating the input", () => {
+    const tokens: SwapToken[] = ["TRENDING", "ZORA", "ZERO", "CLANKER", "OTHER"].map(
+      (symbol, index) => ({
+        ...token,
+        address: `0x${String(index + 1).padStart(40, "0")}`,
+        symbol,
+        category: "creator",
+        source: index === 3 ? "clanker" : "zora",
+      }),
+    );
+    const holdings: WalletToken[] = tokens.slice(1, 4).map((t, index) => ({
+      ...t,
+      balance: index === 1 ? "0" : "0.000000000000000001",
+      displayBalance: "0",
+      logoUrl: null,
+      usdValue: null,
+    }));
+    const ranked = prioritizeOwnedTokens(tokens, holdings, new Map([[tokens[3].address, 50]]));
+    expect(ranked.map((t) => t.symbol)).toEqual(["CLANKER", "ZORA", "TRENDING", "ZERO", "OTHER"]);
+    expect(tokens[0].symbol).toBe("TRENDING");
+    expect(prioritizeOwnedTokens(tokens, [])).toEqual(tokens);
+    expect(
+      prioritizeOwnedTokens(
+        tokens,
+        holdings.filter((t) => t.balance === "0"),
+      ),
+    ).toEqual(tokens);
   });
 });

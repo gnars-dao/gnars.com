@@ -37,6 +37,7 @@
     "noBalances": "No token balances found",
     "showMore": "Load more",
     "loading": "Loading tokens...",
+    "loadingOwned": "Loading tokens in your wallet...",
     "retry": "Retry loading tokens",
     "nativeAsset": "Native asset",
     "resolvingToken": "Resolving token…",

@@ -37,6 +37,7 @@
     "noBalances": "Nenhum saldo de token encontrado",
     "showMore": "Carregar mais",
     "loading": "Carregando tokens...",
+    "loadingOwned": "Carregando tokens da sua carteira...",
     "retry": "Tentar carregar tokens novamente",
     "nativeAsset": "Ativo nativo",
     "resolvingToken": "Resolvendo token…",

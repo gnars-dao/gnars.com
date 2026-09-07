@@ -14,20 +14,24 @@ src/app/[locale]/swap/
   SwapWidget.tsx      "use client" — debounced price, approve, swap
   TokenPicker.tsx     responsive token catalogue, shared search and wallet balances
   tokenPickerModel.ts pure token identity, filtering and balance formatting
+  useOwnedTokenSources.ts lazy provenance lookup for held tokens outside the catalogue
 
 src/lib/
   swappro.ts          pure: SwapsPro request/response ⇄ the shape the widget reads (unit-tested)
   swapproRoute.ts     the one handler: reads the query, sets the fee from config, calls SwapsPro
   swap-token-directory.ts validated creator/stock catalogue schema and provider parsers
+  swap-token-sources.ts address-only provenance schema and request/provider validation
 
 src/services/
   swap-token-directory.ts cached Zora/Clanker discovery and vetted Base stock registry
+  swap-token-sources.ts batched Zora and bounded Clanker provenance queries
 
 src/data/
   swap-stock-tokens.ts 13 Coinbase B20 tokens verified on Base on 2026-09-07 (8 decimals)
 
 src/app/api/swap/
   tokens/route.ts     GET catalogue, Base only, shared CDN cache and request limit
+  token-sources/route.ts GET provenance for up to 25 Base addresses, no balance/amount metadata
 
 src/app/api/0x/
   price/route.ts      GET → swapproRoute   (kept at its old path so the widget does not change)
@@ -46,6 +50,11 @@ crypto tokens, the second contains Zora/Clanker creator coins, and the third con
 Base tokenized stocks. Symbols, names and balances cannot expand the fixed row tracks.
 Full names remain searchable and available as accessible labels/tooltips.
 
+Creator coins with a positive wallet balance rank ahead of discovery tokens, including
+within the Zora and Clanker filters. Known USD values sort holdings first; unpriced
+holdings use symbol order, never arbitrary token quantities. Zero balances do not gain
+priority. Discovery order remains unchanged after the owned tokens.
+
 - `/api/swap/tokens?chainId=8453` is fetched only while a picker is open. Both pickers
   share a five-minute React Query cache; typing filters locally, without catalogue requests.
 - Official Zora and Clanker feeds provide bounded discovery lists, not an exhaustive
@@ -61,14 +70,21 @@ Full names remain searchable and available as accessible labels/tooltips.
 - The wallet's Pioneer portfolio supplies row balances, with one shared native-asset
   query while open. There are no per-row balance queries or Zora logo lookups. Logos
   come from catalogue/portfolio metadata and fall back to the token initial.
+- Unknown held Base contracts are classified lazily through `/api/swap/token-sources`
+  in sequential batches of 25, shared by both pickers. Zora resolves each batch; only
+  unresolved addresses reach Clanker's exact-address search (at most four concurrent
+  requests, with a 20-second server budget). Successful provenance and negative lookups
+  cache for an hour. Failures retain known results and expose retry, not a false empty
+  wallet. Classification only adds category/source; it cannot replace decimals or balances.
 - Unknown contract addresses use the existing debounced metadata lookup. Case-insensitive
   address identity prevents duplicate rows and selecting the same token on both sides.
 - Other supported swap chains retain wallet/crypto selection; Base-only catalogues are
   never injected into a different chain.
 
 Regression coverage: `tokenPickerModel.test.ts`, the directory parser/service/route tests,
-and `tests/e2e/swap-token-picker.spec.ts` (PT-BR desktop/mobile, long labels, selection,
-category navigation, shared requests and provider failures).
+and `tests/e2e/swap-token-picker.spec.ts` / `swap-owned-creators.spec.ts` (PT-BR
+desktop/mobile, long labels, selection, owned-first ordering, wallet changes, category
+navigation, shared requests and provider failures).
 
 ## Flow
 

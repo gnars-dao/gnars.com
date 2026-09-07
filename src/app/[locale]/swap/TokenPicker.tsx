@@ -36,10 +36,12 @@ import {
   compactTokenBalance,
   filterPickerTokens,
   mergePickerTokens,
+  prioritizeOwnedTokens,
   tokenAddressLabel,
   tokenKey,
   walletPickerTokens,
 } from "./tokenPickerModel";
+import { useOwnedTokenSources } from "./useOwnedTokenSources";
 import { useTokenBalance } from "./useTokenBalance";
 import { useTokenLookup } from "./useWalletTokens";
 
@@ -141,10 +143,27 @@ export default function TokenPicker({
       return swapTokenDirectorySchema.parse(await response.json());
     },
   });
-  const knownTokens = React.useMemo(
+  const catalogueTokens = React.useMemo(
     () => mergePickerTokens(tokens, directory.data?.tokens ?? []),
     [tokens, directory.data],
   );
+  const ownedSources = useOwnedTokenSources({
+    chainId: chain.id,
+    userAddress,
+    enabled: open && isConnected && !directory.isPending,
+    holdings: walletTokens,
+    knownTokens: catalogueTokens,
+    curatedTokens: chain.tokens,
+  });
+  const knownTokens = React.useMemo(() => {
+    const sources = new Map(
+      ownedSources.data?.tokens.map((token) => [tokenKey(token.address), token.source]) ?? [],
+    );
+    return catalogueTokens.map((token) => {
+      const source = sources.get(tokenKey(token.address));
+      return source && !token.category ? { ...token, category: "creator" as const, source } : token;
+    });
+  }, [catalogueTokens, ownedSources.data]);
   const lookup = useTokenLookup({
     address: lookupAddress,
     chainId: chain.id,
@@ -206,10 +225,14 @@ export default function TokenPicker({
       query,
     ),
     creator: filterPickerTokens(
-      allTokens.filter(
-        (token) =>
-          token.category === "creator" &&
-          (creatorSource === "all" || token.source === creatorSource),
+      prioritizeOwnedTokens(
+        allTokens.filter(
+          (token) =>
+            token.category === "creator" &&
+            (creatorSource === "all" || token.source === creatorSource),
+        ),
+        holdings,
+        usdValues,
       ),
       query,
     ),
@@ -289,6 +312,8 @@ export default function TokenPicker({
     if (group === "wallet")
       return walletView === "balances" && isConnected && (walletError || native.isError);
     if (chain.id !== 8453) return false;
+    if (group === "creator" && (ownedSources.isError || ownedSources.data?.complete === false))
+      return true;
     if (directory.isError) return true;
     const sources = directory.data?.sources;
     return (
@@ -530,11 +555,23 @@ export default function TokenPicker({
                         if (group === "wallet") {
                           onRetryWallet();
                           void native.refetch();
-                        } else void directory.refetch();
+                        } else {
+                          void directory.refetch();
+                          if (group === "creator") void ownedSources.refetch();
+                        }
                       }}
                     >
                       <RefreshCw className="size-3.5" />
                     </Button>
+                  </div>
+                )}
+                {group === "creator" && ownedSources.isFetching && (
+                  <div
+                    role="status"
+                    className="flex shrink-0 items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground"
+                  >
+                    <Loader2 className="size-3.5 animate-spin" />
+                    {t("loadingOwned")}
                   </div>
                 )}
                 <div

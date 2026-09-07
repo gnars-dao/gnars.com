@@ -55,6 +55,16 @@ export function tokenAddressLabel(token: SwapToken): string {
     : `${token.address.slice(0, 6)}...${token.address.slice(-4)}`;
 }
 
+export function prioritizeOwnedTokens(
+  tokens: readonly SwapToken[],
+  holdings: readonly WalletToken[],
+  usdValues?: Map<string, number>,
+): SwapToken[] {
+  const owned = walletPickerTokens(tokens, holdings, usdValues);
+  const ownedAddresses = new Set(owned.map((token) => tokenKey(token.address)));
+  return [...owned, ...tokens.filter((token) => !ownedAddresses.has(tokenKey(token.address)))];
+}
+
 export function compactTokenBalance(value: string, locale: string): string {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return "--";
