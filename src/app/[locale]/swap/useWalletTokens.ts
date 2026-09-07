@@ -43,11 +43,13 @@ export function useWalletTokens({
     queryKey: ["wallet-tokens", chain.id, userAddress],
     enabled,
     staleTime: 60_000,
-    queryFn: async () => {
+    retry: 1,
+    queryFn: async ({ signal }) => {
       const res = await fetch(
         `/api/wallet/pioneer-tokens?address=${userAddress}&chainId=${chain.id}`,
+        { signal },
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Wallet balances unavailable");
       return res.json();
     },
   });
@@ -58,7 +60,8 @@ export function useWalletTokens({
     if (!query.data || !userAddress) return;
     for (const t of query.data) {
       const key = ["swap-token-balance", chain.id, userAddress, t.address] as const;
-      if (!queryClient.getQueryData(key)) {
+      // A newly received portfolio can still be HTTP-cached; never replace a direct RPC read.
+      if (queryClient.getQueryData(key) === undefined) {
         queryClient.setQueryData(key, {
           value: decimalToBaseUnits(t.balance, t.decimals),
           displayValue: t.displayBalance,
@@ -101,7 +104,14 @@ export function useWalletTokens({
     return map;
   }, [query.data]);
 
-  return { tokens: mergedTokens, usdValues, isLoading: query.isLoading };
+  return {
+    tokens: mergedTokens,
+    walletTokens: query.data ?? [],
+    usdValues,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
 }
 
 /**
@@ -111,15 +121,26 @@ export function useWalletTokens({
  * Only fires when `address` is a valid 0x address. Results are cached
  * for 24 h — token metadata is stable.
  */
-export function useTokenLookup({ address, chainId }: { address: string; chainId: number }) {
+export function useTokenLookup({
+  address,
+  chainId,
+  enabled = true,
+}: {
+  address: string;
+  chainId: number;
+  enabled?: boolean;
+}) {
   return useQuery<SwapToken | null>({
     queryKey: ["token-lookup", chainId, address.toLowerCase()],
-    enabled: isAddress(address),
+    enabled: enabled && isAddress(address),
     staleTime: 24 * 60 * 60 * 1000,
     retry: false,
-    queryFn: async () => {
-      const res = await fetch(`/api/wallet/token-lookup?address=${address}&chainId=${chainId}`);
-      if (!res.ok) return null;
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/wallet/token-lookup?address=${address}&chainId=${chainId}`, {
+        signal,
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Token lookup unavailable");
       const data = await res.json();
       if (!data?.symbol) return null;
       return {
@@ -128,6 +149,9 @@ export function useTokenLookup({ address, chainId }: { address: string; chainId:
         name: data.name,
         decimals: data.decimals,
         logo: data.logoUrl ?? undefined,
+        ...(data.source === "zora" || data.source === "clanker"
+          ? { category: "creator" as const, source: data.source }
+          : {}),
       };
     },
   });

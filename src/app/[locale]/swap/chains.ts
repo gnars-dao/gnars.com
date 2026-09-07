@@ -18,6 +18,8 @@ export interface SwapToken {
   address: `0x${string}` | typeof NATIVE_TOKEN;
   decimals: number;
   logo?: string;
+  category?: "creator" | "stock";
+  source?: "zora" | "clanker" | "ondo" | "xstocks" | "coinbase";
 }
 
 export interface SwapChain {

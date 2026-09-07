@@ -11,11 +11,23 @@ wallet layer (`useWriteAccount`), exactly as before.
 
 ```
 src/app/[locale]/swap/
-  SwapWidget.tsx      "use client" — token pickers, debounced price, approve, swap (unchanged UI)
+  SwapWidget.tsx      "use client" — debounced price, approve, swap
+  TokenPicker.tsx     responsive token catalogue, shared search and wallet balances
+  tokenPickerModel.ts pure token identity, filtering and balance formatting
 
 src/lib/
   swappro.ts          pure: SwapsPro request/response ⇄ the shape the widget reads (unit-tested)
   swapproRoute.ts     the one handler: reads the query, sets the fee from config, calls SwapsPro
+  swap-token-directory.ts validated creator/stock catalogue schema and provider parsers
+
+src/services/
+  swap-token-directory.ts cached Zora/Clanker discovery and vetted Base stock registry
+
+src/data/
+  swap-stock-tokens.ts 13 Coinbase B20 tokens verified on Base on 2026-09-07 (8 decimals)
+
+src/app/api/swap/
+  tokens/route.ts     GET catalogue, Base only, shared CDN cache and request limit
 
 src/app/api/0x/
   price/route.ts      GET → swapproRoute   (kept at its old path so the widget does not change)
@@ -25,6 +37,38 @@ src/app/api/0x/
 The routes keep their `/api/0x/*` paths on purpose: the widget's two-step flow (price while
 typing, quote on click) is untouched, and the fee recipient is still set server-side from
 `src/lib/config.ts` rather than in the client bundle.
+
+## Token Selector
+
+Desktop uses three independently scrolling columns; mobile uses keyboard-accessible
+category tabs. The first column switches between the connected wallet's holdings and
+crypto tokens, the second contains Zora/Clanker creator coins, and the third contains
+Base tokenized stocks. Symbols, names and balances cannot expand the fixed row tracks.
+Full names remain searchable and available as accessible labels/tooltips.
+
+- `/api/swap/tokens?chainId=8453` is fetched only while a picker is open. Both pickers
+  share a five-minute React Query cache; typing filters locally, without catalogue requests.
+- Official Zora and Clanker feeds provide bounded discovery lists, not an exhaustive
+  index. Each provider is independently cached for five minutes with cold-request
+  deduplication and a 30-second failure backoff. A partial response retains valid tokens
+  and reports the failed source instead of pretending the catalogue is empty.
+- Base stock provenance comes from the [official issuer registry](https://brand.base.org/stocks).
+  Stock symbols on other chains are not reused as Base contracts. Catalogue inclusion
+  does not guarantee quote liquidity or issuer eligibility; swap routing remains unchanged.
+  Balances and swap amounts are ERC-20 token units, not underlying share counts. B20
+  multipliers and transfer policies are described in the
+  [Base integration guide](https://docs.base.org/specifications/b20/tokenized-stocks-on-base).
+- The wallet's Pioneer portfolio supplies row balances, with one shared native-asset
+  query while open. There are no per-row balance queries or Zora logo lookups. Logos
+  come from catalogue/portfolio metadata and fall back to the token initial.
+- Unknown contract addresses use the existing debounced metadata lookup. Case-insensitive
+  address identity prevents duplicate rows and selecting the same token on both sides.
+- Other supported swap chains retain wallet/crypto selection; Base-only catalogues are
+  never injected into a different chain.
+
+Regression coverage: `tokenPickerModel.test.ts`, the directory parser/service/route tests,
+and `tests/e2e/swap-token-picker.spec.ts` (PT-BR desktop/mobile, long labels, selection,
+category navigation, shared requests and provider failures).
 
 ## Flow
 

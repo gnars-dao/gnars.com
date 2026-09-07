@@ -77,6 +77,28 @@ describe("token lookup caching", () => {
     expect(upstream).toHaveBeenCalledTimes(2);
   });
 
+  it("labels a pasted token as Zora only when the existing response proves its address and chain", async () => {
+    coin.mockResolvedValueOnce({
+      data: { zora20Token: { address: getAddress(token), chainId: 8453 } },
+    });
+    expect(await (await GET(request())).json()).toMatchObject({ source: "zora" });
+    expect(coin).toHaveBeenCalledTimes(1);
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", chainId: 8453 },
+    { address: token, chainId: 1 },
+    { address: token },
+    null,
+  ])(
+    "does not infer Zora provenance from missing or mismatched provider identity",
+    async (zora20Token) => {
+      coin.mockResolvedValueOnce({ data: { zora20Token } });
+      expect(await (await GET(request())).json()).not.toHaveProperty("source");
+    },
+  );
+
   it("skips Zora outside Base and rejects invalid input", async () => {
     expect((await GET(request(token, 1))).status).toBe(200);
     expect(coin).not.toHaveBeenCalled();

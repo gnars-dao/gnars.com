@@ -30,6 +30,7 @@ export interface LookedUpToken {
   name: string;
   decimals: number;
   logoUrl: string | null;
+  source?: "zora";
 }
 
 const getMetadata = unstable_cache(
@@ -159,6 +160,12 @@ async function lookup(req: NextRequest) {
       name: meta.name,
       decimals: meta.decimals,
       logoUrl,
+      ...(chainId === "8453" &&
+      zoraToken?.chainId === 8453 &&
+      typeof zoraToken.address === "string" &&
+      zoraToken.address.toLowerCase() === canonical
+        ? { source: "zora" as const }
+        : {}),
     } satisfies LookedUpToken,
     {
       headers: {
