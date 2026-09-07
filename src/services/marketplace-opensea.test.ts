@@ -524,6 +524,34 @@ describe("OpenSea marketplace adapter", () => {
     fetchMock.mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
     await expect(getOpenSeaTokenListing("12")).rejects.toThrow("unavailable");
   });
+  it("reports provider operation and HTTP status without disclosing response bodies", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ errors: ["secret echoed: test-secret signature 0x1234"] }, { status: 403 }),
+    );
+    await expect(getOpenSeaMarketplaceOrder(hash)).rejects.toMatchObject({
+      status: 503,
+      message: "OpenSea read unavailable: provider HTTP 403.",
+    });
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ errors: ["secret echoed: test-secret signature 0x1234"] }, { status: 400 }),
+    );
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({
+      status: 503,
+      message: "OpenSea posting unavailable: provider HTTP 400.",
+    });
+  });
+  it("distinguishes network failures from invalid provider JSON without leaking details", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("https://private.example/test-secret"));
+    await expect(getOpenSeaMarketplaceOrder(hash)).rejects.toMatchObject({
+      message: "OpenSea read unavailable: network request failed.",
+    });
+    fetchMock.mockResolvedValueOnce(new Response("private non-JSON response test-secret"));
+    await expect(getOpenSeaMarketplaceOrder(hash)).rejects.toMatchObject({
+      message: "OpenSea read unavailable: invalid JSON response.",
+    });
+  });
   it("coalesces concurrent reads and charges only one outbound request", async () => {
     fetchMock.mockImplementation(async () => Response.json({ order: listing() }));
     const orders = await Promise.all(

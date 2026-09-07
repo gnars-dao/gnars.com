@@ -90,6 +90,9 @@ exact 400 response on the optional order lookup means absent; other provider
 errors must still abort publication rather than bypass its retry checks.
 Publication adds the required `totalOriginalConsiderationItems` count only to the
 OpenSea wire payload. It does not change the stored EIP-712 order or its hash.
+Provider failures identify the operation (read, posting or fulfillment), HTTP
+status, network failure or malformed JSON in the API error. Provider bodies,
+credentials and signatures are never forwarded as diagnostic text.
 
 ## Configuration And Cost
 

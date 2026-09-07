@@ -129,7 +129,7 @@ function reserveLocalRequest(operation: keyof typeof providerBuckets) {
   if (bucket.retryAt > now)
     throw new RequestSecurityError(
       503,
-      "OpenSea is temporarily unavailable.",
+      `OpenSea ${operation} is temporarily unavailable (rate-limit cooldown).`,
       Math.ceil((bucket.retryAt - now) / 1000),
     );
   const window = Math.floor(now / 30_000);
@@ -171,7 +171,7 @@ async function fetchOpenSea(
       signal: AbortSignal.timeout(8000),
     });
   } catch {
-    throw marketplaceUnavailable();
+    throw marketplaceUnavailable(`OpenSea ${operation} unavailable: network request failed.`);
   }
   if (allowNotFound && response.status === 404) return null;
   // OpenSea's canonical lookup also uses this exact 400 response for absent orders.
@@ -200,19 +200,25 @@ async function fetchOpenSea(
       Math.min(3600, Number.isFinite(seconds) ? Math.ceil(seconds) : 60),
     );
     providerBuckets[operation].retryAt = Date.now() + retryAfter * 1000;
-    throw new RequestSecurityError(503, "OpenSea is temporarily unavailable.", retryAfter);
+    throw new RequestSecurityError(
+      503,
+      `OpenSea ${operation} unavailable: provider HTTP 429 (rate limit).`,
+      retryAfter,
+    );
   }
   if (!response.ok) {
     console.warn("[marketplace-opensea] Provider request failed", {
       operation,
       status: response.status,
     });
-    throw marketplaceUnavailable();
+    throw marketplaceUnavailable(
+      `OpenSea ${operation} unavailable: provider HTTP ${response.status}.`,
+    );
   }
   try {
     return parseOpenSeaJson(await response.text());
   } catch {
-    throw marketplaceUnavailable();
+    throw marketplaceUnavailable(`OpenSea ${operation} unavailable: invalid JSON response.`);
   }
 }
 
