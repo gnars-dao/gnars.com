@@ -20,6 +20,7 @@ import {
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { BUILDER_CODE_SUFFIX, DAO_ADDRESSES } from "../src/lib/config";
+import { generateMarketplaceSalt } from "../src/lib/marketplace/attribution";
 import { encodeOpenSeaFulfillment } from "../src/lib/marketplace/opensea-fulfillment";
 import {
   buildOpenSeaListingQuote,
@@ -27,6 +28,7 @@ import {
   parseOpenSeaListingFees,
   validateOpenSeaListingFees,
 } from "../src/lib/marketplace/opensea-listing";
+import { OPENSEA_CONDUIT_ADDRESS, OPENSEA_CONDUIT_KEY } from "../src/lib/marketplace/routing";
 import {
   getListingCancellation,
   getListingFulfillment,
@@ -155,12 +157,12 @@ async function main() {
     } finally {
       await rpc("anvil_stopImpersonatingAccount", [owner]);
     }
-    const approve = async () => {
+    const approve = async (operator: Address = SEAPORT_ADDRESS) => {
       const hash = await sellerWallet.writeContract({
         address: DAO_ADDRESSES.token,
         abi: erc721Abi,
         functionName: "approve",
-        args: [SEAPORT_ADDRESS, tokenId],
+        args: [operator, tokenId],
       });
       assert.equal((await client.waitForTransactionReceipt({ hash })).status, "success");
     };
@@ -359,6 +361,8 @@ async function main() {
     const quote = buildOpenSeaListingQuote(price.toString(), feeConfigs);
     const buildOpenSea = async (salt: string) => {
       const order = await build(salt);
+      order.parameters.conduitKey = OPENSEA_CONDUIT_KEY;
+      order.parameters.salt = generateMarketplaceSalt();
       order.parameters.consideration = [
         { recipient: seller.address, amountWei: quote.sellerWei },
         ...quote.fees,
@@ -372,11 +376,14 @@ async function main() {
       }));
       order.signature = await seller.signTypedData(getListingTypedData(order.parameters));
       validateOpenSeaListingFees(order, quote);
+      await approve();
+      assert.equal(await getListingStatus(client, order, { source: "opensea" }), "unapproved");
+      await approve(OPENSEA_CONDUIT_ADDRESS);
       await validateListingOnchain(client, order, { source: "opensea" });
       return order;
     };
     const publishedShape = await buildOpenSea("3001");
-    assert.equal(publishedShape.parameters.conduitKey, zeroHash);
+    assert.equal(publishedShape.parameters.conduitKey, OPENSEA_CONDUIT_KEY);
     assert.equal(publishedShape.parameters.zone, zeroAddress);
     await executeBuy(getListingFulfillment(publishedShape, { source: "opensea" }), {
       recipient: feeRecipient,

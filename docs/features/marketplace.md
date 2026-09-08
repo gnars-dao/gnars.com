@@ -24,7 +24,7 @@ supported.
 
 - OpenSea: server-only v2 API, `gnars-dao` collection slug, native ETH fixed-price
   listings on Base only. Detail requests fetch the best supported external listing.
-  Sellers can approve a single Gnars NFT to Seaport, sign an order, and publish
+  Sellers can approve a single Gnars NFT to OpenSea's canonical conduit, sign an order, and publish
   directly to OpenSea without a local database. When both destinations are
   configured, the sell form offers an explicit OpenSea/Gnars destination.
 - Gnars: PostgreSQL stores signed Seaport orders. NFTs remain in the seller wallet.
@@ -32,6 +32,17 @@ supported.
   These local orders are not automatically cross-posted to OpenSea.
 - Settlement: canonical Seaport 1.6, `0x0000000000000068F116a894984e2DB1123eB395`.
   No custom settlement contract or additional Gnars platform fee is introduced.
+- New OpenSea listings use the canonical conduit key and operator
+  `0x1e0049783f008a0085193e00003d00cd54003c71`; Gnars-native listings use direct
+  Seaport approvals. Legacy zero-conduit signed orders remain readable and
+  cancellable without modifying their signature, but cannot be republished to
+  OpenSea. Old direct-Seaport approvals are not approval to the OpenSea conduit.
+- Approval, purchase and cancellation transactions retain the Gnars ERC-8021
+  builder suffix. New signed orders additionally embed `BUILDER_CODE` into the
+  leading bytes of their salt, with the remainder cryptographically random.
+  This is signed-order provenance, not an ERC-8021 transaction or a claim that
+  offchain signatures are counted by the Base leaderboard. Existing signatures
+  and the Seaport EIP-712 domain are never rewritten.
 - Local listings include the collection's current ERC2981 royalty, when supported,
   deducted from the entered gross price. RPC failures abort instead of waiving it.
 - OpenSea purchases preserve signed consideration and its total price. Unsupported
@@ -93,7 +104,7 @@ transaction details or unresolved signatures. Exported recovery data can contain
 an executable signed order and must be handled accordingly.
 
 When an approval receipt is unavailable, recovery can confirm the current NFT
-owner and exact Seaport approval at the same Base block. This applies only to a
+owner and exact saved approval operator at the same Base block. This applies only to a
 saved zero-value, single-NFT approval intent; it never substitutes for purchase or
 cancellation transaction verification. Cancellation recovery separately checks
 Seaport's cancelled flag for the exact saved order before requiring its receipt;
@@ -237,5 +248,6 @@ per-instance limits for a verified account-wide cap.
   owner wallet remains a separate explicit manual validation.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
+[OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),
 [OpenSea fulfillment API](https://docs.opensea.io/reference/generate_listing_fulfillment_data_v2),
 [ERC2981](https://docs.openzeppelin.com/contracts/5.x/api/token/common).

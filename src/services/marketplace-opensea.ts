@@ -9,6 +9,7 @@ import {
   parseOpenSeaListingFees,
   validateOpenSeaListingFees,
 } from "@/lib/marketplace/opensea-listing";
+import { OPENSEA_CONDUIT_KEY } from "@/lib/marketplace/routing";
 import {
   getListingOrderHash,
   getListingPriceWei,
@@ -562,6 +563,14 @@ export async function publishOpenSeaListing(raw: unknown): Promise<MarketplaceOf
     throw new RequestSecurityError(400, "Invalid OpenSea listing.");
   }
   if (!marketplaceOpenSeaConfigured()) throw marketplaceUnavailable("OpenSea is not configured.");
+  if (listing.parameters.conduitKey.toLowerCase() !== OPENSEA_CONDUIT_KEY) {
+    throw new MarketplaceServiceError(
+      422,
+      "OpenSea requires its canonical transfer conduit. Cancel this saved order before preparing a new listing.",
+      "OPENSEA_CONDUIT_INVALID",
+      false,
+    );
+  }
   try {
     await validateListingOnchain(marketplaceClient, listing, {
       source: "opensea",

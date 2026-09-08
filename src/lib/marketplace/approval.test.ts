@@ -1,7 +1,12 @@
 import { encodeFunctionData, erc721Abi, zeroAddress, type Address } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { hasConfirmedMarketplaceApproval, isListingApprovalIntent } from "./approval";
+import {
+  getListingApprovalOperator,
+  hasConfirmedMarketplaceApproval,
+  isListingApprovalIntent,
+} from "./approval";
+import { OPENSEA_CONDUIT_ADDRESS } from "./routing";
 import { SEAPORT_ADDRESS } from "./seaport";
 
 const account = "0x1111111111111111111111111111111111111111" as Address;
@@ -13,6 +18,65 @@ function fixture(owner: Address = account, approved: Address = SEAPORT_ADDRESS) 
   };
 }
 describe("confirmed listing approval recovery", () => {
+  it("recovers the exact allowlisted operator from saved approval calldata", () => {
+    const intent = {
+      account,
+      to: DAO_ADDRESSES.token,
+      value: "0",
+      startedBlock: "100",
+      data: encodeFunctionData({
+        abi: erc721Abi,
+        functionName: "approve",
+        args: [OPENSEA_CONDUIT_ADDRESS, 5423n],
+      }),
+    };
+    expect(getListingApprovalOperator(intent, account, "5423")).toBe(OPENSEA_CONDUIT_ADDRESS);
+    expect(isListingApprovalIntent(intent, account, "5423")).toBe(false);
+    expect(isListingApprovalIntent(intent, account, "5423", OPENSEA_CONDUIT_ADDRESS)).toBe(true);
+    expect(getListingApprovalOperator(intent, account, "1")).toBeUndefined();
+    expect(
+      getListingApprovalOperator(
+        {
+          ...intent,
+          data: encodeFunctionData({
+            abi: erc721Abi,
+            functionName: "approve",
+            args: [account, 5423n],
+          }),
+        },
+        account,
+        "5423",
+      ),
+    ).toBeUndefined();
+  });
+  it("does not confuse direct Seaport approval with the OpenSea conduit", async () => {
+    expect(
+      await hasConfirmedMarketplaceApproval(fixture(), account, "5423", OPENSEA_CONDUIT_ADDRESS),
+    ).toBe(false);
+    expect(
+      await hasConfirmedMarketplaceApproval(
+        fixture(account, OPENSEA_CONDUIT_ADDRESS),
+        account,
+        "5423",
+        OPENSEA_CONDUIT_ADDRESS,
+      ),
+    ).toBe(true);
+    const reader = fixture(account, zeroAddress);
+    reader.readContract.mockResolvedValueOnce(true);
+    expect(
+      await hasConfirmedMarketplaceApproval(reader, account, "5423", OPENSEA_CONDUIT_ADDRESS),
+    ).toBe(true);
+    expect(reader.readContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        functionName: "isApprovedForAll",
+        args: [account, OPENSEA_CONDUIT_ADDRESS],
+        blockNumber: 100n,
+      }),
+    );
+    await expect(
+      hasConfirmedMarketplaceApproval(fixture(), account, "5423", account),
+    ).rejects.toThrow("Unsupported NFT approval operator");
+  });
   it("does not recover other calls that were mislabeled as an approval", () => {
     const intent = {
       account,

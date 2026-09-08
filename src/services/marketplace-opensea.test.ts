@@ -1,6 +1,7 @@
 import { zeroAddress, zeroHash, type Hex } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { OPENSEA_CONDUIT_KEY } from "@/lib/marketplace/routing";
 import {
   getListingOrderHash,
   SEAPORT_ADDRESS,
@@ -112,7 +113,7 @@ function signedListing(): SignedListing {
       offerer: seller,
       zone: zeroAddress,
       zoneHash: zeroHash,
-      conduitKey: zeroHash,
+      conduitKey: OPENSEA_CONDUIT_KEY,
       salt: "123",
       counter: "0",
       orderType: 0,
@@ -150,6 +151,20 @@ function publishedOrder(order = signedListing()) {
 }
 
 describe("OpenSea listing publication", () => {
+  it("rejects legacy direct-Seaport publication locally without changing its signed order", async () => {
+    const signed = signedListing();
+    signed.parameters.conduitKey = zeroHash;
+    const original = structuredClone(signed);
+    await expect(publishOpenSeaListing(signed)).rejects.toMatchObject({
+      status: 422,
+      code: "OPENSEA_CONDUIT_INVALID",
+      retryable: false,
+    });
+    expect(signed).toEqual(original);
+    expect(onchain).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("validates the current direct Listing POST response without an indexing-race GET", async () => {
     const signed = signedListing();
     fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));

@@ -19,9 +19,10 @@ import { useWriteAccount, type WriteAccount } from "@/hooks/use-write-account";
 import { prepareTransaction } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import {
+  getListingApprovalOperator,
   hasConfirmedMarketplaceApproval,
-  isListingApprovalIntent,
 } from "@/lib/marketplace/approval";
+import { generateMarketplaceSalt } from "@/lib/marketplace/attribution";
 import { parseMarketplaceApiError } from "@/lib/marketplace/errors";
 import {
   assertPublishedListing,
@@ -43,6 +44,7 @@ import {
   marketplaceActionError,
   repairMarketplaceJournal,
 } from "@/lib/marketplace/recovery";
+import { getConduitOperator, getListingConduitKey } from "@/lib/marketplace/routing";
 import {
   canAbandonMarketplaceSignature,
   canAcceptMarketplaceSignature,
@@ -466,13 +468,18 @@ export function useMarketplaceActions() {
           return;
         }
       }
+      const approvalOperator = getListingApprovalOperator(
+        saved.transactionIntent,
+        owner,
+        saved.tokenId,
+      );
       if (
         saved.kind === "list" &&
         saved.txStep === "approval" &&
         saved.txHash &&
         !saved.listing &&
-        isListingApprovalIntent(saved.transactionIntent, owner, saved.tokenId) &&
-        (await hasConfirmedMarketplaceApproval(client(), owner, saved.tokenId))
+        approvalOperator &&
+        (await hasConfirmedMarketplaceApproval(client(), owner, saved.tokenId, approvalOperator))
       ) {
         // Preserve the observed hash for audit; it is not proof that its receipt succeeded.
         save(entry, {
@@ -510,13 +517,15 @@ export function useMarketplaceActions() {
           return;
         }
         if (saved.txStep === "approval") {
-          const approved = await client().readContract({
-            address: DAO_ADDRESSES.token,
-            abi: erc721Abi,
-            functionName: "getApproved",
-            args: [BigInt(saved.tokenId)],
-          });
-          if (!isAddressEqual(approved, SEAPORT_ADDRESS))
+          if (
+            !approvalOperator ||
+            !(await hasConfirmedMarketplaceApproval(
+              client(),
+              owner,
+              saved.tokenId,
+              approvalOperator,
+            ))
+          )
             throw new Error("NFT approval is not confirmed");
           saved = {
             ...saved,
@@ -688,7 +697,11 @@ export function useMarketplaceActions() {
         throw new Error("Review OpenSea fees before listing");
       if (fixed.expectedRoyaltyWei !== undefined && fixed.expectedRoyaltyWei !== amounts.royaltyWei)
         throw new Error("The collection royalty changed; review the price again");
-      if (!(await hasConfirmedMarketplaceApproval(client(), owner, saved.tokenId))) {
+      const conduitKey = getListingConduitKey(source);
+      const approvalOperator = getConduitOperator(conduitKey);
+      if (
+        !(await hasConfirmedMarketplaceApproval(client(), owner, saved.tokenId, approvalOperator))
+      ) {
         await broadcast(
           entry,
           owner,
@@ -697,7 +710,7 @@ export function useMarketplaceActions() {
             data: encodeFunctionData({
               abi: erc721Abi,
               functionName: "approve",
-              args: [SEAPORT_ADDRESS, BigInt(saved.tokenId)],
+              args: [approvalOperator, BigInt(saved.tokenId)],
             }),
             value: 0n,
           },
@@ -743,8 +756,8 @@ export function useMarketplaceActions() {
         startTime: String(now - 30),
         endTime: String(now + fixed.durationDays * 86400),
         zoneHash: zeroHash,
-        salt: BigInt(`0x${crypto.randomUUID().replaceAll("-", "")}`).toString(),
-        conduitKey: zeroHash,
+        salt: generateMarketplaceSalt(),
+        conduitKey,
         counter: counter.toString(),
       };
       validateListingStructure({ parameters, signature: "0x00" }, { source });

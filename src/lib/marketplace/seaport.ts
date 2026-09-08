@@ -17,8 +17,9 @@ import {
 import { entryPoint06Abi } from "viem/account-abstraction";
 import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { getConduitOperator, OPENSEA_CONDUIT_KEY, SEAPORT_ADDRESS } from "./routing";
 
-export const SEAPORT_ADDRESS = "0x0000000000000068F116a894984e2DB1123eB395" as const;
+export { SEAPORT_ADDRESS } from "./routing";
 type SignatureAttempt = {
   id: string;
   kind: string;
@@ -259,7 +260,8 @@ export function validateListingStructure(
   if (
     !isAddressEqual(p.zone, zeroAddress) ||
     p.zoneHash !== zeroHash ||
-    p.conduitKey !== zeroHash ||
+    (p.conduitKey !== zeroHash &&
+      !(options.source === "opensea" && p.conduitKey.toLowerCase() === OPENSEA_CONDUIT_KEY)) ||
     isAddressEqual(p.offerer, zeroAddress)
   )
     throw new Error("Unsupported Seaport routing");
@@ -392,13 +394,14 @@ export async function getListingStatus(
     functionName: "getApproved",
     args: [tokenId],
   });
+  const operator = getConduitOperator(p.conduitKey);
   if (
-    !isAddressEqual(approved, SEAPORT_ADDRESS) &&
+    !isAddressEqual(approved, operator) &&
     !(await client.readContract({
       address: DAO_ADDRESSES.token,
       abi: erc721Abi,
       functionName: "isApprovedForAll",
-      args: [p.offerer, SEAPORT_ADDRESS],
+      args: [p.offerer, operator],
     }))
   )
     return "unapproved";

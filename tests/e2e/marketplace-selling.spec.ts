@@ -5,11 +5,14 @@ import {
   encodeFunctionResult,
   erc721Abi,
   recoverTypedDataAddress,
+  stringToHex,
+  toHex,
   zeroAddress,
   zeroHash,
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { BUILDER_CODE_SUFFIX, DAO_ADDRESSES } from "../../src/lib/config";
+import { BUILDER_CODE, BUILDER_CODE_SUFFIX, DAO_ADDRESSES } from "../../src/lib/config";
+import { OPENSEA_CONDUIT_ADDRESS, OPENSEA_CONDUIT_KEY } from "../../src/lib/marketplace/routing";
 import {
   getListingCancellation,
   getListingFulfillment,
@@ -30,8 +33,11 @@ async function setupWallet(
   options: {
     retryPublication?: boolean;
     restorePendingApproval?: boolean;
+    legacyApproval?: boolean;
+    legacySignedListing?: boolean;
     confirmTransactions?: boolean;
     requireApproval?: boolean;
+    staleApprovalAfterBroadcast?: boolean;
     rejectCancellation?: boolean;
     buying?: boolean;
     missingCancelReceipt?: boolean;
@@ -50,12 +56,14 @@ async function setupWallet(
   const journalKey = `gnars:marketplace:v1:8453:${account.address.toLowerCase()}`;
   let listed: SignedListing | undefined;
   let approved = !options.requireApproval;
+  let staleApprovalReads = 0;
+  let approvedOperator = options.legacyApproval ? SEAPORT_ADDRESS : OPENSEA_CONDUIT_ADDRESS;
   let cancelled = false;
   let filled = false;
   let nftOwner = account.address;
   const receipts = new Map<string, Record<string, unknown>>();
   const sentTransactions = new Map<string, Record<string, unknown>>();
-  if (options.buying || options.restoreCancelled) {
+  if (options.buying || options.restoreCancelled || options.legacySignedListing) {
     const seller = options.buying ? privateKeyToAccount(generatePrivateKey()) : account;
     nftOwner = seller.address;
     const parameters: SignedListing["parameters"] = {
@@ -101,6 +109,23 @@ async function setupWallet(
 
   if (options.corruptJournal)
     await page.addInitScript((key) => localStorage.setItem(key, "{broken saved order"), journalKey);
+  if (options.legacySignedListing && listed) {
+    await page.addInitScript(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), {
+      key: journalKey,
+      value: {
+        version: 1,
+        account: account.address,
+        id: "legacy-zero-conduit-order",
+        kind: "list",
+        phase: "saving",
+        tokenId: "42",
+        listing: listed,
+        signatureRequestSettled: true,
+        input: { tokenId: "42", source: "opensea", priceEth: "0.01", durationDays: 7 },
+        error: { code: "OPENSEA_CONDUIT_INVALID", retryable: false },
+      },
+    });
+  }
   if (options.restoreCancelled && listed) {
     cancelled = true;
     const call = getListingCancellation(listed, { source: "opensea" });
@@ -161,7 +186,7 @@ async function setupWallet(
           data: encodeFunctionData({
             abi: erc721Abi,
             functionName: "approve",
-            args: [SEAPORT_ADDRESS, 42n],
+            args: [approvedOperator, 42n],
           }),
         },
       },
@@ -196,8 +221,11 @@ async function setupWallet(
       if (tx.to.toLowerCase() === DAO_ADDRESSES.token.toLowerCase()) {
         const decoded = decodeFunctionData({ abi: erc721Abi, data: tx.data });
         expect(decoded.functionName).toBe("approve");
-        expect(decoded.args).toEqual([SEAPORT_ADDRESS, 42n]);
+        expect(String(decoded.args?.[0]).toLowerCase()).toBe(OPENSEA_CONDUIT_ADDRESS);
+        expect(decoded.args?.[1]).toBe(42n);
         approved = true;
+        approvedOperator = OPENSEA_CONDUIT_ADDRESS;
+        staleApprovalReads = options.staleApprovalAfterBroadcast ? 1 : 0;
       } else {
         expect(tx.to.toLowerCase()).toBe(SEAPORT_ADDRESS.toLowerCase());
         const decoded = decodeFunctionData({ abi: seaportAbi, data: tx.data });
@@ -305,19 +333,24 @@ async function setupWallet(
             functionName: "ownerOf",
             result: nftOwner,
           });
-        if (decoded.functionName === "getApproved")
+        if (decoded.functionName === "getApproved") {
+          const stale = staleApprovalReads > 0;
+          if (stale) staleApprovalReads--;
           return encodeFunctionResult({
             abi: erc721Abi,
             functionName: "getApproved",
-            result: approved ? SEAPORT_ADDRESS : zeroAddress,
+            result: approved && !stale ? approvedOperator : zeroAddress,
           });
+        }
         if (decoded.functionName === "balanceOf")
           return encodeFunctionResult({ abi: erc721Abi, functionName: "balanceOf", result: 0n });
         if (decoded.functionName === "isApprovedForAll")
           return encodeFunctionResult({
             abi: erc721Abi,
             functionName: "isApprovedForAll",
-            result: !options.requireApproval,
+            result:
+              !options.requireApproval &&
+              decoded.args[1].toLowerCase() === approvedOperator.toLowerCase(),
           });
       } catch {
         /* Other contract ABIs are handled below. */
@@ -465,6 +498,12 @@ async function setupWallet(
         const listing = validateListingStructure(request.postDataJSON().listing, {
           source: "opensea",
         });
+        expect(listing.parameters.conduitKey).toBe(OPENSEA_CONDUIT_KEY);
+        expect(
+          toHex(BigInt(listing.parameters.salt), { size: 32 }).startsWith(
+            stringToHex(BUILDER_CODE),
+          ),
+        ).toBe(true);
         expect(
           (
             await recoverTypedDataAddress({
@@ -648,7 +687,11 @@ for (const mobile of [false, true]) {
 
 test("NFT approval confirms before signing and publishing", async ({ page }) => {
   test.setTimeout(90000);
-  const wallet = await setupWallet(page, { confirmTransactions: true, requireApproval: true });
+  const wallet = await setupWallet(page, {
+    confirmTransactions: true,
+    requireApproval: true,
+    staleApprovalAfterBroadcast: true,
+  });
   const drawer = await connectAndOpen(page);
   await drawer.getByRole("button", { name: "Revisar e assinar anúncio", exact: true }).click();
   await expect(drawer.getByRole("button", { name: "Concluído", exact: true })).toBeVisible({
@@ -817,4 +860,48 @@ test("pending NFT approval recovers from confirmed state without another approva
       page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).phase, wallet.journalKey),
     )
     .toBe("complete");
+});
+
+test("legacy Seaport approval recovers then requires exact OpenSea conduit approval before signing", async ({
+  page,
+}) => {
+  const wallet = await setupWallet(page, {
+    restorePendingApproval: true,
+    legacyApproval: true,
+    confirmTransactions: true,
+  });
+  const drawer = await connectAndInspect(page);
+  await drawer.getByRole("button", { name: "Verificar transação", exact: true }).click();
+  const resume = drawer.getByRole("button", { name: "Continuar anúncio", exact: true });
+  await expect(resume).toBeVisible();
+  expect(wallet.signedRequests).toHaveLength(0);
+  expect(wallet.transactions).toHaveLength(0);
+  await resume.click();
+  await expect.poll(() => wallet.publications.length).toBe(1);
+  expect(wallet.transactions).toHaveLength(1);
+  expect(wallet.signedRequests).toHaveLength(1);
+  expect(wallet.publications[0].parameters.conduitKey).toBe(OPENSEA_CONDUIT_KEY);
+});
+
+test("legacy rejected zero-conduit signature is cancelled unchanged with the builder suffix", async ({
+  page,
+}) => {
+  const wallet = await setupWallet(page, { legacySignedListing: true, confirmTransactions: true });
+  const drawer = await connectAndInspect(page);
+  const before = await page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key)!).listing,
+    wallet.journalKey,
+  );
+  expect(before.parameters.conduitKey).toBe(zeroHash);
+  await drawer.getByRole("button", { name: "Cancelar ordem assinada", exact: true }).click();
+  await drawer.getByRole("button", { name: "Confirmar cancelamento", exact: true }).click();
+  await expect.poll(() => wallet.state().cancelled).toBe(true);
+  const after = await page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key)!).listing,
+    wallet.journalKey,
+  );
+  expect(after).toEqual(before);
+  expect(wallet.transactions).toHaveLength(1);
+  expect(wallet.signedRequests).toHaveLength(0);
+  expect(wallet.publications).toHaveLength(0);
 });

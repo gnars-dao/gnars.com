@@ -12,6 +12,7 @@ import { entryPoint06Abi } from "viem/account-abstraction";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { OPENSEA_CONDUIT_ADDRESS, OPENSEA_CONDUIT_KEY } from "./routing";
 import {
   canAbandonMarketplaceSignature,
   canAcceptMarketplaceSignature,
@@ -423,6 +424,36 @@ describe("canonical Gnars Seaport orders", () => {
     if (field === "zone") order.parameters.zone = royaltyRecipient;
     if (field === "conduit") order.parameters.conduitKey = `0x${"11".repeat(32)}`;
     expect(() => validateListingStructure(order, { source: "opensea" })).toThrow();
+  });
+  it("uses the signed OpenSea conduit operator rather than direct Seaport approval", async () => {
+    const order = listing();
+    order.parameters.conduitKey = OPENSEA_CONDUIT_KEY;
+    expect(() => validateListingStructure(order)).toThrow("Unsupported Seaport routing");
+    expect(validateListingStructure(order, { source: "opensea" })).toEqual(order);
+    expect(await getListingStatus(client(order), order, { source: "opensea" })).toBe("unapproved");
+    const reader = client(order, { getApproved: OPENSEA_CONDUIT_ADDRESS });
+    order.signature = await account.signTypedData(getListingTypedData(order.parameters));
+    await expect(validateListingOnchain(reader, order, { source: "opensea" })).resolves.toEqual({
+      orderHash: getListingOrderHash(order.parameters),
+    });
+    const globallyApproved = client(order, { getApproved: zeroAddress, isApprovedForAll: true });
+    expect(await getListingStatus(globallyApproved, order, { source: "opensea" })).toBe("active");
+    expect(globallyApproved.readContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        functionName: "isApprovedForAll",
+        args: [account.address, OPENSEA_CONDUIT_ADDRESS],
+      }),
+    );
+  });
+  it.each([zeroHash, OPENSEA_CONDUIT_KEY])("preserves signed routing when cancelling %s", (key) => {
+    const order = listing();
+    order.parameters.conduitKey = key;
+    const transaction = getListingCancellation(order, { source: "opensea" });
+    const decoded = decodeFunctionData({ abi: seaportAbi, data: transaction.data });
+    expect(decoded.functionName).toBe("cancel");
+    if (decoded.functionName !== "cancel") throw new Error("Unexpected cancellation");
+    expect(decoded.args[0][0].conduitKey).toBe(key);
+    expect(getListingOrderHash(order.parameters)).not.toBe(zeroHash);
   });
   it.each([
     ["counter", { getCounter: 1n }],
