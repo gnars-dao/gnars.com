@@ -1,9 +1,5 @@
-import {
-  enforceRateLimit,
-  readJsonBody,
-  requestSecurityResponse,
-} from "@/lib/server/request-security";
-import { parseMarketplaceInput } from "@/services/marketplace-common";
+import { enforceRateLimit, readJsonBody } from "@/lib/server/request-security";
+import { marketplaceErrorResponse, parseMarketplaceInput } from "@/services/marketplace-common";
 import {
   marketplaceFulfillmentSchema,
   prepareMarketplaceFulfillment,
@@ -27,6 +23,6 @@ export async function POST(request: Request) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

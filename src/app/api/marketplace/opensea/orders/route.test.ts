@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RequestSecurityError } from "@/lib/server/request-security";
+import { MarketplaceServiceError } from "@/services/marketplace-common";
 import { POST } from "./route";
 
 const mocks = vi.hoisted(() => ({ publish: vi.fn(), invalidate: vi.fn() }));
@@ -17,6 +18,22 @@ function request(body: unknown) {
 }
 
 describe("OpenSea posting request boundaries", () => {
+  it("returns typed non-retryable diagnostics and a correlation ID without raw provider data", async () => {
+    mocks.publish.mockRejectedValueOnce(
+      new MarketplaceServiceError(422, "Order rejected.", "OPENSEA_ORDER_REJECTED", false),
+    );
+    const response = await POST(request({ listing: {} }));
+    const body = await response.json();
+    expect(response.status).toBe(422);
+    expect(body).toMatchObject({
+      error: "Order rejected.",
+      code: "OPENSEA_ORDER_REJECTED",
+      retryable: false,
+      requestId: expect.any(String),
+    });
+    expect(response.headers.get("x-request-id")).toBe(body.requestId);
+    expect(mocks.invalidate).not.toHaveBeenCalled();
+  });
   it("rejects oversized and extra-field requests before provider work", async () => {
     expect((await POST(request({ listing: "x".repeat(25000) }))).status).toBe(413);
     expect((await POST(request({ listing: {}, url: "https://attacker.example" }))).status).toBe(

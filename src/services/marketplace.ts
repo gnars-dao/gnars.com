@@ -12,8 +12,10 @@ import {
   marketplaceUintSchema,
 } from "@/services/marketplace-common";
 import {
+  getOpenSeaOwnerListings,
   getOpenSeaTokenListing,
   listOpenSeaMarketplace,
+  listOpenSeaOwnerMarketplace,
   marketplaceOpenSeaConfigured,
 } from "@/services/marketplace-opensea";
 import {
@@ -27,22 +29,25 @@ import type {
   MarketplacePage,
 } from "@/types/marketplace";
 
-export type MarketplaceView = "listings" | "catalogue" | "owned";
+export type MarketplaceView = "listings" | "catalogue" | "owned" | "selling";
 const cursorSchema = z
   .object({
-    view: z.enum(["listings", "catalogue", "owned"]),
+    view: z.enum(["listings", "catalogue", "owned", "selling"]),
+    owner: z.string().optional(),
     opensea: z.string().max(1024).nullable().optional(),
     gnars: marketplaceUintSchema.nullable().optional(),
     catalogue: marketplaceUintSchema.optional(),
   })
   .strict();
 
-function decodeCursor(raw: string | undefined, view: MarketplaceView) {
+function decodeCursor(raw: string | undefined, view: MarketplaceView, owner?: Address) {
   if (!raw) return { view };
   try {
     if (raw.length > 2048) throw new Error("Cursor too long");
     const cursor = cursorSchema.parse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
     if (cursor.view !== view) throw new Error("Cursor view mismatch");
+    if (view === "selling" && cursor.owner !== owner?.toLowerCase())
+      throw new Error("Cursor owner mismatch");
     return cursor;
   } catch {
     throw new RequestSecurityError(400, "Invalid marketplace cursor.");
@@ -89,9 +94,9 @@ export async function loadMarketplacePage({
   owner?: Address;
   cursor?: string;
 }): Promise<MarketplacePage> {
-  if (view === "owned" && !owner)
+  if ((view === "owned" || view === "selling") && !owner)
     throw new RequestSecurityError(400, "Wallet address is required.");
-  const cursor = decodeCursor(rawCursor, view);
+  const cursor = decodeCursor(rawCursor, view, owner);
   const readiness = await getMarketplaceReadiness();
   const sources: MarketplacePage["sources"] = {
     catalogue: { available: true },
@@ -100,7 +105,7 @@ export async function loadMarketplacePage({
   let items: MarketplaceItem[] = [];
   let nextCursor: string | null = null;
 
-  if (view !== "listings") {
+  if (view === "catalogue" || view === "owned") {
     try {
       const catalogue = await getMarketplaceCatalogue(
         view === "owned" ? owner : undefined,
@@ -115,27 +120,46 @@ export async function loadMarketplacePage({
     }
     if (sources.gnars.available && items.length > 0) {
       try {
-        const { offers } = await cachedLocalOrders(
+        const { offers, partial } = await cachedLocalOrders(
           undefined,
           items.map((item) => item.tokenId),
         );
         for (const row of offers)
           items.find((item) => item.tokenId === row.tokenId)?.offers.push(row.offer);
+        if (partial) sources.gnars.partial = true;
       } catch {
         sources.gnars = { available: false, error: "unavailable" };
+      }
+    }
+    if (sources.opensea.available && items.length > 0 && view === "owned" && owner) {
+      try {
+        const external = await getOpenSeaOwnerListings(owner);
+        for (const row of external.offers)
+          items.find((item) => item.tokenId === row.tokenId)?.offers.push(row.offer);
+        if (external.partial) sources.opensea.partial = true;
+      } catch {
+        sources.opensea = { available: false, error: "unavailable" };
       }
     }
   } else {
     const external =
       sources.opensea.available && cursor.opensea !== null
-        ? await listOpenSeaMarketplace(cursor.opensea).catch(() => {
+        ? await (
+            view === "selling" && owner
+              ? listOpenSeaOwnerMarketplace(owner, cursor.opensea)
+              : listOpenSeaMarketplace(cursor.opensea)
+          ).catch(() => {
             sources.opensea = { available: false, error: "unavailable" };
             return null;
           })
         : null;
     const local =
       sources.gnars.available && cursor.gnars !== null
-        ? await cachedLocalOrders(cursor.gnars).catch(() => {
+        ? await (
+            view === "selling"
+              ? cachedLocalOrders(cursor.gnars, undefined, owner)
+              : cachedLocalOrders(cursor.gnars)
+          ).catch(() => {
             sources.gnars = { available: false, error: "unavailable" };
             return null;
           })
@@ -143,6 +167,8 @@ export async function loadMarketplacePage({
     const offers = [...(local?.offers ?? []), ...(external?.offers ?? [])].filter(
       (row) => row.offer.expiresAt > Date.now() / 1000,
     );
+    if (external?.partial) sources.opensea.partial = true;
+    if (local?.partial) sources.gnars.partial = true;
     const tokens = [...new Set(offers.map((row) => row.tokenId))];
     try {
       items = await getMarketplaceMetadata(tokens);
@@ -161,12 +187,16 @@ export async function loadMarketplacePage({
         });
       byId.get(row.tokenId)!.offers.push(row.offer);
     }
-    items = [...byId.values()];
+    // The indexer orders metadata by token ID; preserve the orderbook's ordering.
+    items = tokens.map((tokenId) => byId.get(tokenId)!);
     if (external?.nextCursor || local?.nextCursor)
       nextCursor = encodeCursor({
         view,
-        opensea: external?.nextCursor ?? null,
-        gnars: local?.nextCursor ?? null,
+        ...(view === "selling" ? { owner: owner!.toLowerCase() } : {}),
+        // A failed source is not exhausted. Preserve its input cursor for recovery.
+        opensea:
+          sources.opensea.error === "unavailable" ? cursor.opensea : (external?.nextCursor ?? null),
+        gnars: sources.gnars.error === "unavailable" ? cursor.gnars : (local?.nextCursor ?? null),
       });
   }
 
@@ -177,8 +207,8 @@ export async function loadMarketplacePage({
     sources,
     capabilities: {
       openseaBuy: readiness.capabilities.openseaBuy && !unavailable(sources.opensea),
-      openseaSell: readiness.capabilities.openseaSell && !unavailable(sources.opensea),
-      openseaCancel: readiness.capabilities.openseaCancel && !unavailable(sources.opensea),
+      openseaSell: readiness.capabilities.openseaSell,
+      openseaCancel: readiness.capabilities.openseaCancel,
       localTrading: readiness.capabilities.localTrading && !unavailable(sources.gnars),
     },
   };
@@ -190,7 +220,10 @@ export async function loadMarketplaceToken(tokenId: string): Promise<Marketplace
     catalogue: { available: true },
     ...readiness.sources,
   };
-  const metadata = await getMarketplaceMetadata([tokenId]);
+  const metadata = await getMarketplaceMetadata([tokenId]).catch(() => {
+    sources.catalogue = { available: false, error: "unavailable" };
+    return [];
+  });
   const owner = await marketplaceClient.readContract({
     address: DAO_ADDRESSES.token,
     abi: erc721Abi,
@@ -217,20 +250,22 @@ export async function loadMarketplaceToken(tokenId: string): Promise<Marketplace
   }
   if (sources.gnars.available) {
     try {
-      const { offers } = await cachedLocalOrders(undefined, [tokenId]);
+      const { offers, partial } = await cachedLocalOrders(undefined, [tokenId]);
       item.offers.push(...offers.map((row) => row.offer));
+      if (partial) sources.gnars.partial = true;
     } catch {
       sources.gnars = { available: false, error: "unavailable" };
     }
   }
   return {
     items: [item],
+    ownershipVerified: true,
     nextCursor: null,
     sources,
     capabilities: {
       openseaBuy: readiness.capabilities.openseaBuy && sources.opensea.available,
-      openseaSell: readiness.capabilities.openseaSell && sources.opensea.available,
-      openseaCancel: readiness.capabilities.openseaCancel && sources.opensea.available,
+      openseaSell: readiness.capabilities.openseaSell,
+      openseaCancel: readiness.capabilities.openseaCancel,
       localTrading: readiness.capabilities.localTrading && sources.gnars.available,
     },
   };

@@ -22,14 +22,15 @@ export function canCancelSavedListing(
     listing?: unknown;
     txHash?: unknown;
     transactionIntent?: unknown;
+    transactionFailed?: boolean;
   } | null,
 ): boolean {
   return Boolean(
-    attempt?.kind === "list" &&
-      attempt.phase === "saving" &&
+    attempt &&
+      ((attempt.kind === "list" && attempt.phase === "saving") ||
+        (attempt.kind === "cancel" && attempt.phase === "failed")) &&
       attempt.listing &&
-      !attempt.txHash &&
-      !attempt.transactionIntent,
+      ((!attempt.txHash && !attempt.transactionIntent) || attempt.transactionFailed === true),
   );
 }
 

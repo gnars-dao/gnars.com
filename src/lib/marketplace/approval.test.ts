@@ -64,4 +64,16 @@ describe("confirmed listing approval recovery", () => {
       "RPC unavailable",
     );
   });
+  it("accepts an existing global Seaport approval without requiring another token approval", async () => {
+    const reader = fixture(account, zeroAddress);
+    reader.readContract.mockResolvedValueOnce(true);
+    expect(await hasConfirmedMarketplaceApproval(reader, account, "5423")).toBe(true);
+    expect(reader.readContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        functionName: "isApprovedForAll",
+        args: [account, SEAPORT_ADDRESS],
+        blockNumber: 100n,
+      }),
+    );
+  });
 });

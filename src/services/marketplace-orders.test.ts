@@ -3,6 +3,7 @@ import {
   enforceMarketplaceBudget,
   enforceOpenSeaProviderBudget,
   getMarketplaceOrder,
+  listMarketplaceOrders,
   marketplaceStorageReady,
   reconcileMarketplaceOrder,
   saveMarketplaceOrder,
@@ -16,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   structure: vi.fn(),
   status: vi.fn(),
   hash: vi.fn(),
+  chain: vi.fn(),
+  block: vi.fn(),
+  multicall: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
 vi.mock("pg", () => ({
@@ -25,11 +29,16 @@ vi.mock("pg", () => ({
 }));
 vi.mock("@/lib/marketplace/seaport", () => ({
   SEAPORT_ADDRESS: "0x0000000000000068F116a894984e2DB1123eB395",
+  seaportAbi: [],
   validateListingOnchain: mocks.validate,
   validateListingStructure: mocks.structure,
   getListingStatus: mocks.status,
   getListingOrderHash: mocks.hash,
   getListingPriceWei: () => 100n,
+}));
+vi.mock("@/services/marketplace-common", async (original) => ({
+  ...(await original<typeof import("./marketplace-common")>()),
+  marketplaceClient: { getChainId: mocks.chain, getBlock: mocks.block, multicall: mocks.multicall },
 }));
 
 const hash = `0x${"a".repeat(64)}`;
@@ -46,6 +55,8 @@ beforeEach(() => {
   mocks.hash.mockReturnValue(hash);
   mocks.validate.mockResolvedValue({ orderHash: hash });
   mocks.status.mockResolvedValue("active");
+  mocks.chain.mockResolvedValue(8453);
+  mocks.block.mockResolvedValue({ number: 123n, timestamp: BigInt(Math.floor(Date.now() / 1000)) });
   mocks.query.mockImplementation(async (sql: string) => {
     if (sql.includes("AS writable")) return { rowCount: 1, rows: [{ writable: true }] };
     if (sql.includes("SELECT count(*)")) return { rowCount: 1, rows: [{ count: "0" }] };
@@ -56,6 +67,124 @@ beforeEach(() => {
         rows: [{ id: "1", order_hash: hash, signed_order: listing, status: "active" }],
       };
     return { rowCount: 1, rows: [] };
+  });
+});
+
+describe("batched marketplace catalogue reconciliation", () => {
+  function stored(id: string, options: { fresh?: boolean; tokenId?: string; count?: string } = {}) {
+    return {
+      id,
+      order_hash: hash,
+      status: "active",
+      checked_at: new Date(Date.now() - (options.fresh ? 1000 : 30000)),
+      candidate_count: options.count,
+      signed_order: {
+        ...listing,
+        parameters: {
+          ...listing.parameters,
+          counter: "0",
+          startTime: "1",
+          offer: [{ identifierOrCriteria: options.tokenId ?? id }],
+        },
+      },
+    };
+  }
+  function rows(values: ReturnType<typeof stored>[]) {
+    const original = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, ...args) => {
+      if (
+        sql.includes("ROW_NUMBER()") ||
+        sql.trimStart().startsWith("SELECT id, order_hash, signed_order, status, checked_at")
+      )
+        return { rowCount: values.length, rows: values };
+      return original(sql, ...args);
+    });
+  }
+  function successfulReads() {
+    return [
+      [false, false, 0n, 0n],
+      0n,
+      seller,
+      "0x0000000000000068F116a894984e2DB1123eB395",
+      false,
+    ].map((result) => ({ status: "success", result }));
+  }
+  it("uses one pinned-block batch and one update without re-fetching each SQL row", async () => {
+    rows([stored("1"), stored("2")]);
+    mocks.multicall.mockResolvedValueOnce([...successfulReads(), ...successfulReads()]);
+    const result = await listMarketplaceOrders();
+    expect(result.offers).toHaveLength(2);
+    expect(result.partial).toBe(false);
+    expect(mocks.multicall).toHaveBeenCalledOnce();
+    expect(mocks.multicall).toHaveBeenCalledWith(
+      expect.objectContaining({ blockNumber: 123n, allowFailure: true }),
+    );
+    expect(mocks.multicall.mock.calls[0][0].contracts).toHaveLength(10);
+    expect(
+      mocks.query.mock.calls.filter(([sql]) => sql.includes("UPDATE marketplace_orders")),
+    ).toHaveLength(1);
+    expect(
+      mocks.query.mock.calls.some(([sql]) =>
+        sql.startsWith("SELECT id, order_hash, signed_order, status FROM"),
+      ),
+    ).toBe(false);
+    expect(mocks.status).not.toHaveBeenCalled();
+  });
+  it("reuses recently checked rows without issuing another RPC or database write", async () => {
+    rows([stored("1", { fresh: true })]);
+    expect((await listMarketplaceOrders()).offers).toHaveLength(1);
+    expect(mocks.multicall).not.toHaveBeenCalled();
+    expect(mocks.block).not.toHaveBeenCalled();
+    expect(mocks.query.mock.calls.some(([sql]) => sql.includes("UPDATE marketplace_orders"))).toBe(
+      false,
+    );
+  });
+  it("filters native selling pages by seller using a bound SQL parameter", async () => {
+    rows([stored("1", { fresh: true })]);
+    await listMarketplaceOrders("99", undefined, seller);
+    const query = mocks.query.mock.calls.find(([sql]) => sql.includes("AND seller ="))!;
+    expect(query[0]).toContain("AND seller = $3");
+    expect(query[1]).toEqual([expect.any(Number), "99", seller]);
+    expect(query[0]).not.toContain(seller);
+  });
+  it("keeps verified rows and marks partial when another NFT ownerOf fails", async () => {
+    rows([stored("1"), stored("2")]);
+    const bad = successfulReads();
+    bad[2] = { status: "failure", result: undefined } as never;
+    mocks.multicall.mockResolvedValueOnce([...successfulReads(), ...bad]);
+    const result = await listMarketplaceOrders();
+    expect(result).toMatchObject({ partial: true, offers: [{ tokenId: "1" }] });
+    const update = mocks.query.mock.calls.find(([sql]) =>
+      sql.includes("UPDATE marketplace_orders"),
+    );
+    expect(update?.[1][0]).toHaveLength(1);
+  });
+  it("does not report an empty complete orderbook on a batch RPC failure", async () => {
+    rows([stored("1")]);
+    mocks.multicall.mockRejectedValueOnce(new Error("RPC unavailable"));
+    expect(await listMarketplaceOrders()).toMatchObject({ offers: [], partial: true });
+  });
+  it("budgets candidates per NFT rather than letting one NFT consume the whole grid", async () => {
+    rows([stored("1", { fresh: true, count: "26" }), stored("2", { fresh: true })]);
+    const result = await listMarketplaceOrders(undefined, ["1", "2"]);
+    expect(result).toMatchObject({ partial: true, nextCursor: null });
+    expect(result.offers).toHaveLength(2);
+    const query = mocks.query.mock.calls.find(([sql]) => sql.includes("ROW_NUMBER()"))![0];
+    expect(query).toContain("PARTITION BY token_id");
+    expect(query).not.toContain("LIMIT 24");
+  });
+  it("does not delete or mark invalid rows when persisting a verified snapshot fails", async () => {
+    rows([stored("1")]);
+    const original = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, ...args) => {
+      if (sql.includes("UPDATE marketplace_orders")) throw new Error("DB unavailable");
+      return original(sql, ...args);
+    });
+    mocks.multicall.mockResolvedValueOnce(successfulReads());
+    expect(await listMarketplaceOrders()).toMatchObject({
+      partial: true,
+      offers: [{ tokenId: "1" }],
+    });
   });
 });
 afterEach(() => vi.unstubAllEnvs());

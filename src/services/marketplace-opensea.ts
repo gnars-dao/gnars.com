@@ -26,6 +26,7 @@ import {
   marketplaceAddressSchema,
   marketplaceClient,
   marketplaceHashSchema,
+  MarketplaceServiceError,
   marketplaceUintSchema,
   marketplaceUnavailable,
 } from "@/services/marketplace-common";
@@ -123,13 +124,36 @@ const providerBuckets = {
   posting: { window: -1, count: 0, retryAt: 0 },
 };
 
+/** Only static diagnostic categories leave the server, never provider-supplied text. */
+async function rejectedOpenSeaOrder(response: Response) {
+  const body = await response.json().catch(() => null);
+  const parsed = z.object({ errors: z.array(z.string().max(4000)).max(20) }).safeParse(body);
+  const text = parsed.success ? parsed.data.errors.join(" ").toLowerCase() : "";
+  for (const [pattern, code, message] of [
+    [/conduit/, "OPENSEA_CONDUIT_INVALID", "OpenSea rejected the order's transfer conduit."],
+    [/signature|signer/, "OPENSEA_SIGNATURE_INVALID", "OpenSea rejected the order signature."],
+    [/fee|royalt/, "OPENSEA_FEE_INVALID", "OpenSea rejected the order's fee configuration."],
+    [/zone/, "OPENSEA_ZONE_INVALID", "OpenSea rejected the order's zone configuration."],
+  ] as const) {
+    if (pattern.test(text)) return new MarketplaceServiceError(422, message, code, false);
+  }
+  return new MarketplaceServiceError(
+    422,
+    "OpenSea rejected this signed order. Review the listing before trying again.",
+    "OPENSEA_ORDER_REJECTED",
+    false,
+  );
+}
+
 function reserveLocalRequest(operation: keyof typeof providerBuckets) {
   const now = Date.now();
   const bucket = providerBuckets[operation];
   if (bucket.retryAt > now)
-    throw new RequestSecurityError(
+    throw new MarketplaceServiceError(
       503,
       `OpenSea ${operation} is temporarily unavailable (rate-limit cooldown).`,
+      "OPENSEA_RATE_LIMITED",
+      true,
       Math.ceil((bucket.retryAt - now) / 1000),
     );
   const window = Math.floor(now / 30_000);
@@ -171,7 +195,12 @@ async function fetchOpenSea(
       signal: AbortSignal.timeout(8000),
     });
   } catch {
-    throw marketplaceUnavailable(`OpenSea ${operation} unavailable: network request failed.`);
+    throw new MarketplaceServiceError(
+      503,
+      `OpenSea ${operation} unavailable: network request failed.`,
+      "OPENSEA_UNAVAILABLE",
+      true,
+    );
   }
   if (allowNotFound && response.status === 404) return null;
   // OpenSea's canonical lookup also uses this exact 400 response for absent orders.
@@ -200,25 +229,41 @@ async function fetchOpenSea(
       Math.min(3600, Number.isFinite(seconds) ? Math.ceil(seconds) : 60),
     );
     providerBuckets[operation].retryAt = Date.now() + retryAfter * 1000;
-    throw new RequestSecurityError(
+    throw new MarketplaceServiceError(
       503,
       `OpenSea ${operation} unavailable: provider HTTP 429 (rate limit).`,
+      "OPENSEA_RATE_LIMITED",
+      true,
       retryAfter,
     );
   }
   if (!response.ok) {
+    const error =
+      operation === "posting" && [400, 422].includes(response.status)
+        ? await rejectedOpenSeaOrder(response)
+        : new MarketplaceServiceError(
+            503,
+            `OpenSea ${operation} unavailable: provider HTTP ${response.status}.`,
+            [401, 403].includes(response.status) ? "OPENSEA_AUTH_ERROR" : "OPENSEA_UNAVAILABLE",
+            response.status === 408 || response.status === 409 || response.status >= 500,
+          );
     console.warn("[marketplace-opensea] Provider request failed", {
       operation,
       status: response.status,
+      requestId: error.requestId,
+      code: error.code,
     });
-    throw marketplaceUnavailable(
-      `OpenSea ${operation} unavailable: provider HTTP ${response.status}.`,
-    );
+    throw error;
   }
   try {
     return parseOpenSeaJson(await response.text());
   } catch {
-    throw marketplaceUnavailable(`OpenSea ${operation} unavailable: invalid JSON response.`);
+    throw new MarketplaceServiceError(
+      503,
+      `OpenSea ${operation} unavailable: invalid JSON response.`,
+      "OPENSEA_INVALID_RESPONSE",
+      true,
+    );
   }
 }
 
@@ -294,24 +339,85 @@ export function normalizeOpenSeaListing(
   };
 }
 
+function parseOpenSeaPage(raw: unknown) {
+  const response = z
+    .object({
+      listings: z.array(z.unknown()).max(200),
+      next: z.string().max(1024).nullish(),
+    })
+    .safeParse(raw);
+  if (!response.success) throw marketplaceUnavailable("OpenSea returned an invalid page.");
+  const offers: Array<{ tokenId: string; offer: MarketplaceOffer }> = [];
+  let partial = false;
+  for (const rawListing of response.data.listings) {
+    try {
+      const listing = normalizeOpenSeaListing(rawListing);
+      if (listing) offers.push(listing);
+      else if (
+        z.object({ status: z.literal("ACTIVE"), chain: z.literal("base") }).safeParse(rawListing)
+          .success
+      ) {
+        // An unsupported active order is not evidence that the NFT is unlisted.
+        partial = true;
+      }
+    } catch {
+      partial = true;
+    }
+  }
+  return { offers, nextCursor: response.data.next || null, partial };
+}
+
 export const listOpenSeaMarketplace = unstable_cache(
   async (cursor?: string) => {
-    const parameters = new URLSearchParams({ limit: String(MARKETPLACE_PAGE_SIZE) });
-    if (cursor) parameters.set("next", cursor);
-    const raw = await openSeaRequest(`listings/collection/gnars-dao/all?${parameters}`);
-    const response = z
-      .object({
-        listings: z.array(z.unknown()).max(MARKETPLACE_PAGE_SIZE),
-        next: z.string().max(1024).nullish(),
-      })
-      .safeParse(raw);
-    if (!response.success) throw marketplaceUnavailable("OpenSea returned an invalid page.");
-    const offers = response.data.listings
-      .map(normalizeOpenSeaListing)
-      .filter((row) => row !== null);
-    return { offers, nextCursor: response.data.next || null };
+    const byToken = new Map<string, { tokenId: string; offer: MarketplaceOffer }>();
+    let nextCursor: string | null = cursor ?? null;
+    let partial = false;
+    // The best feed is price-ascending, but may include several orders for one NFT.
+    // Bound provider work while filling a page without dropping unconsumed orders.
+    for (let pageIndex = 0; pageIndex < 3; pageIndex++) {
+      const parameters = new URLSearchParams({
+        limit: String(MARKETPLACE_PAGE_SIZE - byToken.size),
+      });
+      if (nextCursor) parameters.set("next", nextCursor);
+      let page: ReturnType<typeof parseOpenSeaPage>;
+      try {
+        page = parseOpenSeaPage(
+          await openSeaRequest(`listings/collection/gnars-dao/best?${parameters}`),
+        );
+      } catch (error) {
+        if (pageIndex === 0) throw error;
+        partial = true;
+        break;
+      }
+      partial ||= page.partial;
+      for (const row of page.offers) {
+        const existing = byToken.get(row.tokenId);
+        if (!existing || BigInt(row.offer.priceWei) < BigInt(existing.offer.priceWei))
+          byToken.set(row.tokenId, row);
+      }
+      const previous = nextCursor;
+      nextCursor = page.nextCursor;
+      if (!nextCursor || nextCursor === previous || byToken.size >= MARKETPLACE_PAGE_SIZE) break;
+    }
+    return { offers: [...byToken.values()], nextCursor, partial };
   },
-  ["marketplace-opensea-v1"],
+  ["marketplace-opensea-best-v2"],
+  { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG] },
+);
+
+/** One owner-filtered request enriches all inventory cards, without per-NFT API calls. */
+export const getOpenSeaOwnerListings = unstable_cache(
+  async (owner: Address) => {
+    const parameters = new URLSearchParams({ maker: owner.toLowerCase(), limit: "200" });
+    const page = parseOpenSeaPage(
+      await openSeaRequest(`listings/collection/gnars-dao/all?${parameters}`),
+    );
+    return {
+      offers: page.offers.filter((row) => row.offer.seller.toLowerCase() === owner.toLowerCase()),
+      partial: page.partial || page.nextCursor !== null,
+    };
+  },
+  ["marketplace-opensea-owner-v1"],
   { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG] },
 );
 
@@ -326,6 +432,25 @@ export async function getOpenSeaMarketplaceOrder(orderHash: string) {
   }
   return order;
 }
+
+export const listOpenSeaOwnerMarketplace = unstable_cache(
+  async (owner: Address, cursor?: string) => {
+    const parameters = new URLSearchParams({
+      maker: owner.toLowerCase(),
+      limit: String(MARKETPLACE_PAGE_SIZE),
+    });
+    if (cursor) parameters.set("next", cursor);
+    const page = parseOpenSeaPage(
+      await openSeaRequest(`listings/collection/gnars-dao/all?${parameters}`),
+    );
+    return {
+      ...page,
+      offers: page.offers.filter((row) => row.offer.seller.toLowerCase() === owner.toLowerCase()),
+    };
+  },
+  ["marketplace-opensea-owner-page-v1"],
+  { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG] },
+);
 
 export const getOpenSeaTokenListing = unstable_cache(
   async (tokenId: string) => {
@@ -437,10 +562,48 @@ export async function publishOpenSeaListing(raw: unknown): Promise<MarketplaceOf
     throw new RequestSecurityError(400, "Invalid OpenSea listing.");
   }
   if (!marketplaceOpenSeaConfigured()) throw marketplaceUnavailable("OpenSea is not configured.");
-  await validateListingOnchain(marketplaceClient, listing, {
-    source: "opensea",
-    requireApproval: true,
-  });
+  try {
+    await validateListingOnchain(marketplaceClient, listing, {
+      source: "opensea",
+      requireApproval: true,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      ["Invalid owner signature", "Smart account does not support this Seaport signature"].includes(
+        error.message,
+      )
+    ) {
+      throw new MarketplaceServiceError(
+        422,
+        "The saved order's signature could not be verified for this wallet.",
+        "OPENSEA_SIGNATURE_INVALID",
+        false,
+      );
+    }
+    if (error instanceof Error && error.message === "Seaport order hash mismatch") {
+      throw new MarketplaceServiceError(
+        422,
+        "The signed order could not be verified against Seaport.",
+        "OPENSEA_ORDER_REJECTED",
+        false,
+      );
+    }
+    if (
+      error instanceof Error &&
+      /^Listing is (cancelled|filled|expired|invalid-owner|invalid-counter|unapproved)$/.test(
+        error.message,
+      )
+    ) {
+      throw new MarketplaceServiceError(
+        409,
+        "This signed listing is no longer valid onchain. Verify its status before starting another listing.",
+        "ORDER_NO_LONGER_VALID",
+        false,
+      );
+    }
+    throw error;
+  }
   const hash = getListingOrderHash(listing.parameters);
   // A response can be lost after acceptance. Only the identical verified order makes a retry succeed.
   const existing = await readOpenSeaRawOrder(hash, true);
@@ -451,9 +614,14 @@ export async function publishOpenSeaListing(raw: unknown): Promise<MarketplaceOf
     validateOpenSeaListingFees(listing, quote);
   } catch {
     revalidateTag(OPENSEA_FEES_CACHE_TAG, { expire: 0 });
-    throw new RequestSecurityError(409, "OpenSea fees changed. Review and sign the listing again.");
+    throw new MarketplaceServiceError(
+      409,
+      "OpenSea fees changed. Cancel the saved signed order before reviewing a new listing.",
+      "OPENSEA_FEES_CHANGED",
+      false,
+    );
   }
-  await fetchOpenSea(
+  const accepted = await fetchOpenSea(
     "orders/base/seaport/listings",
     {
       parameters: {
@@ -466,9 +634,18 @@ export async function publishOpenSeaListing(raw: unknown): Promise<MarketplaceOf
     false,
     "posting",
   );
+  // Since May 2026 OpenSea returns the accepted Listing directly. Validate this
+  // response before an unnecessary lookup that may lag the posting endpoint.
+  if (orderSchema.safeParse(accepted).success)
+    return verifyPublishedOpenSeaOrder(accepted, listing);
   const published = await readOpenSeaRawOrder(hash, true);
   if (!published)
-    throw marketplaceUnavailable("OpenSea publication has not been confirmed. Retry this listing.");
+    throw new MarketplaceServiceError(
+      503,
+      "OpenSea publication has not been confirmed. Retry this listing.",
+      "PUBLICATION_UNCONFIRMED",
+      true,
+    );
   return verifyPublishedOpenSeaOrder(published, listing);
 }
 

@@ -4,11 +4,12 @@ import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { encodeOpenSeaFulfillment } from "@/lib/marketplace/opensea-fulfillment";
 import { getListingFulfillment, validateListingOnchain } from "@/lib/marketplace/seaport";
-import { RequestSecurityError } from "@/lib/server/request-security";
 import {
   marketplaceAddressSchema,
   marketplaceClient,
   marketplaceHashSchema,
+  MarketplaceServiceError,
+  marketplaceSimulationError,
   marketplaceUintSchema,
 } from "@/services/marketplace-common";
 import {
@@ -38,13 +39,20 @@ export async function prepareMarketplaceFulfillment(
       order.offer.priceWei !== input.expectedPriceWei ||
       order.offer.orderHash.toLowerCase() !== input.orderHash.toLowerCase()
     ) {
-      throw new RequestSecurityError(
+      throw new MarketplaceServiceError(
         409,
         "The OpenSea listing changed. Refresh before purchasing.",
+        "ORDER_CHANGED",
+        false,
       );
     }
     if (order.offer.seller.toLowerCase() === input.buyer.toLowerCase())
-      throw new RequestSecurityError(400, "You already own this NFT.");
+      throw new MarketplaceServiceError(
+        409,
+        "You already own this NFT.",
+        "ORDER_ALREADY_OWNED",
+        false,
+      );
     const owner = await marketplaceClient.readContract({
       address: DAO_ADDRESSES.token,
       abi: erc721Abi,
@@ -52,18 +60,37 @@ export async function prepareMarketplaceFulfillment(
       args: [BigInt(input.tokenId)],
     });
     if (owner.toLowerCase() !== order.offer.seller.toLowerCase())
-      throw new RequestSecurityError(409, "The seller no longer owns this NFT.");
+      throw new MarketplaceServiceError(
+        409,
+        "The seller no longer owns this NFT.",
+        "ORDER_CHANGED",
+        false,
+      );
     const raw = await requestOpenSeaFulfillment(
       input.orderHash,
       input.tokenId,
       input.buyer as Address,
     );
-    const transaction = encodeOpenSeaFulfillment(raw, {
-      offer: order.offer,
-      tokenId: input.tokenId,
-      buyer: input.buyer as Address,
-    });
-    await marketplaceClient.call({ account: input.buyer as Address, ...transaction });
+    let transaction: ReturnType<typeof encodeOpenSeaFulfillment>;
+    try {
+      transaction = encodeOpenSeaFulfillment(raw, {
+        offer: order.offer,
+        tokenId: input.tokenId,
+        buyer: input.buyer as Address,
+      });
+    } catch {
+      throw new MarketplaceServiceError(
+        502,
+        "The provider returned an unsupported or inconsistent transaction.",
+        "INVALID_FULFILLMENT",
+        false,
+      );
+    }
+    await marketplaceClient
+      .call({ account: input.buyer as Address, ...transaction })
+      .catch((error: unknown) => {
+        throw marketplaceSimulationError(error);
+      });
     return {
       offer: order.offer,
       transaction: { chainId: 8453, ...transaction, value: transaction.value.toString() },
@@ -75,16 +102,51 @@ export async function prepareMarketplaceFulfillment(
     listing.parameters.offer[0].identifierOrCriteria !== input.tokenId ||
     offer.orderHash.toLowerCase() !== input.orderHash.toLowerCase()
   ) {
-    throw new RequestSecurityError(409, "The listing does not match the selected NFT.");
+    throw new MarketplaceServiceError(
+      409,
+      "The listing does not match the selected NFT.",
+      "ORDER_CHANGED",
+      false,
+    );
   }
   if (offer.priceWei !== input.expectedPriceWei)
-    throw new RequestSecurityError(409, "The listing price changed. Refresh before purchasing.");
+    throw new MarketplaceServiceError(
+      409,
+      "The listing price changed. Refresh before purchasing.",
+      "ORDER_CHANGED",
+      false,
+    );
   if (offer.seller.toLowerCase() === input.buyer.toLowerCase())
-    throw new RequestSecurityError(400, "You already own this NFT.");
-  await validateListingOnchain(marketplaceClient, listing, { requireApproval: true });
+    throw new MarketplaceServiceError(
+      409,
+      "You already own this NFT.",
+      "ORDER_ALREADY_OWNED",
+      false,
+    );
+  try {
+    await validateListingOnchain(marketplaceClient, listing, { requireApproval: true });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /^Listing is (cancelled|filled|expired|invalid-owner|invalid-counter|unapproved)$/.test(
+        error.message,
+      )
+    )
+      throw new MarketplaceServiceError(
+        409,
+        "The listing changed or is no longer active. Refresh before purchasing.",
+        "ORDER_CHANGED",
+        false,
+      );
+    throw error;
+  }
   const transaction = getListingFulfillment(listing);
   // Simulate the exact value/calldata for this buyer after revalidating the order.
-  await marketplaceClient.call({ account: input.buyer as Address, ...transaction });
+  await marketplaceClient
+    .call({ account: input.buyer as Address, ...transaction })
+    .catch((error: unknown) => {
+      throw marketplaceSimulationError(error);
+    });
   return {
     offer,
     transaction: { chainId: 8453, ...transaction, value: transaction.value.toString() },

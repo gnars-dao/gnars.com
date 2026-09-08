@@ -10,9 +10,11 @@ import {
   getOpenSeaCancellationOrder,
   getOpenSeaListingQuote,
   getOpenSeaMarketplaceOrder,
+  getOpenSeaOwnerListings,
   getOpenSeaTokenListing,
   invalidateOpenSeaOrdersCache,
   listOpenSeaMarketplace,
+  listOpenSeaOwnerMarketplace,
   normalizeOpenSeaListing,
   parseOpenSeaJson,
   publishOpenSeaListing,
@@ -148,6 +150,44 @@ function publishedOrder(order = signedListing()) {
 }
 
 describe("OpenSea listing publication", () => {
+  it("validates the current direct Listing POST response without an indexing-race GET", async () => {
+    const signed = signedListing();
+    fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(Response.json(collection()));
+    fetchMock.mockResolvedValueOnce(Response.json(publishedOrder(signed)));
+    expect(await publishOpenSeaListing(signed)).toMatchObject({
+      orderHash: getListingOrderHash(signed.parameters),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
+  });
+
+  it.each([
+    ["Invalid conduit key: secret must not escape", "OPENSEA_CONDUIT_INVALID"],
+    ["Invalid signature: secret must not escape", "OPENSEA_SIGNATURE_INVALID"],
+    ["Missing fee: secret must not escape", "OPENSEA_FEE_INVALID"],
+    ["Invalid zone: secret must not escape", "OPENSEA_ZONE_INVALID"],
+  ])(
+    "classifies an actionable provider rejection without echoing its body",
+    async (message, code) => {
+      fetchMock.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+      fetchMock.mockResolvedValueOnce(Response.json(collection()));
+      fetchMock.mockResolvedValueOnce(Response.json({ errors: [message] }, { status: 400 }));
+      let caught: unknown;
+      try {
+        await publishOpenSeaListing(signedListing());
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        status: 422,
+        code,
+        retryable: false,
+        requestId: expect.any(String),
+      });
+      expect(String(caught)).not.toContain("secret");
+    },
+  );
   it("reads required collection fees without a database and ignores optional fees", async () => {
     const raw = collection();
     raw.fees.push({ fee: 5, recipient: seller, required: false });
@@ -184,7 +224,29 @@ describe("OpenSea listing publication", () => {
 
   it("rejects invalid onchain authorization before publishing or fetching provider data", async () => {
     onchain.mockRejectedValueOnce(new Error("Invalid owner signature"));
-    await expect(publishOpenSeaListing(signedListing())).rejects.toThrow("Invalid owner signature");
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({
+      status: 422,
+      code: "OPENSEA_SIGNATURE_INVALID",
+      retryable: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["Smart account does not support this Seaport signature", "OPENSEA_SIGNATURE_INVALID"],
+    ["Seaport order hash mismatch", "OPENSEA_ORDER_REJECTED"],
+  ])("classifies %s as a permanent pre-publication rejection", async (message, code) => {
+    onchain.mockRejectedValueOnce(new Error(message));
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({
+      status: 422,
+      code,
+      retryable: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("does not misclassify an unknown RPC validation failure as an invalid signature", async () => {
+    const failure = new Error("RPC unavailable while checking signature");
+    onchain.mockRejectedValueOnce(failure);
+    await expect(publishOpenSeaListing(signedListing())).rejects.toBe(failure);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -265,7 +327,11 @@ describe("OpenSea listing publication", () => {
     fetchMock.mockResolvedValueOnce(
       Response.json({ errors: ["Order not found"] }, { status: 400 }),
     );
-    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({ status: 503 });
+    await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({
+      status: 422,
+      code: "OPENSEA_ORDER_REJECTED",
+      retryable: false,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
   });
@@ -377,6 +443,78 @@ describe("OpenSea listing publication", () => {
       expect.objectContaining({ functionName: "getOrderStatus", args: [hash] }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("bounded OpenSea inventory feeds", () => {
+  it("paginates a seller's active listings using the provider cursor and maker filter", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ listings: [listing()], next: "next-seller-page" }),
+    );
+    const page = await listOpenSeaOwnerMarketplace(seller, "seller-cursor");
+    expect(page.offers).toHaveLength(1);
+    expect(page.nextCursor).toBe("next-seller-page");
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      `/all?maker=${seller}&limit=24&next=seller-cursor`,
+    );
+  });
+  it("uses the price-ascending best feed and fills duplicate-heavy pages without losing the cursor", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ listings: [listing(), listing()], next: "page2" }),
+    );
+    const other = listing();
+    other.protocol_data.parameters.offer[0].identifierOrCriteria = "13";
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [other], next: null }));
+    const page = await listOpenSeaMarketplace();
+    expect(page.offers.map((row) => row.tokenId)).toEqual(["12", "13"]);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/best?limit=24");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("limit=23&next=page2");
+    expect(page.nextCursor).toBeNull();
+  });
+  it("keeps valid rows and marks malformed provider rows partial", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [listing(), { malformed: true }] }));
+    expect(await listOpenSeaMarketplace()).toMatchObject({
+      partial: true,
+      offers: [{ tokenId: "12" }],
+    });
+  });
+  it("preserves the next cursor on a later provider failure", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [listing()], next: "retry-page" }));
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    expect(await listOpenSeaMarketplace()).toMatchObject({
+      partial: true,
+      nextCursor: "retry-page",
+      offers: [{ tokenId: "12" }],
+    });
+  });
+  it("marks an owner's active unsupported Base order as incomplete rather than unlisted", async () => {
+    const unsupported = listing();
+    unsupported.price.current.currency = "WETH";
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [unsupported] }));
+    expect(await getOpenSeaOwnerListings(seller)).toMatchObject({ offers: [], partial: true });
+  });
+  it("ignores inactive and other-chain orders without marking the Base feed incomplete", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        listings: [
+          { ...listing(), status: "CANCELLED" },
+          { ...listing(), chain: "ethereum" },
+        ],
+      }),
+    );
+    expect(await getOpenSeaOwnerListings(seller)).toMatchObject({ offers: [], partial: false });
+  });
+  it("fetches owned listings in one maker-filtered request and exposes truncation", async () => {
+    const wrongOwner = listing();
+    wrongOwner.protocol_data.parameters.offerer = "0x3333333333333333333333333333333333333333";
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ listings: [listing(), wrongOwner], next: "more" }),
+    );
+    const page = await getOpenSeaOwnerListings(seller);
+    expect(page.offers).toHaveLength(1);
+    expect(page.partial).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toContain(`/all?maker=${seller}&limit=200`);
   });
 });
 
@@ -538,8 +676,10 @@ describe("OpenSea marketplace adapter", () => {
       Response.json({ errors: ["secret echoed: test-secret signature 0x1234"] }, { status: 400 }),
     );
     await expect(publishOpenSeaListing(signedListing())).rejects.toMatchObject({
-      status: 503,
-      message: "OpenSea posting unavailable: provider HTTP 400.",
+      status: 422,
+      code: "OPENSEA_SIGNATURE_INVALID",
+      retryable: false,
+      message: "OpenSea rejected the order signature.",
     });
   });
   it("distinguishes network failures from invalid provider JSON without leaking details", async () => {

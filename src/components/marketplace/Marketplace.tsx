@@ -1,19 +1,24 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
 import dynamic from "next/dynamic";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUpRight,
   CircleAlert,
   LoaderCircle,
   RefreshCw,
+  Search,
   ShoppingBag,
+  X,
 } from "lucide-react";
 import { formatEther } from "viem";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
+import Image from "@/components/ui/content-image";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMarketplace, type MarketplaceView } from "@/hooks/use-marketplace";
@@ -25,21 +30,80 @@ import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { NftArtwork } from "./NftArtwork";
 
 const MarketplaceDetail = dynamic(() => import("./MarketplaceDetail"), { ssr: false });
-const views: MarketplaceView[] = ["catalogue", "listings", "owned"];
+const views: MarketplaceView[] = ["catalogue", "listings", "owned", "selling"];
 
 export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) {
   const t = useTranslations("marketplace");
   const [view, setView] = useState<MarketplaceView>("catalogue");
   const [selected, setSelected] = useState<MarketplaceItem | null>(null);
+  const [search, setSearch] = useState("");
+  const [tokenId, setTokenId] = useState<string | undefined>();
+  const [searchInvalid, setSearchInvalid] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [urlReady, setUrlReady] = useState(false);
   const selectedTrigger = useRef<HTMLButtonElement | null>(null);
   const writer = useWriteAccount();
   const query = useMarketplace(
     view,
-    view === "owned" ? writer?.account.address : undefined,
+    view === "owned" || view === "selling" ? writer?.account.address : undefined,
     initialPage,
+    { tokenId },
   );
   const pages = query.data?.pages ?? [];
   const page = pages[0];
+  const sharedItem = useQuery({
+    queryKey: ["marketplace", "detail", selectedId],
+    enabled: !!selectedId && !selected,
+    queryFn: async ({ signal }): Promise<MarketplacePage> => {
+      const response = await fetch(`/api/marketplace/nfts/${selectedId}`, { signal });
+      if (!response.ok) throw new Error("NFT unavailable");
+      return response.json();
+    },
+    staleTime: 30_000,
+    retry: 1,
+  });
+  useEffect(() => {
+    const restore = () => {
+      const params = new URLSearchParams(window.location.search);
+      const restoredView = params.get("view");
+      const restoredId = params.get("q");
+      const restoredSelection = params.get("nft");
+      setView(
+        views.includes(restoredView as MarketplaceView)
+          ? (restoredView as MarketplaceView)
+          : "catalogue",
+      );
+      setTokenId(
+        restoredId && /^\d{1,20}$/.test(restoredId) ? BigInt(restoredId).toString() : undefined,
+      );
+      setSearch(restoredId && /^\d{1,20}$/.test(restoredId) ? BigInt(restoredId).toString() : "");
+      setSelectedId(
+        restoredSelection && /^\d{1,20}$/.test(restoredSelection)
+          ? BigInt(restoredSelection).toString()
+          : null,
+      );
+      setSelected(null);
+      setUrlReady(true);
+    };
+    restore();
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+  useEffect(() => {
+    if (!urlReady) return;
+    const url = new URL(window.location.href);
+    if (view === "catalogue") url.searchParams.delete("view");
+    else url.searchParams.set("view", view);
+    if (tokenId) url.searchParams.set("q", tokenId);
+    else url.searchParams.delete("q");
+    if (selectedId) url.searchParams.set("nft", selectedId);
+    else url.searchParams.delete("nft");
+    window.history.replaceState(window.history.state, "", url);
+  }, [view, tokenId, selectedId, urlReady]);
+  useEffect(() => {
+    const restored = sharedItem.data?.items.find((item) => item.tokenId === selectedId);
+    if (!selected && restored) setSelected(restored);
+  }, [sharedItem.data, selectedId, selected]);
   const byToken = new Map<string, MarketplaceItem>();
   for (const item of pages.flatMap((p) => p.items)) {
     const previous = byToken.get(item.tokenId);
@@ -53,33 +117,74 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     });
   }
   const items = [...byToken.values()];
-  const disconnected = view === "owned" && !writer;
-  const sourcesComplete = page?.sources.opensea.available && page?.sources.gnars.available;
+  const disconnected = (view === "owned" || view === "selling") && !writer;
+  const sourcesComplete =
+    pages.length > 0 &&
+    pages.every((current) =>
+      [current.sources.opensea, current.sources.gnars].every(
+        (source) => (source.available && !source.partial) || source.error === "not_configured",
+      ),
+    );
 
   function changeView(next: MarketplaceView) {
     setView(next);
     setSelected(null);
+    setSelectedId(null);
+    setSearch("");
+    setTokenId(undefined);
+    setSearchInvalid(false);
+  }
+
+  function findToken(event: FormEvent) {
+    event.preventDefault();
+    const value = search.trim().replace(/^#/, "");
+    if (!value) {
+      setTokenId(undefined);
+      setSearchInvalid(false);
+      return;
+    }
+    if (!/^\d{1,20}$/.test(value)) {
+      setSearchInvalid(true);
+      return;
+    }
+    setSearchInvalid(false);
+    setView("catalogue");
+    setTokenId(BigInt(value).toString());
   }
 
   return (
     <div className="py-8 md:py-10">
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <span className="size-2 rounded-full bg-blue-600" />
-            {t("network")}
-            <span aria-hidden="true">/</span>
-            <span>{t("collection")}</span>
+      <header className="mb-7 flex flex-wrap items-center justify-between gap-5">
+        <div className="flex min-w-0 items-center gap-4">
+          <Image
+            src="/gnars.webp"
+            alt=""
+            width={64}
+            height={64}
+            className="size-14 shrink-0 rounded-lg object-contain md:size-16"
+          />
+          <div className="min-w-0">
+            <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="size-2 rounded-full bg-blue-600" />
+              {t("network")}
+              <span aria-hidden="true">/</span>
+              <span>{t("collection")}</span>
+            </div>
+            <h1 className="text-2xl font-bold md:text-3xl">{t("title")}</h1>
           </div>
-          <h1 className="text-3xl font-bold md:text-4xl">{t("title")}</h1>
         </div>
-        <Button variant="outline" onClick={() => changeView("owned")} className="cursor-pointer">
+        <Button
+          variant="outline"
+          disabled={!urlReady}
+          onClick={() => changeView("owned")}
+          className="cursor-pointer"
+        >
           <ShoppingBag className="size-4" />
           {t("sell")}
         </Button>
       </header>
 
-      <MarketplaceRecovery />
+      {!selected && <MarketplaceRecovery />}
 
       <div className="mb-6 flex items-center justify-between gap-3 border-b">
         <Tabs
@@ -95,6 +200,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
               <TabsTrigger
                 key={option}
                 value={option}
+                disabled={!urlReady}
                 id={`market-tab-${option}`}
                 aria-controls="market-panel"
                 className="h-auto shrink-0 cursor-pointer rounded-none border-0 border-b-2 border-transparent px-0.5 py-3 text-sm font-medium text-muted-foreground data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:bg-transparent"
@@ -110,7 +216,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
               size="icon"
               variant="ghost"
               aria-label={t("refresh")}
-              disabled={query.isFetching || disconnected}
+              disabled={!urlReady || query.isFetching || disconnected}
               onClick={() => void query.refetch()}
               className="mb-1 shrink-0 cursor-pointer"
             >
@@ -121,11 +227,98 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
         </Tooltip>
       </div>
 
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <form onSubmit={findToken} className="w-full max-w-sm">
+          <div className="relative flex items-center">
+            <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
+            <Input
+              aria-label={t("search")}
+              aria-invalid={searchInvalid}
+              disabled={!urlReady}
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setSearchInvalid(false);
+              }}
+              placeholder={t("search")}
+              inputMode="numeric"
+              className="h-10 pr-20 pl-9"
+            />
+            <div className="absolute right-1 flex items-center gap-1">
+              {(search || tokenId) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  aria-label={t("clearSearch")}
+                  onClick={() => {
+                    setSearch("");
+                    setTokenId(undefined);
+                    setSearchInvalid(false);
+                  }}
+                >
+                  <X className="size-3.5" />
+                </Button>
+              )}
+              <Button
+                type="submit"
+                disabled={!urlReady}
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                aria-label={t("findToken")}
+              >
+                <Search className="size-4" />
+              </Button>
+            </div>
+          </div>
+          {searchInvalid && (
+            <p role="alert" className="mt-2 text-xs text-destructive">
+              {t("invalidSearch")}
+            </p>
+          )}
+        </form>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {tokenId ? t("exactResult", { id: tokenId }) : t(`ordering.${view}`)}
+        </div>
+      </div>
+      {selectedId && !selected && sharedItem.isPending && (
+        <p role="status" className="mb-4 text-sm text-muted-foreground">
+          {t("loading")}
+        </p>
+      )}
+      {selectedId &&
+        !selected &&
+        (sharedItem.isError || (sharedItem.data && !sharedItem.data.items.length)) && (
+          <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+            <span>{t("loadError")}</span>
+            <Button size="sm" variant="outline" onClick={() => void sharedItem.refetch()}>
+              <RefreshCw className="size-4" />
+              {t("retry")}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={t("close")}
+              onClick={() => setSelectedId(null)}
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        )}
+
       <section id="market-panel" role="tabpanel" aria-labelledby={`market-tab-${view}`}>
         {!disconnected && page && (
           <div className="mb-5 space-y-2">
             {(["opensea", "gnars"] as const)
-              .filter((source) => !page.sources[source].available)
+              .filter((source) =>
+                pages.some(
+                  (current) =>
+                    (!current.sources[source].available || current.sources[source].partial) &&
+                    current.sources[source].error !== "not_configured",
+                ),
+              )
               .map((source) => (
                 <p
                   key={source}
@@ -144,7 +337,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           </div>
         )}
 
-        {view === "owned" && writer && (
+        {(view === "owned" || view === "selling") && writer && (
           <p className="mb-5 break-all text-xs text-muted-foreground">
             {t("wallet")}:{" "}
             <Link
@@ -185,15 +378,17 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           <div className="flex min-h-64 flex-col items-center justify-center gap-4 border-b text-center">
             <ShoppingBag className="size-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              {view !== "listings" && !page?.sources.catalogue.available
-                ? t("loadError")
-                : view === "owned"
-                  ? t("emptyOwned")
-                  : view === "catalogue"
-                    ? t("emptyCatalogue")
-                    : sourcesComplete
-                      ? t("empty")
-                      : t("availabilityUnknown")}
+              {tokenId && page?.sources.catalogue.available
+                ? t("tokenNotFound", { id: tokenId })
+                : view !== "listings" && view !== "selling" && !page?.sources.catalogue.available
+                  ? t("loadError")
+                  : view === "owned"
+                    ? t("emptyOwned")
+                    : view === "catalogue"
+                      ? t("emptyCatalogue")
+                      : sourcesComplete
+                        ? t("empty")
+                        : t("availabilityUnknown")}
             </p>
             {view === "listings" && (
               <Button variant="outline" onClick={() => changeView("catalogue")}>
@@ -218,28 +413,54 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
                   onClick={(event) => {
                     selectedTrigger.current = event.currentTarget;
                     setSelected(item);
+                    setSelectedId(item.tokenId);
                   }}
                   aria-label={t("details", { id: item.tokenId })}
-                  className="group min-w-0 cursor-pointer overflow-hidden rounded-lg border text-left transition-colors hover:border-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-4"
+                  className="group min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/50 focus-visible:outline-2 focus-visible:outline-offset-4"
                 >
                   <NftArtwork
                     item={item}
                     sizes="(max-width: 767px) 50vw, (max-width: 1023px) 33vw, 280px"
                   />
-                  <div className="space-y-2 p-3 md:p-4">
-                    <h2 className="truncate text-sm font-semibold">{item.name}</h2>
+                  <div className="space-y-3 p-3 md:p-4">
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <h2 className="truncate text-sm font-semibold">{item.name}</h2>
+                      {(view === "owned" || view === "selling") && (
+                        <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
+                          {t("yours")}
+                        </span>
+                      )}
+                    </div>
                     <div className="min-h-10">
                       {best ? (
                         <>
-                          <p className="break-all font-mono text-sm font-semibold">
+                          <p className="break-all font-mono text-base font-semibold tabular-nums">
                             {formatEther(BigInt(best.priceWei))} ETH
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {best.source === "opensea" ? "OpenSea" : "Gnars"}
-                          </p>
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted-foreground">
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="size-1.5 rounded-full bg-emerald-500" />
+                              {t("listed")}
+                            </span>
+                            <span>{best.source === "opensea" ? "OpenSea" : "Gnars"}</span>
+                          </div>
                         </>
                       ) : (
-                        <p className="text-xs text-muted-foreground">{t("viewListings")}</p>
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            {view === "catalogue" && !tokenId
+                              ? t("viewListings")
+                              : sourcesComplete
+                                ? t("notListed")
+                                : t("availabilityUnknown")}
+                          </p>
+                          {view === "owned" && (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium">
+                              {t("sell")}
+                              <ArrowUpRight className="size-3" />
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -273,17 +494,20 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
         )}
       </section>
 
-      {selected && page && (
+      {selected && (page || sharedItem.data) && (
         <MarketplaceDetail
           key={`${selected.tokenId}-${writer?.account.address ?? "guest"}`}
           item={selected}
-          capabilities={page.capabilities}
+          capabilities={(page ?? sharedItem.data!).capabilities}
           restoreFocus={() => {
             if (selectedTrigger.current?.isConnected) {
               selectedTrigger.current.focus({ preventScroll: true });
             }
           }}
-          onClose={() => setSelected(null)}
+          onClose={() => {
+            setSelected(null);
+            setSelectedId(null);
+          }}
         />
       )}
     </div>

@@ -1,11 +1,11 @@
 import type { Hex } from "viem";
 import { z } from "zod";
+import { enforceRateLimit, readJsonBody } from "@/lib/server/request-security";
 import {
-  enforceRateLimit,
-  readJsonBody,
-  requestSecurityResponse,
-} from "@/lib/server/request-security";
-import { marketplaceHashSchema, parseMarketplaceInput } from "@/services/marketplace-common";
+  marketplaceErrorResponse,
+  marketplaceHashSchema,
+  parseMarketplaceInput,
+} from "@/services/marketplace-common";
 import {
   invalidateOpenSeaOrdersCache,
   reconcileOpenSeaOrder,
@@ -28,6 +28,6 @@ export async function POST(request: Request) {
       invalidateOpenSeaOrdersCache(orderHash as Hex);
     return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

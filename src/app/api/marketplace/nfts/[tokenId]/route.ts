@@ -1,6 +1,10 @@
-import { enforceRateLimit, requestSecurityResponse } from "@/lib/server/request-security";
+import { enforceRateLimit } from "@/lib/server/request-security";
 import { loadMarketplaceToken } from "@/services/marketplace";
-import { marketplaceUintSchema, parseMarketplaceInput } from "@/services/marketplace-common";
+import {
+  marketplaceErrorResponse,
+  marketplaceUintSchema,
+  parseMarketplaceInput,
+} from "@/services/marketplace-common";
 
 export const dynamic = "force-dynamic";
 export async function GET(request: Request, context: { params: Promise<{ tokenId: string }> }) {
@@ -10,6 +14,6 @@ export async function GET(request: Request, context: { params: Promise<{ tokenId
     const page = await loadMarketplaceToken(tokenId);
     return Response.json(page, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

@@ -2,14 +2,17 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { unstable_cache } from "next/cache";
 import { Pool } from "pg";
-import type { Hex } from "viem";
+import { erc721Abi, isAddressEqual, type Address, type Hex } from "viem";
+import { DAO_ADDRESSES } from "@/lib/config";
 import {
   getListingOrderHash,
   getListingPriceWei,
   getListingStatus,
   SEAPORT_ADDRESS,
+  seaportAbi,
   validateListingOnchain,
   validateListingStructure,
+  type ListingStatus,
   type SignedListing,
 } from "@/lib/marketplace/seaport";
 import { RequestSecurityError } from "@/lib/server/request-security";
@@ -129,7 +132,14 @@ export async function enforceOpenSeaProviderBudget(operation: "read" | "fulfillm
     ]);
 }
 
-type StoredOrder = { id: string; signed_order: unknown; order_hash: Hex; status: string };
+type StoredOrder = {
+  id: string;
+  signed_order: unknown;
+  order_hash: Hex;
+  status: string;
+  checked_at?: Date | string;
+  candidate_count?: string;
+};
 
 export function localMarketplaceOffer(listing: SignedListing): MarketplaceOffer {
   const orderHash = getListingOrderHash(listing.parameters);
@@ -218,34 +228,165 @@ export async function reconcileMarketplaceOrder(orderHash: string) {
   return { listing, status };
 }
 
-export async function listMarketplaceOrders(before?: string, tokenIds?: string[]) {
+export async function listMarketplaceOrders(
+  before?: string,
+  tokenIds?: string[],
+  seller?: Address,
+) {
   if (!(await marketplaceStorageReady()))
     throw marketplaceUnavailable("Marketplace order storage is unavailable.");
   const result = await database().query<StoredOrder>(
-    `SELECT id, order_hash, signed_order, status FROM marketplace_orders
+    `${tokenIds ? "WITH candidates AS (" : ""}
+     SELECT id, order_hash, signed_order, status, checked_at
+     ${tokenIds ? ", ROW_NUMBER() OVER (PARTITION BY token_id ORDER BY price_wei, id DESC) AS rank, COUNT(*) OVER (PARTITION BY token_id) AS candidate_count" : ""}
+     FROM marketplace_orders
      WHERE chain_id = 8453 AND status IN ('active', 'invalid-owner', 'unapproved') AND expires_at > $1
      ${before ? "AND id < $2" : ""}
      ${tokenIds ? `AND token_id = ANY($${before ? 3 : 2}::numeric[])` : ""}
-     ORDER BY id DESC LIMIT ${MARKETPLACE_PAGE_SIZE}`,
-    [Math.floor(Date.now() / 1000), ...(before ? [before] : []), ...(tokenIds ? [tokenIds] : [])],
+     ${seller ? `AND seller = $${2 + Number(Boolean(before)) + Number(Boolean(tokenIds))}` : ""}
+     ${tokenIds ? ") SELECT id, order_hash, signed_order, status, checked_at, candidate_count FROM candidates WHERE rank <= 25 ORDER BY id DESC" : `ORDER BY id DESC LIMIT ${MARKETPLACE_PAGE_SIZE}`}`,
+    [
+      Math.floor(Date.now() / 1000),
+      ...(before ? [before] : []),
+      ...(tokenIds ? [tokenIds] : []),
+      ...(seller ? [seller.toLowerCase()] : []),
+    ],
   );
   const offers: Array<{ tokenId: string; offer: MarketplaceOffer }> = [];
-  for (let index = 0; index < result.rows.length; index += 3) {
-    const rows = await Promise.all(
-      result.rows.slice(index, index + 3).map(async (row) => {
-        const { listing, status } = await reconcileMarketplaceOrder(row.order_hash);
-        return status === "active"
-          ? {
-              tokenId: listing.parameters.offer[0].identifierOrCriteria,
-              offer: localMarketplaceOffer(listing),
-            }
-          : null;
-      }),
-    );
-    offers.push(...rows.filter((row) => row !== null));
+  const stale: Array<{ row: StoredOrder; listing: SignedListing }> = [];
+  let partial = result.rows.some((row) => Number(row.candidate_count) > 25);
+  const now = Date.now();
+  for (const row of result.rows) {
+    try {
+      const listing = validateListingStructure(row.signed_order, { allowExpired: true });
+      if (getListingOrderHash(listing.parameters).toLowerCase() !== row.order_hash.toLowerCase())
+        throw new Error("Stored order identity mismatch");
+      if (BigInt(listing.parameters.endTime) <= BigInt(Math.floor(now / 1000))) continue;
+      const checked = row.checked_at ? new Date(row.checked_at).getTime() : 0;
+      if (checked <= now && now - checked < 15_000) {
+        if (row.status === "active")
+          offers.push({
+            tokenId: listing.parameters.offer[0].identifierOrCriteria,
+            offer: localMarketplaceOffer(listing),
+          });
+      } else stale.push({ row, listing });
+    } catch {
+      partial = true;
+    }
+  }
+
+  if (stale.length > 0) {
+    // Catalogue reads share one chain snapshot and batched RPC, not one full
+    // validation + SQL read/write per card. Execution still validates afresh.
+    const [chainId, block] = await Promise.all([
+      marketplaceClient.getChainId(),
+      marketplaceClient.getBlock(),
+    ]);
+    if (chainId !== 8453) throw marketplaceUnavailable("Marketplace RPC is not on Base.");
+    const updates: Array<{ hash: Hex; status: ListingStatus }> = [];
+    for (let offset = 0; offset < stale.length; offset += 24) {
+      const batch = stale.slice(offset, offset + 24);
+      const reads = await marketplaceClient
+        .multicall({
+          allowFailure: true,
+          blockNumber: block.number,
+          contracts: batch.flatMap(({ listing, row }) => [
+            {
+              address: SEAPORT_ADDRESS,
+              abi: seaportAbi,
+              functionName: "getOrderStatus",
+              args: [row.order_hash],
+            },
+            {
+              address: SEAPORT_ADDRESS,
+              abi: seaportAbi,
+              functionName: "getCounter",
+              args: [listing.parameters.offerer],
+            },
+            {
+              address: DAO_ADDRESSES.token,
+              abi: erc721Abi,
+              functionName: "ownerOf",
+              args: [BigInt(listing.parameters.offer[0].identifierOrCriteria)],
+            },
+            {
+              address: DAO_ADDRESSES.token,
+              abi: erc721Abi,
+              functionName: "getApproved",
+              args: [BigInt(listing.parameters.offer[0].identifierOrCriteria)],
+            },
+            {
+              address: DAO_ADDRESSES.token,
+              abi: erc721Abi,
+              functionName: "isApprovedForAll",
+              args: [listing.parameters.offerer, SEAPORT_ADDRESS],
+            },
+          ]),
+        })
+        .catch(() => null);
+      if (!reads) {
+        partial = true;
+        continue;
+      }
+      for (const [index, { row, listing }] of batch.entries()) {
+        const values = reads.slice(index * 5, index * 5 + 5);
+        if (values.length !== 5 || values.some((read) => read.status !== "success")) {
+          partial = true;
+          continue;
+        }
+        const [order, counter, owner, approval, approvedAll] = values.map(
+          (read) => read.result,
+        ) as [
+          readonly [boolean, boolean, bigint, bigint],
+          bigint,
+          `0x${string}`,
+          `0x${string}`,
+          boolean,
+        ];
+        const p = listing.parameters;
+        const status: ListingStatus = order[1]
+          ? "cancelled"
+          : order[2] > 0n
+            ? "filled"
+            : BigInt(p.endTime) <= block.timestamp
+              ? "expired"
+              : counter !== BigInt(p.counter)
+                ? "invalid-counter"
+                : !isAddressEqual(owner, p.offerer)
+                  ? "invalid-owner"
+                  : !isAddressEqual(approval, SEAPORT_ADDRESS) && !approvedAll
+                    ? "unapproved"
+                    : "active";
+        if (BigInt(p.startTime) > block.timestamp) {
+          partial = true;
+          continue;
+        }
+        updates.push({ hash: row.order_hash, status });
+        if (status === "active")
+          offers.push({
+            tokenId: p.offer[0].identifierOrCriteria,
+            offer: localMarketplaceOffer(listing),
+          });
+      }
+    }
+    if (updates.length > 0) {
+      try {
+        await database().query(
+          `UPDATE marketplace_orders AS orders SET status = checked.status, checked_at = NOW()
+           FROM UNNEST($1::text[], $2::text[]) AS checked(order_hash, status)
+           WHERE orders.chain_id = 8453 AND orders.order_hash = checked.order_hash`,
+          [updates.map((update) => update.hash), updates.map((update) => update.status)],
+        );
+      } catch {
+        // Already verified offers remain readable if persisting their snapshot fails.
+        partial = true;
+      }
+    }
   }
   return {
     offers,
-    nextCursor: result.rows.length === MARKETPLACE_PAGE_SIZE ? result.rows.at(-1)!.id : null,
+    partial,
+    nextCursor:
+      !tokenIds && result.rows.length === MARKETPLACE_PAGE_SIZE ? result.rows.at(-1)!.id : null,
   };
 }

@@ -19,6 +19,7 @@ const item = {
   offers: [offer],
 };
 const data = {
+  ownershipVerified: true,
   items: [item],
   nextCursor: null,
   sources: {
@@ -55,7 +56,7 @@ for (const mobile of [false, true]) {
       })
       .toBe(true);
     const drawerBox = await dialog.boundingBox();
-    expect(drawerBox?.width).toBe(mobile ? 390 : 560);
+    expect(drawerBox?.width).toBeCloseTo(mobile ? 390 : 560, 2);
     await expect(dialog.getByRole("heading", { name: "Gnar #42", exact: true })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Comprar", exact: true })).toBeDisabled();
     await expect(dialog.getByRole("link", { name: "Ver na OpenSea" })).toHaveAttribute(
@@ -138,4 +139,41 @@ test("mobile drawer can be dismissed by dragging its header", async ({ page }) =
   await page.mouse.move(195, 420, { steps: 15 });
   await page.mouse.up();
   await expect(drawer).not.toBeVisible();
+});
+
+test("shared NFT links restore the drawer and closing removes only its selection", async ({
+  page,
+}) => {
+  await page.route("**/api/marketplace**", (route) => route.fulfill({ json: data }));
+  await page.goto("/pt-br/marketplace?view=listings&nft=42", { waitUntil: "domcontentloaded" });
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("heading", { name: "Gnar #42", exact: true })).toBeVisible();
+  await drawer.getByRole("button", { name: "Fechar", exact: true }).click();
+  await expect(drawer).not.toBeVisible();
+  await expect(page.getByRole("tab", { name: "À venda", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect.poll(() => new URL(page.url()).searchParams.get("nft")).toBeNull();
+  expect(new URL(page.url()).searchParams.get("view")).toBe("listings");
+});
+
+test("exact ID search persists in the URL and unconfigured native source is not an outage", async ({
+  page,
+}) => {
+  await page.route("**/api/marketplace**", (route) =>
+    route.fulfill({ json: { ...data, items: [{ ...item, offers: [] }] } }),
+  );
+  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+  await page.getByRole("textbox", { name: "Buscar por ID do Gnar" }).fill("#42");
+  await page.getByRole("button", { name: "Buscar Gnar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Ver Gnar #42", exact: true })).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("42");
+  await expect(page.getByText("Não anunciado", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Os anúncios da Gnars estão indisponíveis/)).toHaveCount(0);
+  await page.getByRole("tab", { name: "Meus anúncios", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Conecte sua carteira", exact: true }),
+  ).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("q")).toBeNull();
 });

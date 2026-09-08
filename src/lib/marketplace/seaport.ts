@@ -53,7 +53,7 @@ export function canReplaceMarketplaceAttempt(attempt: {
   return (
     attempt.phase === "complete" ||
     (attempt.phase === "failed" &&
-      (!attempt.listing || attempt.kind === "buy" || attempt.kind === "cancel") &&
+      (!attempt.listing || attempt.kind === "buy") &&
       (!attempt.txHash || attempt.transactionFailed === true))
   );
 }

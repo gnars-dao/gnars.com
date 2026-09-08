@@ -51,5 +51,15 @@ export async function hasConfirmedMarketplaceApproval(
     args: [BigInt(tokenId)],
     blockNumber,
   });
-  return isAddressEqual(owner, account) && isAddressEqual(approved, SEAPORT_ADDRESS);
+  if (!isAddressEqual(owner, account)) return false;
+  if (isAddressEqual(approved, SEAPORT_ADDRESS)) return true;
+  return (
+    (await client.readContract({
+      address: DAO_ADDRESSES.token,
+      abi: erc721Abi,
+      functionName: "isApprovedForAll",
+      args: [account, SEAPORT_ADDRESS],
+      blockNumber,
+    })) === true
+  );
 }

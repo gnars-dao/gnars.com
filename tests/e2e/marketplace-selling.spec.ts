@@ -4,15 +4,20 @@ import {
   encodeFunctionData,
   encodeFunctionResult,
   erc721Abi,
+  recoverTypedDataAddress,
   zeroAddress,
   zeroHash,
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { DAO_ADDRESSES } from "../../src/lib/config";
+import { BUILDER_CODE_SUFFIX, DAO_ADDRESSES } from "../../src/lib/config";
 import {
+  getListingCancellation,
+  getListingFulfillment,
   getListingOrderHash,
+  getListingTypedData,
   SEAPORT_ADDRESS,
   seaportAbi,
+  validateListingStructure,
   type SignedListing,
 } from "../../src/lib/marketplace/seaport";
 
@@ -22,7 +27,18 @@ test.beforeEach(({ page }) => page.setDefaultTimeout(15000));
 
 async function setupWallet(
   page: Page,
-  options: { retryPublication?: boolean; restorePendingApproval?: boolean } = {},
+  options: {
+    retryPublication?: boolean;
+    restorePendingApproval?: boolean;
+    confirmTransactions?: boolean;
+    requireApproval?: boolean;
+    rejectCancellation?: boolean;
+    buying?: boolean;
+    missingCancelReceipt?: boolean;
+    restoreCancelled?: boolean;
+    corruptJournal?: boolean;
+    rejectPublication?: boolean;
+  } = {},
 ) {
   const account = privateKeyToAccount(generatePrivateKey());
   const signedRequests: unknown[] = [];
@@ -33,6 +49,82 @@ async function setupWallet(
   const approvalHash = `0x${"a".repeat(64)}`;
   const journalKey = `gnars:marketplace:v1:8453:${account.address.toLowerCase()}`;
   let listed: SignedListing | undefined;
+  let approved = !options.requireApproval;
+  let cancelled = false;
+  let filled = false;
+  let nftOwner = account.address;
+  const receipts = new Map<string, Record<string, unknown>>();
+  const sentTransactions = new Map<string, Record<string, unknown>>();
+  if (options.buying || options.restoreCancelled) {
+    const seller = options.buying ? privateKeyToAccount(generatePrivateKey()) : account;
+    nftOwner = seller.address;
+    const parameters: SignedListing["parameters"] = {
+      offerer: seller.address,
+      zone: zeroAddress,
+      offer: [
+        {
+          itemType: 2,
+          token: DAO_ADDRESSES.token,
+          identifierOrCriteria: "42",
+          startAmount: "1",
+          endAmount: "1",
+        },
+      ],
+      consideration: [
+        {
+          itemType: 0,
+          token: zeroAddress,
+          identifierOrCriteria: "0",
+          startAmount: "9900000000000000",
+          endAmount: "9900000000000000",
+          recipient: seller.address,
+        },
+        {
+          itemType: 0,
+          token: zeroAddress,
+          identifierOrCriteria: "0",
+          startAmount: "100000000000000",
+          endAmount: "100000000000000",
+          recipient: feeRecipient,
+        },
+      ],
+      orderType: 0,
+      startTime: String(Math.floor(Date.now() / 1000) - 60),
+      endTime: String(Math.floor(Date.now() / 1000) + 86400),
+      zoneHash: zeroHash,
+      salt: "123456",
+      conduitKey: zeroHash,
+      counter: "0",
+    };
+    listed = { parameters, signature: await seller.signTypedData(getListingTypedData(parameters)) };
+  }
+
+  if (options.corruptJournal)
+    await page.addInitScript((key) => localStorage.setItem(key, "{broken saved order"), journalKey);
+  if (options.restoreCancelled && listed) {
+    cancelled = true;
+    const call = getListingCancellation(listed, { source: "opensea" });
+    await page.addInitScript(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), {
+      key: journalKey,
+      value: {
+        version: 1,
+        account: account.address,
+        id: "confirmed-cancel-missing-receipt",
+        kind: "cancel",
+        phase: "pending",
+        tokenId: "42",
+        listing: listed,
+        txHash: approvalHash,
+        txStep: "cancel",
+        offer: {
+          source: "opensea",
+          seller: account.address,
+          orderHash: getListingOrderHash(listed.parameters),
+        },
+        transactionIntent: { account: account.address, ...call, value: "0", startedBlock: "9000" },
+      },
+    });
+  }
 
   if (options.restorePendingApproval) {
     await page.addInitScript(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), {
@@ -95,7 +187,71 @@ async function setupWallet(
       signedRequests.push(typed);
       return account.signTypedData(typed as never);
     }
-    // No transaction can escape this harness, including from an unexpected wallet path.
+    // All broadcasts terminate in this in-memory ledger, never an external RPC.
+    if (method === "eth_sendTransaction" && options.confirmTransactions) {
+      const tx = params[0] as { from: string; to: string; data: `0x${string}`; value?: string };
+      transactions.push({ method, params });
+      expect(tx.from.toLowerCase()).toBe(account.address.toLowerCase());
+      expect(tx.data.endsWith(BUILDER_CODE_SUFFIX.slice(2))).toBe(true);
+      if (tx.to.toLowerCase() === DAO_ADDRESSES.token.toLowerCase()) {
+        const decoded = decodeFunctionData({ abi: erc721Abi, data: tx.data });
+        expect(decoded.functionName).toBe("approve");
+        expect(decoded.args).toEqual([SEAPORT_ADDRESS, 42n]);
+        approved = true;
+      } else {
+        expect(tx.to.toLowerCase()).toBe(SEAPORT_ADDRESS.toLowerCase());
+        const decoded = decodeFunctionData({ abi: seaportAbi, data: tx.data });
+        if (decoded.functionName === "cancel") {
+          if (options.rejectCancellation)
+            throw Object.assign(new Error("User rejected cancellation"), { code: 4001 });
+          cancelled = true;
+        } else {
+          expect(decoded.functionName).toBe("fulfillOrder");
+          expect(BigInt(tx.value ?? "0")).toBe(10000000000000000n);
+          expect(cancelled || filled).toBe(false);
+          filled = true;
+          nftOwner = account.address;
+        }
+      }
+      const hash = `0x${transactions.length.toString(16).padStart(64, "0")}`;
+      sentTransactions.set(hash, {
+        ...tx,
+        hash,
+        input: tx.data,
+        value: tx.value ?? "0x0",
+        nonce: "0x0",
+        type: "0x2",
+        chainId: "0x2105",
+        blockNumber: `0x${(10000 + transactions.length).toString(16)}`,
+        blockHash: zeroHash,
+        transactionIndex: "0x0",
+        gas: "0x30d40",
+        gasPrice: "0x3b9aca00",
+        maxFeePerGas: "0x3b9aca00",
+        maxPriorityFeePerGas: "0x3b9aca00",
+        r: zeroHash,
+        s: zeroHash,
+        v: "0x1",
+        accessList: [],
+      });
+      receipts.set(hash, {
+        transactionHash: hash,
+        transactionIndex: "0x0",
+        blockHash: zeroHash,
+        blockNumber: `0x${(10000 + transactions.length).toString(16)}`,
+        from: tx.from,
+        to: tx.to,
+        cumulativeGasUsed: "0x5208",
+        gasUsed: "0x5208",
+        contractAddress: null,
+        logs: [],
+        logsBloom: `0x${"0".repeat(512)}`,
+        status: "0x1",
+        effectiveGasPrice: "0x3b9aca00",
+        type: "0x2",
+      });
+      return hash;
+    }
     if (/send|sign|personal_/i.test(method)) {
       transactions.push({ method, params });
       throw Object.assign(new Error("Test wallet refuses transaction broadcasting"), {
@@ -103,17 +259,21 @@ async function setupWallet(
       });
     }
     if (method === "eth_getCode") return "0x";
-    if (method === "eth_getTransactionReceipt" || method === "eth_getTransactionByHash")
-      return null;
+    if (method === "eth_getTransactionReceipt")
+      return options.missingCancelReceipt && cancelled
+        ? null
+        : (receipts.get(String(params[0])) ?? null);
+    if (method === "eth_getTransactionByHash")
+      return sentTransactions.get(String(params[0])) ?? null;
     if (method === "eth_getBalance") return "0xde0b6b3a7640000";
-    if (method === "eth_blockNumber") return "0x2710";
+    if (method === "eth_blockNumber") return `0x${(10000 + transactions.length).toString(16)}`;
     if (method === "eth_getTransactionCount") return "0x0";
     if (method === "eth_gasPrice" || method === "eth_maxPriorityFeePerGas") return "0x3b9aca00";
     if (method === "eth_estimateGas") return "0x30d40";
     if (method === "eth_getLogs") return [];
     if (method === "eth_getBlockByNumber")
       return {
-        number: "0x2710",
+        number: `0x${(10000 + transactions.length).toString(16)}`,
         hash: zeroHash,
         parentHash: zeroHash,
         timestamp: `0x${Math.floor(Date.now() / 1000).toString(16)}`,
@@ -143,13 +303,13 @@ async function setupWallet(
           return encodeFunctionResult({
             abi: erc721Abi,
             functionName: "ownerOf",
-            result: account.address,
+            result: nftOwner,
           });
         if (decoded.functionName === "getApproved")
           return encodeFunctionResult({
             abi: erc721Abi,
             functionName: "getApproved",
-            result: SEAPORT_ADDRESS,
+            result: approved ? SEAPORT_ADDRESS : zeroAddress,
           });
         if (decoded.functionName === "balanceOf")
           return encodeFunctionResult({ abi: erc721Abi, functionName: "balanceOf", result: 0n });
@@ -157,7 +317,7 @@ async function setupWallet(
           return encodeFunctionResult({
             abi: erc721Abi,
             functionName: "isApprovedForAll",
-            result: true,
+            result: !options.requireApproval,
           });
       } catch {
         /* Other contract ABIs are handled below. */
@@ -170,7 +330,7 @@ async function setupWallet(
           return encodeFunctionResult({
             abi: seaportAbi,
             functionName: "getOrderStatus",
-            result: [false, false, 0n, 0n],
+            result: [false, cancelled, filled ? 1n : 0n, filled ? 1n : 0n],
           });
         if (decoded.functionName === "getOrderHash")
           return encodeFunctionResult({
@@ -228,19 +388,20 @@ async function setupWallet(
     source: "opensea",
     orderHash: getListingOrderHash(listing.parameters),
     protocolAddress: SEAPORT_ADDRESS,
-    seller: account.address,
+    seller: listing.parameters.offerer,
     priceWei: "10000000000000000",
     currency: "ETH",
     expiresAt: Number(listing.parameters.endTime),
   });
   const data = () => ({
+    ownershipVerified: true,
     items: [
       {
         tokenId: "42",
         name: "Gnar #42",
         image: "/gnars.webp",
-        owner: account.address,
-        offers: listed ? [offer(listed)] : [],
+        owner: nftOwner,
+        offers: listed && !cancelled && !filled ? [offer(listed)] : [],
       },
     ],
     nextCursor: null,
@@ -301,14 +462,54 @@ async function setupWallet(
           },
         });
       } else if (path.endsWith("/opensea/orders")) {
-        const listing = request.postDataJSON().listing as SignedListing;
+        const listing = validateListingStructure(request.postDataJSON().listing, {
+          source: "opensea",
+        });
+        expect(
+          (
+            await recoverTypedDataAddress({
+              ...getListingTypedData(listing.parameters),
+              signature: listing.signature,
+            })
+          ).toLowerCase(),
+        ).toBe(account.address.toLowerCase());
+        expect(listing.parameters.consideration.map((item) => item.startAmount)).toEqual([
+          "9900000000000000",
+          "100000000000000",
+        ]);
         publications.push(listing);
-        if (options.retryPublication && publications.length === 1)
-          await route.fulfill({ status: 503, json: { error: "Temporary test provider failure" } });
+        if (options.rejectPublication)
+          await route.fulfill({
+            status: 422,
+            json: {
+              error: "OpenSea rejected the order's fee configuration.",
+              code: "OPENSEA_FEE_INVALID",
+              retryable: false,
+              requestId: "test-fee-rejection",
+            },
+          });
+        else if (options.retryPublication && publications.length === 1)
+          await route.fulfill({
+            status: 503,
+            json: {
+              error: "Publication not confirmed",
+              code: "PUBLICATION_UNCONFIRMED",
+              retryable: true,
+              requestId: "test-publication",
+            },
+          });
         else {
           listed = listing;
           await route.fulfill({ json: { offer: offer(listing) } });
         }
+      } else if (path.endsWith("/fulfillment") && listed) {
+        const call = getListingFulfillment(listed, { source: "opensea" });
+        await route.fulfill({
+          json: {
+            offer: offer(listed),
+            transaction: { ...call, value: call.value.toString(), chainId: 8453 },
+          },
+        });
       } else if (path.includes("/opensea/orders/") && listed) {
         await route.fulfill({
           json: {
@@ -344,10 +545,11 @@ async function setupWallet(
     rpcErrors,
     journalKey,
     approvalHash,
+    state: () => ({ approved, cancelled, filled, nftOwner }),
   };
 }
 
-async function connectAndInspect(page: Page) {
+async function connectAndInspect(page: Page, buying = false) {
   await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
   const owned = page.getByRole("tab", { name: "Meus Gnars", exact: true });
   await expect(async () => {
@@ -360,6 +562,7 @@ async function connectAndInspect(page: Page) {
     .click();
   await page.getByRole("button", { name: /connect a wallet/i }).click();
   await page.getByRole("button", { name: /metamask/i }).click();
+  if (buying) await page.getByRole("tab", { name: "À venda", exact: true }).click();
   await expect(page.getByRole("button", { name: "Ver Gnar #42", exact: true })).toBeVisible({
     timeout: 30000,
   });
@@ -385,7 +588,7 @@ for (const mobile of [false, true]) {
   }) => {
     test.setTimeout(90000);
     await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 });
-    const wallet = await setupWallet(page);
+    const wallet = await setupWallet(page, { confirmTransactions: true });
     const drawer = await connectAndOpen(page);
     await expect(drawer).toHaveAttribute("data-vaul-drawer-direction", mobile ? "bottom" : "right");
     await test.info().attach("drawer-focus-layout", {
@@ -436,8 +639,118 @@ for (const mobile of [false, true]) {
         "Cancelar este anúncio na Base? Ele continua válido até a confirmação do cancelamento.",
       ),
     ).toBeVisible();
+    await drawer.getByRole("button", { name: "Confirmar cancelamento", exact: true }).click();
+    await expect.poll(() => wallet.state().cancelled).toBe(true);
+    await expect(drawer.getByRole("button", { name: "Concluído", exact: true })).toBeVisible();
+    expect(wallet.transactions).toHaveLength(1);
   });
 }
+
+test("NFT approval confirms before signing and publishing", async ({ page }) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, { confirmTransactions: true, requireApproval: true });
+  const drawer = await connectAndOpen(page);
+  await drawer.getByRole("button", { name: "Revisar e assinar anúncio", exact: true }).click();
+  await expect(drawer.getByRole("button", { name: "Concluído", exact: true })).toBeVisible({
+    timeout: 25000,
+  });
+  expect(wallet.state().approved).toBe(true);
+  expect(wallet.transactions).toHaveLength(1);
+  expect(wallet.signedRequests).toHaveLength(1);
+  expect(wallet.publications).toHaveLength(1);
+});
+
+test("cancelled order recovers without a receipt or another transaction", async ({ page }) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, { restoreCancelled: true });
+  const drawer = await connectAndInspect(page);
+  await drawer.getByRole("button", { name: "Verificar transação", exact: true }).click();
+  await expect
+    .poll(async () =>
+      page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).phase, wallet.journalKey),
+    )
+    .toBe("complete");
+  expect(wallet.transactions).toHaveLength(0);
+  expect(wallet.signedRequests).toHaveLength(0);
+});
+
+test("corrupt saved order exposes recovery without deleting signed data", async ({ page }) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, { corruptJournal: true });
+  const drawer = await connectAndInspect(page);
+  await expect(
+    drawer.getByRole("heading", { name: "Solicitação salva precisa de recuperação" }),
+  ).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Exportar registro" })).toBeVisible();
+  await drawer.getByRole("button", { name: "Recuperar solicitação" }).click();
+  expect(await page.evaluate((key) => localStorage.getItem(key), wallet.journalKey)).toBe(
+    "{broken saved order",
+  );
+  expect(wallet.transactions).toHaveLength(0);
+  expect(wallet.signedRequests).toHaveLength(0);
+});
+
+test("buyer confirms an OpenSea purchase and sees completed ownership", async ({ page }) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, { confirmTransactions: true, buying: true });
+  const drawer = await connectAndInspect(page, true);
+  await drawer.getByRole("button", { name: "Comprar", exact: true }).click();
+  await drawer.getByRole("button", { name: "Confirmar compra", exact: true }).click();
+  await expect.poll(() => wallet.state().filled).toBe(true);
+  await expect(drawer.getByRole("button", { name: "Concluído", exact: true })).toBeVisible({
+    timeout: 25000,
+  });
+  expect(wallet.state().nftOwner).toBe(wallet.account.address);
+  expect(wallet.transactions).toHaveLength(1);
+});
+
+test("rejected cancellation preserves the original signed listing", async ({ page }) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, {
+    retryPublication: true,
+    confirmTransactions: true,
+    rejectCancellation: true,
+  });
+  const drawer = await connectAndOpen(page);
+  await drawer.getByRole("button", { name: "Revisar e assinar anúncio", exact: true }).click();
+  await drawer.getByRole("button", { name: "Cancelar ordem assinada", exact: true }).click();
+  await drawer.getByRole("button", { name: "Confirmar cancelamento", exact: true }).click();
+  await expect.poll(() => wallet.transactions.length).toBe(1);
+  await expect
+    .poll(async () =>
+      page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).listing, wallet.journalKey),
+    )
+    .toEqual(wallet.publications[0]);
+  expect(wallet.state().cancelled).toBe(false);
+  await expect(
+    drawer.getByRole("button", { name: "Cancelar ordem assinada", exact: true }),
+  ).toBeVisible();
+  expect(wallet.signedRequests).toHaveLength(1);
+});
+
+test("permanent publication rejection keeps the order and status checks do not republish", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, { rejectPublication: true });
+  const drawer = await connectAndOpen(page);
+  await drawer.getByRole("button", { name: "Revisar e assinar anúncio", exact: true }).click();
+  await expect(drawer.getByRole("alert")).toContainText("test-fee-rejection");
+  await expect(drawer.getByRole("button", { name: "Continuar anúncio", exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    drawer.getByRole("button", { name: "Cancelar ordem assinada", exact: true }),
+  ).toBeVisible();
+  const status = drawer.getByRole("button", { name: /Verificar/ });
+  if (await status.count()) await status.click();
+  expect(wallet.publications).toHaveLength(1);
+  expect(wallet.signedRequests).toHaveLength(1);
+  expect(wallet.transactions).toHaveLength(0);
+  expect(
+    await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).listing, wallet.journalKey),
+  ).toEqual(wallet.publications[0]);
+});
 
 test("OpenSea publication retry reuses the exact signed order without another wallet signature", async ({
   page,
@@ -451,7 +764,7 @@ test("OpenSea publication retry reuses the exact signed order without another wa
   });
   expect(wallet.signedRequests).toHaveLength(1);
   expect(wallet.publications).toHaveLength(1);
-  await expect(drawer.getByRole("alert").first()).toHaveText(
+  await expect(drawer.getByRole("alert").first()).toContainText(
     "Não foi possível confirmar a publicação. Seu anúncio assinado está salvo. Continue para verificar e tentar publicar com a mesma assinatura.",
   );
   await drawer.getByRole("button", { name: "Cancelar ordem assinada", exact: true }).click();

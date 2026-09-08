@@ -1,5 +1,9 @@
-import { enforceRateLimit, requestSecurityResponse } from "@/lib/server/request-security";
-import { marketplaceHashSchema, parseMarketplaceInput } from "@/services/marketplace-common";
+import { enforceRateLimit } from "@/lib/server/request-security";
+import {
+  marketplaceErrorResponse,
+  marketplaceHashSchema,
+  parseMarketplaceInput,
+} from "@/services/marketplace-common";
 import { getMarketplaceOrder } from "@/services/marketplace-orders";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +16,6 @@ export async function GET(request: Request, context: { params: Promise<{ hash: s
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

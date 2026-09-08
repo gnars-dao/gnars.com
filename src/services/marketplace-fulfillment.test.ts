@@ -97,9 +97,10 @@ describe("just-in-time OpenSea fulfillment", () => {
     mocks.externalEncode.mockImplementationOnce(() => {
       throw new Error("Unexpected recipient");
     });
-    await expect(prepareMarketplaceFulfillment(externalInput)).rejects.toThrow(
-      "Unexpected recipient",
-    );
+    await expect(prepareMarketplaceFulfillment(externalInput)).rejects.toMatchObject({
+      code: "INVALID_FULFILLMENT",
+      retryable: false,
+    });
     expect(mocks.simulate).not.toHaveBeenCalled();
   });
 });
@@ -126,9 +127,55 @@ describe("just-in-time local fulfillment", () => {
   });
   it("does not return execution data for stale/cancelled orders or failed simulation", async () => {
     mocks.validate.mockRejectedValueOnce(new Error("Listing is cancelled"));
-    await expect(prepareMarketplaceFulfillment(input)).rejects.toThrow("cancelled");
+    await expect(prepareMarketplaceFulfillment(input)).rejects.toMatchObject({
+      code: "ORDER_CHANGED",
+      retryable: false,
+    });
     expect(mocks.simulate).not.toHaveBeenCalled();
     mocks.simulate.mockRejectedValueOnce(new Error("Execution reverted"));
     await expect(prepareMarketplaceFulfillment(input)).rejects.toThrow("reverted");
   });
+});
+
+describe("actionable fulfillment failures", () => {
+  it.each(["gnars", "opensea"] as const)(
+    "returns a typed price change and already-owned error for %s",
+    async (source) => {
+      await expect(
+        prepareMarketplaceFulfillment({ ...input, source, expectedPriceWei: "999" }),
+      ).rejects.toMatchObject({ code: "ORDER_CHANGED", retryable: false, status: 409 });
+      await expect(
+        prepareMarketplaceFulfillment({ ...input, source, buyer: offer.seller }),
+      ).rejects.toMatchObject({ code: "ORDER_ALREADY_OWNED", retryable: false, status: 409 });
+      expect(mocks.simulate).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    [
+      "InsufficientFundsError",
+      "insufficient funds for gas * price + value",
+      "INSUFFICIENT_BALANCE",
+      false,
+    ],
+    ["CallExecutionError", "execution reverted", "SIMULATION_FAILED", false],
+    ["TimeoutError", "RPC timed out", "MARKETPLACE_RPC_UNAVAILABLE", true],
+  ])(
+    "classifies %s without another RPC or exposing the raw cause",
+    async (name, message, code, retryable) => {
+      mocks.simulate.mockRejectedValueOnce(
+        new Error("RPC wrapper with secret URL", {
+          cause: Object.assign(new Error(message), { name }),
+        }),
+      );
+      let caught: unknown;
+      try {
+        await prepareMarketplaceFulfillment({ ...input, source: "opensea" });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({ code, retryable });
+      expect(String(caught)).not.toContain("secret URL");
+      expect(mocks.simulate).toHaveBeenCalledOnce();
+    },
+  );
 });

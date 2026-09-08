@@ -12,6 +12,14 @@ tokens are excluded. Inventory is scoped to the actual `useWriteAccount()` owner
 not the member page's merged EOA/smart-account inventory. Details re-read ownership.
 The collection grid does not claim that missing price data means an NFT is unlisted.
 
+The frontend includes collection, for-sale, owned-inventory and owner-listings
+(`selling`) views, exact token-ID search and direct links to an NFT drawer.
+The URL preserves `view`, `q` (token ID) and `nft` (selected NFT); browser navigation
+restores them. Wallet-scoped views always use the connected write account.
+Cards show the best loaded supported offer and its source. This is not a claim
+that the entire collection has been globally sorted or that every order type is
+supported.
+
 ## Trading
 
 - OpenSea: server-only v2 API, `gnars-dao` collection slug, native ETH fixed-price
@@ -57,6 +65,11 @@ and closing restores focus to the selected NFT. Breakpoint changes preserve the
 selected NFT and review state. The parent waits for the exit animation before
 unmounting the detail view.
 
+The review footer keeps the financial summary and explicit wallet action visible.
+There is one recovery surface: on the page when no drawer is open, otherwise in
+the drawer. Listing progress separates NFT approval, order signature and offchain
+publication; a failed publication is not described as an unconfirmed transaction.
+
 Wallet attempts are journaled in browser storage by Base account before requesting
 a transaction/signature. Web Locks coordinate tabs. Reloading, closing a drawer,
 or a WalletConnect timeout must not permit a duplicate submission.
@@ -67,10 +80,25 @@ for verification against the persisted intent before reconciliation. Unknown
 outcomes cannot be silently reset. Clearing browser storage is not a safe recovery
 procedure. No private keys are stored.
 
+`checkStatus` only reconciles existing state; it cannot publish an order or request
+a wallet signature. Continuing/retrying is a separate explicit action. Permanent
+publication rejections disable blind publication retries while keeping status
+checks and cancellation available. Rejecting a cancellation prompt preserves the
+original signed order and prevents it from being replaced by a new listing.
+
+Invalid journals expose an export and conservative metadata repair instead of a
+dead control or storage reset. Repair requires a structurally valid signed order
+belonging to the connected account, preserves that order, and refuses records with
+transaction details or unresolved signatures. Exported recovery data can contain
+an executable signed order and must be handled accordingly.
+
 When an approval receipt is unavailable, recovery can confirm the current NFT
 owner and exact Seaport approval at the same Base block. This applies only to a
 saved zero-value, single-NFT approval intent; it never substitutes for purchase or
-cancellation receipt verification. The observed hash is retained as
+cancellation transaction verification. Cancellation recovery separately checks
+Seaport's cancelled flag for the exact saved order before requiring its receipt;
+an already-cancelled order is terminal even if the RPC cannot return that receipt.
+The observed approval hash is retained as
 `approvalTxHash`, pending transaction fields are cleared, and the user explicitly
 continues before signing. Ownership, approval and fees are checked again then.
 
@@ -90,9 +118,15 @@ exact 400 response on the optional order lookup means absent; other provider
 errors must still abort publication rather than bypass its retry checks.
 Publication adds the required `totalOriginalConsiderationItems` count only to the
 OpenSea wire payload. It does not change the stored EIP-712 order or its hash.
+The current POST response is a direct OpenSea `Listing`: it is validated against
+the exact submitted order before accepting publication. Older/unrecognized
+envelopes fall back to the canonical hash lookup, never an assumed success.
 Provider failures identify the operation (read, posting or fulfillment), HTTP
-status, network failure or malformed JSON in the API error. Provider bodies,
-credentials and signatures are never forwarded as diagnostic text.
+status, network failure or malformed JSON in the API error. Typed errors retain
+their safe diagnostic code, retryability and request ID through the API and UI.
+Posting rejections, changed fees, authentication failures and temporary provider
+failures are distinct; only static diagnostic categories are shown. Raw provider
+bodies, credentials and signatures are never forwarded as diagnostic text.
 
 ## Configuration And Cost
 
@@ -105,21 +139,29 @@ credentials and signatures are never forwarded as diagnostic text.
    in that order. Apply `scripts/marketplace-schema.sql` to the selected database.
 3. Confirm `/api/marketplace/readiness` reports the expected capabilities.
 4. Configure Vercel WAF rate limits for public marketplace GET endpoints before
-   enabling the production OpenSea key. App-instance limits alone are not a
+   broad production exposure. App-instance limits alone are not a
    distributed public-read quota. Monitor provider quota and Vercel usage.
 5. Verify a real OpenSea API response and controlled wallet flow before announcing
    trading availability. Do not use production funds for automated tests.
 
 Missing configuration disables only the dependent actions: an absent OpenSea key
 disables external buying/publication; unavailable PostgreSQL disables local listing creation,
-purchase and cancellation through the local orderbook. Missing sources remain
-visible as unavailable, not empty successful results. OpenSea purchases still
-require fresh order/owner/price checks, exact-calldata validation and simulation.
+purchase and cancellation through the local orderbook. `not_configured` means an
+inactive source, not an outage banner. A configured source that fails or yields
+partial results is explicitly incomplete, not an empty successful result.
+Readiness describes configuration, not a successful live provider health check.
+Metadata and listing-read failures do not indiscriminately disable independent
+selling/cancellation capabilities. OpenSea purchases still require fresh
+order/owner/price checks, exact-calldata validation and simulation.
 
 Pages use 24-item cursor pagination. Collection reads cache for 60 seconds,
 OpenSea list reads for 30 seconds, local listings for 15 seconds. Public API
 responses use short CDN caching; owned inventory and failed reads are no-store.
 Details load on demand, without a per-NFT external request for every grid card.
+Owned inventory is enriched by one cached maker-filtered OpenSea feed (up to 200
+results); a remaining cursor marks it partial. The owner-listings view has its own
+maker-filtered pagination. A failed source retains its input cursor so a later
+retry does not silently skip that source's page.
 There is no background browser polling or new cron job. Fulfillment is uncached.
 Local-order POSTs have durable per-IP and global minute budgets in PostgreSQL; the
 pool is bounded to two connections per function instance with query timeouts.
@@ -132,10 +174,23 @@ monitoring remain necessary. A budget write that fails after readiness does not
 silently bypass the distributed guard. Local-order mutations invalidate only local
 order caches, preserving unrelated collection and OpenSea caches.
 
+Native listing reads reuse snapshots younger than 15 seconds. Stale candidates
+share one Base block and batched multicalls for status, counter, ownership and
+approval; one bulk update persists the verified results. After cached readiness,
+this is one candidate SELECT plus at most one snapshot UPDATE rather than SQL
+reads/writes per card. Failed checks mark the result partial. Transaction execution
+still validates the selected order freshly; a catalogue snapshot cannot authorize
+a purchase.
+
 Read, posting and fulfillment provider quotas are separate. The fee policy is
 cached for five minutes for quote previews, but is freshly read before posting.
 OpenSea order cache invalidation is separate from catalogue/fee metadata and
 bounded per instance to limit replay-driven cache flushes.
+
+Production WAF verification remains an operational prerequisite: project-scope
+access was unavailable during this review. In a deployment without the order
+database, the distributed provider-budget fallback is not active; do not mistake
+per-instance limits for a verified account-wide cap.
 
 ## Verification
 
@@ -152,9 +207,19 @@ bounded per instance to limit replay-driven cache flushes.
   states. These tests are not evidence of a real OpenSea API trade or funded
   WalletConnect/smart-account production purchase.
 - `tests/e2e/marketplace-selling.spec.ts`: connected desktop/mobile listing,
-  same-signature publication retry, cancellation review and approval recovery
-  when receipt lookup is unavailable. Signing and broadcasting are counted so
-  checking an approval cannot silently submit another wallet request.
+  approval, purchase and completed cancellation through the actual action buttons,
+  using an in-memory provider/RPC ledger. Coverage includes exact-signature retry,
+  rejected cancellation preserving the order, permanent publication rejection,
+  safe journal recovery and unavailable-receipt recovery. Signing/broadcasting
+  are counted and builder suffixes are checked. The ledger tests browser state
+  transitions; the fork tests exercise the actual contracts.
+- `scripts/marketplace-opensea-probe.ts [appOrigin] [simulationBuyer]`: read-only
+  authenticated OpenSea collection/fee checks, app quote accounting, live listing
+  and canonical-order compatibility, exact cancellation encoding, and app
+  fulfillment validation with onchain simulation. The probe permits only quote
+  and fulfillment preparation POSTs, never publication or broadcasting. Run with
+  `pnpm exec tsx scripts/marketplace-opensea-probe.ts http://localhost:3100` against
+  a running app with the server-side key configured in `.env.local`.
 - `scripts/marketplace-inspect.ts <tokenId> [transactionHash]`: read-only Base
   ownership, approval and receipt diagnostics. Without a hash, it searches recent
   public Blockscout account transactions for the matching NFT approval. It never
@@ -162,6 +227,9 @@ bounded per instance to limit replay-driven cache flushes.
 - A read-only authenticated OpenSea check on September 6 successfully encoded and
   independently validated the live Gnars #1951 fulfillment response. This checks
   provider response compatibility, not a funded production wallet transaction.
+- During the September 7 review, the fork smoke and live OpenSea/app probe passed.
+  These checks do not establish that production publication or a funded wallet
+  trade succeeded, nor do they certify that a deployment has completed.
 - The listing fork smoke additionally verifies a required-fee order's exact
   seller/fee balances, whole-NFT transfer, and tagged cancellation. Browser
   listing tests use mocked provider/RPC responses; they must never publish a

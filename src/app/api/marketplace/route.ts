@@ -1,13 +1,17 @@
 import type { Address } from "viem";
 import { z } from "zod";
-import { enforceRateLimit, requestSecurityResponse } from "@/lib/server/request-security";
+import { enforceRateLimit } from "@/lib/server/request-security";
 import { loadMarketplacePage } from "@/services/marketplace";
-import { marketplaceAddressSchema, parseMarketplaceInput } from "@/services/marketplace-common";
+import {
+  marketplaceAddressSchema,
+  marketplaceErrorResponse,
+  parseMarketplaceInput,
+} from "@/services/marketplace-common";
 
 export const dynamic = "force-dynamic";
 const querySchema = z
   .object({
-    view: z.enum(["listings", "catalogue", "owned"]).default("listings"),
+    view: z.enum(["listings", "catalogue", "owned", "selling"]).default("listings"),
     owner: marketplaceAddressSchema.optional(),
     cursor: z.string().max(2048).optional(),
   })
@@ -21,16 +25,18 @@ export async function GET(request: Request) {
       Object.fromEntries(new URL(request.url).searchParams),
     );
     const page = await loadMarketplacePage({ ...query, owner: query.owner as Address | undefined });
-    const degraded = Object.values(page.sources).some((source) => source.error === "unavailable");
+    const degraded = Object.values(page.sources).some(
+      (source) => source.error === "unavailable" || source.partial,
+    );
     return Response.json(page, {
       headers: {
         "Cache-Control":
-          query.view === "owned" || degraded
+          query.view === "owned" || query.view === "selling" || degraded
             ? "no-store"
             : "public, s-maxage=15, stale-while-revalidate=15",
       },
     });
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

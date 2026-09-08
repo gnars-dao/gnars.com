@@ -1,10 +1,10 @@
 import { z } from "zod";
+import { enforceRateLimit, readJsonBody } from "@/lib/server/request-security";
 import {
-  enforceRateLimit,
-  readJsonBody,
-  requestSecurityResponse,
-} from "@/lib/server/request-security";
-import { marketplaceUintSchema, parseMarketplaceInput } from "@/services/marketplace-common";
+  marketplaceErrorResponse,
+  marketplaceUintSchema,
+  parseMarketplaceInput,
+} from "@/services/marketplace-common";
 import { getOpenSeaListingQuote } from "@/services/marketplace-opensea";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +31,6 @@ export async function POST(request: Request) {
       },
     );
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

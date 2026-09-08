@@ -6,17 +6,17 @@ import Image from "@/components/ui/content-image";
 import type { MarketplaceItem } from "@/types/marketplace";
 
 export function NftArtwork({ item, sizes }: { item: MarketplaceItem; sizes: string }) {
-  const [failed, setFailed] = useState(false);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
   return (
     <div className="relative aspect-square overflow-hidden bg-muted">
-      {item.image && !failed ? (
+      {item.image && item.image !== failedSource ? (
         <Image
           src={item.image}
           alt={item.name}
           fill
           sizes={sizes}
           className="object-contain"
-          onError={() => setFailed(true)}
+          onError={() => setFailedSource(item.image)}
         />
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">

@@ -1,5 +1,7 @@
 import {
   decodeFunctionData,
+  encodeAbiParameters,
+  encodeEventTopics,
   encodeFunctionData,
   parseAbi,
   zeroAddress,
@@ -117,6 +119,18 @@ describe("canonical Gnars Seaport orders", () => {
       canReplaceMarketplaceAttempt({ phase: "failed", kind: "list", listing: listing() }),
     ).toBe(false);
     expect(canReplaceMarketplaceAttempt({ phase: "complete", listing: listing() })).toBe(true);
+    expect(
+      canReplaceMarketplaceAttempt({ phase: "failed", kind: "cancel", listing: listing() }),
+    ).toBe(false);
+    expect(
+      canReplaceMarketplaceAttempt({
+        phase: "failed",
+        kind: "cancel",
+        listing: listing(),
+        txHash: zeroHash,
+        transactionFailed: true,
+      }),
+    ).toBe(false);
   });
   it.each(["chain", "account", "target", "value", "calldata", "old-block"])(
     "rejects attached transaction with wrong %s",
@@ -218,6 +232,31 @@ describe("canonical Gnars Seaport orders", () => {
     expect(() => verifyMarketplaceTransaction(intent, tx, { status: "success", logs: [] })).toThrow(
       "execution result",
     );
+    const topics = encodeEventTopics({
+      abi: entryPoint06Abi,
+      eventName: "UserOperationEvent",
+      args: { userOpHash: zeroHash, sender: account.address, paymaster: zeroAddress },
+    });
+    const outcomeLog = (success: boolean, nonce = 0n) => ({
+      address: tx.to,
+      topics: topics.map((topic) => {
+        if (typeof topic !== "string") throw new Error("Expected a concrete event topic");
+        return topic;
+      }),
+      data: encodeAbiParameters(
+        [{ type: "uint256" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }],
+        [nonce, success, 1n, 1n],
+      ),
+    });
+    expect(
+      verifyMarketplaceTransaction(intent, tx, { status: "success", logs: [outcomeLog(true)] }),
+    ).toBe(true);
+    expect(
+      verifyMarketplaceTransaction(intent, tx, { status: "success", logs: [outcomeLog(false)] }),
+    ).toBe(false);
+    expect(() =>
+      verifyMarketplaceTransaction(intent, tx, { status: "success", logs: [outcomeLog(true, 1n)] }),
+    ).toThrow("execution result");
   });
   it("round-trips exact native ETH fulfillment calldata", () => {
     const order = listing();

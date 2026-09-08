@@ -1,5 +1,6 @@
-import { enforceRateLimit, requestSecurityResponse } from "@/lib/server/request-security";
+import { enforceRateLimit } from "@/lib/server/request-security";
 import { getMarketplaceReadiness } from "@/services/marketplace";
+import { marketplaceErrorResponse } from "@/services/marketplace-common";
 
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
@@ -9,6 +10,6 @@ export async function GET(request: Request) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

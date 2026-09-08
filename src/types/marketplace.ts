@@ -22,10 +22,12 @@ export type MarketplaceItem = {
 
 export type MarketplaceAvailability = {
   available: boolean;
+  partial?: boolean;
   error?: "not_configured" | "unavailable";
 };
 
 export type MarketplacePage = {
+  ownershipVerified?: boolean;
   items: MarketplaceItem[];
   nextCursor: string | null;
   sources: {

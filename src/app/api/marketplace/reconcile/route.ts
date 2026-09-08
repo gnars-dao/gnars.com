@@ -1,12 +1,9 @@
 import { revalidateTag } from "next/cache";
 import { z } from "zod";
-import {
-  enforceRateLimit,
-  readJsonBody,
-  requestSecurityResponse,
-} from "@/lib/server/request-security";
+import { enforceRateLimit, readJsonBody } from "@/lib/server/request-security";
 import {
   MARKETPLACE_ORDERS_CACHE_TAG,
+  marketplaceErrorResponse,
   marketplaceHashSchema,
   parseMarketplaceInput,
 } from "@/services/marketplace-common";
@@ -29,6 +26,6 @@ export async function POST(request: Request) {
     revalidateTag(MARKETPLACE_ORDERS_CACHE_TAG, { expire: 0 });
     return Response.json({ status }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }

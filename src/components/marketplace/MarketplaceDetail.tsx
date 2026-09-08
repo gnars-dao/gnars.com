@@ -5,7 +5,6 @@ import { useLocale, useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Check,
   ExternalLink,
   LoaderCircle,
   RefreshCw,
@@ -43,18 +42,6 @@ import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { NftArtwork } from "./NftArtwork";
 
 type Mode = "details" | "buy" | "sell" | "cancel";
-const phases = [
-  "idle",
-  "checking",
-  "approving",
-  "signing",
-  "saving",
-  "buying",
-  "cancelling",
-  "confirming",
-  "success",
-  "error",
-] as const;
 
 export default function MarketplaceDetail({
   item: initialItem,
@@ -86,6 +73,7 @@ export default function MarketplaceDetail({
     initialCapabilities.openseaSell ? "opensea" : "gnars",
   );
   const [submitted, setSubmitted] = useState(false);
+  const [priceTouched, setPriceTouched] = useState(false);
   const [quotePrice, setQuotePrice] = useState("");
   const detail = useQuery({
     queryKey: ["marketplace", "detail", initialItem.tokenId],
@@ -125,18 +113,14 @@ export default function MarketplaceDetail({
     retry: false,
   });
   const verifiedDetail =
-    !!detail.data?.sources.catalogue.available && !detail.isError && !detail.isFetching;
-  const phase =
-    actions.phase === "complete"
-      ? "success"
-      : actions.phase === "failed"
-        ? "error"
-        : (phases.find((value) => value === actions.phase) ?? "checking");
+    detail.data?.ownershipVerified === true && !detail.isError && !detail.isFetching;
   const busy = actions.isBusy;
-  const success = phase === "success";
-  const unresolved = ["pending", "unknown", "confirming", "signing", "saving"].includes(
-    actions.phase,
-  );
+  const success = actions.phase === "complete";
+  const unresolved =
+    !!actions.invalidJournal ||
+    actions.canCancelSavedListing ||
+    actions.canResume ||
+    ["pending", "unknown", "confirming", "signing", "saving"].includes(actions.phase);
   const quoteReady =
     quote.data?.priceWei === priceWei?.toString() &&
     quote.data?.source === listingDestination &&
@@ -162,10 +146,11 @@ export default function MarketplaceDetail({
     void queryClient.invalidateQueries({ queryKey: ["marketplace"] });
   }
 
-  function choose(next: Mode, listing?: MarketplaceOffer) {
+  async function choose(next: Mode, listing?: MarketplaceOffer) {
     if (busy || unresolved) return;
-    if (writer) actions.reset();
+    if (writer) await actions.reset();
     setSubmitted(false);
+    setPriceTouched(false);
     setOffer(listing ?? null);
     setMode(next);
     if (next === "sell") setListingDestination(capabilities.openseaSell ? "opensea" : "gnars");
@@ -255,7 +240,7 @@ export default function MarketplaceDetail({
           data-vaul-no-drag
           className="min-h-0 flex-1 select-text space-y-6 overflow-y-auto overscroll-contain px-5 pt-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] md:px-6 md:pt-6"
         >
-          <MarketplaceRecovery />
+          {mode === "details" && <MarketplaceRecovery />}
           <div className="min-w-0 space-y-3">
             <div
               className={cn(
@@ -278,6 +263,10 @@ export default function MarketplaceDetail({
           <div className="min-w-0 space-y-5">
             {mode === "details" ? (
               <>
+                <div className="flex items-center justify-between gap-3 border-b pb-4 text-xs">
+                  <span className="text-muted-foreground">{t("tokenId")}</span>
+                  <span className="font-mono">#{item.tokenId}</span>
+                </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{t("owner")}</p>
                   {item.owner ? (
@@ -290,27 +279,48 @@ export default function MarketplaceDetail({
                   ) : (
                     <span className="text-sm">{t("availabilityUnknown")}</span>
                   )}
+                  {!verifiedDetail && !detail.isFetching && !detail.isError && (
+                    <div className="mt-3 space-y-2">
+                      <p role="status" className="text-xs text-muted-foreground">
+                        {t("ownershipUnverified")}
+                      </p>
+                      <Button size="sm" variant="outline" onClick={() => void detail.refetch()}>
+                        <RefreshCw className="size-4" />
+                        {t("retryVerification")}
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold">{t("offers")}</h3>
                   {detail.isPending ? (
                     <LoaderCircle className="size-4 animate-spin" aria-label={t("loading")} />
                   ) : detail.isError ? (
-                    <p role="alert" className="text-sm text-destructive">
-                      {t("loadError")}
-                    </p>
+                    <div className="space-y-2">
+                      <p role="alert" className="text-sm text-destructive">
+                        {t("loadError")}
+                      </p>
+                      <Button size="sm" variant="outline" onClick={() => void detail.refetch()}>
+                        <RefreshCw className="size-4" />
+                        {t("retry")}
+                      </Button>
+                    </div>
                   ) : item.offers.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
                       {t(
-                        detail.data?.sources.opensea.available &&
-                          detail.data?.sources.gnars.available
+                        detail.data &&
+                          [detail.data.sources.opensea, detail.data.sources.gnars].every(
+                            (source) =>
+                              (source.available && !source.partial) ||
+                              source.error === "not_configured",
+                          )
                           ? "notListed"
                           : "availabilityUnknown",
                       )}
                     </p>
                   ) : null}
                   {item.offers.map((listing) => (
-                    <div key={listing.id} className="space-y-3 border-b pb-4 last:border-b-0">
+                    <div key={listing.id} className="space-y-3 border-b py-2 pb-4 last:border-b-0">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <span className="break-all font-mono text-xl font-semibold">
                           {formatEther(BigInt(listing.priceWei))} ETH
@@ -370,7 +380,7 @@ export default function MarketplaceDetail({
                 ) : isOwner ? (
                   <div className="space-y-2">
                     <Button
-                      variant="outline"
+                      variant="default"
                       onClick={() => choose("sell")}
                       disabled={
                         busy ||
@@ -428,10 +438,11 @@ export default function MarketplaceDetail({
                         value={price}
                         placeholder="0.01"
                         onChange={(event) => setPrice(event.target.value)}
+                        onBlur={() => setPriceTouched(true)}
                         disabled={busy || success || unresolved}
-                        aria-invalid={submitted && !priceWei}
+                        aria-invalid={(submitted || priceTouched) && !priceWei}
                       />
-                      {submitted && !priceWei && (
+                      {(submitted || priceTouched) && !priceWei && (
                         <p role="alert" className="text-xs text-destructive">
                           {t("invalidPrice")}
                         </p>
@@ -474,30 +485,32 @@ export default function MarketplaceDetail({
                             ETH
                           </dd>
                         </div>
-                        <div className="flex flex-wrap justify-between gap-2">
-                          <dt className="text-muted-foreground">{t("proceeds")}</dt>
-                          <dd className="break-all font-mono font-semibold">
-                            {formatEther(BigInt(quote.data.sellerWei))} ETH
-                          </dd>
-                        </div>
                       </dl>
                     ) : quote.isFetching ? (
                       <LoaderCircle className="size-4 animate-spin" aria-label={t("loading")} />
                     ) : quote.isError ? (
-                      <p role="alert" className="text-xs text-destructive">
-                        {t("loadError")}
-                      </p>
+                      <div className="space-y-2">
+                        <p role="alert" className="text-xs text-destructive">
+                          {t("quoteError")}
+                        </p>
+                        <Button size="sm" variant="outline" onClick={() => void quote.refetch()}>
+                          <RefreshCw className="size-4" />
+                          {t("retry")}
+                        </Button>
+                      </div>
                     ) : null}
                   </div>
                 ) : (
                   offer && (
                     <dl className="space-y-3 text-sm">
-                      <div>
-                        <dt className="text-xs text-muted-foreground">{t("total")}</dt>
-                        <dd className="mt-1 break-all font-mono font-semibold">
-                          {formatEther(BigInt(offer.priceWei))} ETH
-                        </dd>
-                      </div>
+                      {mode === "cancel" && (
+                        <div>
+                          <dt className="text-xs text-muted-foreground">{t("total")}</dt>
+                          <dd className="mt-1 break-all font-mono font-semibold">
+                            {formatEther(BigInt(offer.priceWei))} ETH
+                          </dd>
+                        </div>
+                      )}
                       <div>
                         <dt className="text-xs text-muted-foreground">{t("seller")}</dt>
                         <dd className="mt-1 break-all font-mono text-xs">
@@ -516,103 +529,88 @@ export default function MarketplaceDetail({
                   <p className="text-sm text-muted-foreground">{t("cancelConfirm")}</p>
                 )}
                 <p className="text-xs text-muted-foreground">{t("gas")}</p>
-                {phase !== "idle" && (
-                  <p role="status" className="flex items-start gap-2 text-sm">
-                    {success ? (
-                      <Check className="size-4 shrink-0 text-green-600" />
-                    ) : busy ? (
-                      <LoaderCircle className="size-4 shrink-0 animate-spin" />
-                    ) : null}
-                    {actions.listingOutcome
-                      ? t(`outcomes.${actions.listingOutcome}`)
-                      : t(`steps.${phase}`)}
-                  </p>
-                )}
-                {actions.error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {t(
-                      actions.phase === "saving"
-                        ? "errors.publication"
-                        : actions.error.code === "wallet"
-                          ? writer
-                            ? "errors.rejected"
-                            : "errors.wallet"
-                          : "errors.generic",
-                    )}
-                  </p>
-                )}
-                {unresolved && (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    {t("transactionPending")}
-                  </p>
-                )}
-                {actions.txHash && (
-                  <a
-                    className="inline-flex items-center gap-1.5 break-all text-xs underline underline-offset-4"
-                    href={`https://basescan.org/tx/${actions.txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {t("transaction")}
-                    <ExternalLink className="size-3" />
-                  </a>
-                )}
-                {!writer ? (
-                  <ConnectButton />
-                ) : success ? (
-                  <DrawerClose asChild>
-                    <Button className="w-full">{t("newAction")}</Button>
-                  </DrawerClose>
-                ) : (
-                  <Button
-                    disabled={
-                      busy ||
-                      unresolved ||
-                      (mode === "sell" && !quoteReady) ||
-                      !verifiedDetail ||
-                      (mode === "sell"
-                        ? !canList
-                        : offer?.source === "opensea"
-                          ? !(mode === "cancel"
-                              ? capabilities.openseaCancel
-                              : capabilities.openseaBuy)
-                          : !capabilities.localTrading)
-                    }
-                    onClick={() => void execute()}
-                    className="w-full cursor-pointer"
-                  >
-                    {busy ? (
-                      <LoaderCircle className="size-4 animate-spin" />
-                    ) : mode === "sell" ? (
-                      <Tag className="size-4" />
-                    ) : mode === "buy" ? (
-                      <ShoppingBag className="size-4" />
-                    ) : (
-                      <X className="size-4" />
-                    )}
-                    {t(
-                      mode === "sell"
-                        ? "confirmList"
-                        : mode === "buy"
-                          ? "confirmBuy"
-                          : "confirmCancel",
-                    )}
-                  </Button>
-                )}
-                {actions.txHash && !success && !busy && (
-                  <Button
-                    variant="outline"
-                    onClick={() => void actions.checkStatus()}
-                    className="w-full"
-                  >
-                    <RefreshCw className="size-4" />
-                    {t("checkStatus")}
-                  </Button>
-                )}
               </>
             )}
           </div>
         </div>
+        {mode !== "details" && (
+          <footer className="shrink-0 space-y-3 border-t bg-background px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
+            <div className="max-h-[35dvh] overflow-y-auto">
+              <MarketplaceRecovery showCompleted />
+            </div>
+            {!success && !unresolved && !busy && mode !== "cancel" && (
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {t(mode === "sell" ? "proceeds" : "total")}
+                </span>
+                <span className="break-all font-mono text-lg font-semibold tabular-nums">
+                  {mode === "sell"
+                    ? quoteReady && quote.data
+                      ? `${formatEther(BigInt(quote.data.sellerWei))} ETH`
+                      : "-"
+                    : offer
+                      ? `${formatEther(BigInt(offer.priceWei))} ETH`
+                      : "-"}
+                </span>
+              </div>
+            )}
+            {!verifiedDetail && !detail.isFetching && !unresolved && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => void detail.refetch()}
+              >
+                <RefreshCw className="size-4" />
+                {t("retryVerification")}
+              </Button>
+            )}
+            {!writer ? (
+              <ConnectButton />
+            ) : success ? (
+              <DrawerClose asChild>
+                <Button className="h-11 w-full">{t("newAction")}</Button>
+              </DrawerClose>
+            ) : (
+              !unresolved && (
+                <Button
+                  disabled={
+                    busy ||
+                    (mode === "sell" && !quoteReady) ||
+                    !verifiedDetail ||
+                    (mode === "sell"
+                      ? !canList
+                      : offer?.source === "opensea"
+                        ? !(mode === "cancel"
+                            ? capabilities.openseaCancel
+                            : capabilities.openseaBuy)
+                        : !capabilities.localTrading)
+                  }
+                  onClick={() => void execute()}
+                  variant={mode === "cancel" ? "destructive" : "default"}
+                  className="h-11 w-full cursor-pointer"
+                >
+                  {busy ? (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  ) : mode === "sell" ? (
+                    <Tag className="size-4" />
+                  ) : mode === "buy" ? (
+                    <ShoppingBag className="size-4" />
+                  ) : (
+                    <X className="size-4" />
+                  )}
+                  {t(
+                    mode === "sell"
+                      ? "confirmList"
+                      : mode === "buy"
+                        ? "confirmBuy"
+                        : "confirmCancel",
+                  )}
+                </Button>
+              )
+            )}
+          </footer>
+        )}
       </DrawerContent>
     </Drawer>
   );

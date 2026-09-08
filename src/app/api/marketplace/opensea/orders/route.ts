@@ -1,10 +1,6 @@
 import { z } from "zod";
-import {
-  enforceRateLimit,
-  readJsonBody,
-  requestSecurityResponse,
-} from "@/lib/server/request-security";
-import { parseMarketplaceInput } from "@/services/marketplace-common";
+import { enforceRateLimit, readJsonBody } from "@/lib/server/request-security";
+import { marketplaceErrorResponse, parseMarketplaceInput } from "@/services/marketplace-common";
 import {
   invalidateOpenSeaOrdersCache,
   publishOpenSeaListing,
@@ -26,6 +22,6 @@ export async function POST(request: Request) {
     invalidateOpenSeaOrdersCache(offer.orderHash);
     return Response.json({ offer }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return requestSecurityResponse(error);
+    return marketplaceErrorResponse(error);
   }
 }
