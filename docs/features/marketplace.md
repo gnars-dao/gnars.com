@@ -155,6 +155,78 @@ bodies, credentials and signatures are never forwarded as diagnostic text.
 5. Verify a real OpenSea API response and controlled wallet flow before announcing
    trading availability. Do not use production funds for automated tests.
 
+### Supabase Connection Security
+
+Use the project's transaction-pooler connection for Vercel, with a dedicated
+non-owner marketplace login rather than the `postgres` administrator. Its grants
+are limited to schema usage, order SELECT/INSERT/UPDATE, rate-limit
+SELECT/INSERT/UPDATE/DELETE, and USAGE of the order-ID sequence. Enable RLS with
+policies scoped only to that runtime role; revoke these objects' Data API access
+from `PUBLIC`, `anon`, `authenticated`, and `service_role`. No browser Supabase
+client or Supabase Auth integration is required.
+
+Set the server-only `MARKETPLACE_DATABASE_SSL_CA` to the project's trusted PEM
+certificate when its connection requires a custom CA. Both multiline PEM and
+literal `\\n` escapes are accepted. Supplying a CA forces TLS certificate and
+hostname verification; URL SSL parameters cannot override that configuration.
+Connections without this variable retain their existing driver behavior. Never
+disable certificate verification to work around connection errors.
+
+An administrative `SUPABASE_DATABASE_URL` may be supplied locally for provisioning
+only. Never deploy that administrator credential to Vercel or prefix a database
+variable with `NEXT_PUBLIC_`. Use `MARKETPLACE_DATABASE_URL`, not a shared fallback,
+to avoid enabling unverified rounds or checkout storage. Keep production and
+preview data and credentials isolated.
+
+Verify the runtime role's actual inserts, reads, updates, budget upserts and
+cleanup inside a rolled-back transaction before enabling production. The readiness
+check verifies table structure and grants but does not prove RLS policies allow
+the required operations. Also verify anonymous/authenticated Data API roles
+cannot access the marketplace tables, and the runtime role cannot delete orders
+or perform schema changes.
+
+### Provisioning Commands
+
+`scripts/marketplace-supabase-setup.mjs` separates database setup from deployment.
+Run from the repository root using Node 24; each command requires the expected
+Supabase project reference explicitly:
+
+```bash
+node scripts/marketplace-supabase-setup.mjs inspect <project-ref>
+node scripts/marketplace-supabase-setup.mjs provision <project-ref>
+node scripts/marketplace-supabase-setup.mjs smoke <project-ref>
+node scripts/marketplace-supabase-setup.mjs publish-env <project-ref>
+```
+
+- `inspect` loads local `.env.local`, verifies the admin session-pooler URL matches
+  the supplied project, and reports existing public tables and runtime-role
+  presence. It downloads the CA from Supabase's official certificate distribution
+  endpoint over HTTPS and verifies PostgreSQL TLS; it does not change the database.
+- `provision` requires a fresh public schema and no existing runtime role or local
+  runtime connection settings. It creates the tables and security policies,
+  generates a restricted-role password, and writes the runtime URL and CA into
+  `.env.local` with owner-only permissions. It then runs the rollback smoke test.
+  It refuses to overwrite existing setup or rotate credentials silently.
+- `smoke` uses the runtime URL and CA already present locally. It verifies allowed
+  SQL operations, rejects forbidden operations, and rolls back its test rows.
+- `publish-env` first repeats the runtime smoke test, then uploads only
+  `MARKETPLACE_DATABASE_URL` and `MARKETPLACE_DATABASE_SSL_CA` to the linked
+  `gnars.com` Vercel project's Production environment. Vercel CLI authentication is
+  required. It does not publish administrative credentials or configure Preview.
+
+The official CA source used by the script is
+`https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt`.
+Admin URLs use the dashboard's session pooler on port 5432, without SSL query
+overrides; generated runtime URLs use that project's transaction pooler on 6543.
+
+These commands never deploy the application or submit blockchain transactions.
+Verify both Vercel variables before the separate deployment and then check
+production readiness. If provisioning is interrupted after writing local settings,
+inspect the database before retrying; retained credentials are not proof of a
+committed setup. Environment uploads are sequential, so a failed upload can leave
+only one variable configured; `publish-env` can be retried without recreating the
+database.
+
 Missing configuration disables only the dependent actions: an absent OpenSea key
 disables external buying/publication; unavailable PostgreSQL disables local listing creation,
 purchase and cancellation through the local orderbook. `not_configured` means an

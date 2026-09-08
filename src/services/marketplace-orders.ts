@@ -15,6 +15,7 @@ import {
   type ListingStatus,
   type SignedListing,
 } from "@/lib/marketplace/seaport";
+import { marketplaceDatabaseConnection } from "@/lib/server/marketplace-database";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import {
   MARKETPLACE_PAGE_SIZE,
@@ -41,7 +42,7 @@ function database() {
   if (!connectionString)
     throw marketplaceUnavailable("Marketplace order storage is not configured.");
   pool ??= new Pool({
-    connectionString,
+    ...marketplaceDatabaseConnection(connectionString, process.env.MARKETPLACE_DATABASE_SSL_CA),
     max: 2,
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 10000,
