@@ -85,12 +85,15 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
   const complete = actions.phase === "complete";
   const resumable = actions.canResume && actions.error?.retryable !== false;
   const onchain = !!actions.txStep && ["unknown", "pending", "confirming"].includes(actions.phase);
+  const awaitingReceipt = onchain && !!actions.txHash;
   const phaseKey = complete
     ? "success"
     : onchain
-      ? actions.isBusy
+      ? actions.isBusy || actions.isConfirmingAutomatically
         ? "confirming"
-        : "pending"
+        : awaitingReceipt
+          ? "confirmationDelayed"
+          : "pending"
       : actions.phase === "failed"
         ? "error"
         : actions.phase === "unknown"
@@ -116,7 +119,7 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
     <section aria-label={recoveryTitle} className="space-y-3 border-y py-4">
       {actions.recovery && (
         <div className="flex items-center gap-2">
-          {actions.isBusy ? (
+          {actions.isBusy || actions.isConfirmingAutomatically ? (
             <LoaderCircle className="size-4 shrink-0 animate-spin" />
           ) : complete ? (
             <Check className="size-4 shrink-0 text-emerald-500" />
@@ -128,7 +131,13 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
                 : actions.listingOutcome
                   ? t("statusVerified")
                   : t(`completed.${actions.recovery.kind}`)
-              : recoveryTitle}
+              : awaitingReceipt
+                ? t(
+                    actions.recovery.kind === "buy"
+                      ? "confirmingPurchase"
+                      : "confirmingTransaction",
+                  )
+                : recoveryTitle}
           </h2>
         </div>
       )}
@@ -202,7 +211,9 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
           </p>
         )
       )}
-      {actions.error && <MarketplaceError error={actions.error} />}
+      {actions.error && actions.error.code !== "CONFIRMATION_PENDING" && (
+        <MarketplaceError error={actions.error} />
+      )}
       <div className="flex flex-wrap gap-2">
         {complete && actions.sweepResult && !actions.isBusy && (
           <Button

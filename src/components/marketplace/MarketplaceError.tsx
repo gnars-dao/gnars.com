@@ -5,6 +5,7 @@ import { CircleAlert } from "lucide-react";
 
 const errorMessages: Record<string, string> = {
   TRANSACTION_REVERTED: "reverted",
+  TRANSACTION_MISMATCH: "transactionMismatch",
   WALLET_CHANGED: "walletChanged",
   OPENSEA_CONDUIT_INVALID: "conduitInvalid",
   OPENSEA_SIGNATURE_INVALID: "signature",

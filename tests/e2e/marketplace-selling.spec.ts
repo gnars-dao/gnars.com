@@ -44,6 +44,8 @@ async function setupWallet(
     restoreCancelled?: boolean;
     corruptJournal?: boolean;
     rejectPublication?: boolean;
+    holdConfirmation?: boolean;
+    revertPurchase?: boolean;
   } = {},
 ) {
   const account = privateKeyToAccount(generatePrivateKey());
@@ -60,6 +62,7 @@ async function setupWallet(
   let approvedOperator = options.legacyApproval ? SEAPORT_ADDRESS : OPENSEA_CONDUIT_ADDRESS;
   let cancelled = false;
   let filled = false;
+  let holdConfirmation = !!options.holdConfirmation;
   let nftOwner = account.address;
   const receipts = new Map<string, Record<string, unknown>>();
   const sentTransactions = new Map<string, Record<string, unknown>>();
@@ -274,7 +277,7 @@ async function setupWallet(
         contractAddress: null,
         logs: [],
         logsBloom: `0x${"0".repeat(512)}`,
-        status: "0x1",
+        status: options.revertPurchase && options.buying ? "0x0" : "0x1",
         effectiveGasPrice: "0x3b9aca00",
         type: "0x2",
       });
@@ -291,6 +294,8 @@ async function setupWallet(
       return options.missingCancelReceipt && cancelled
         ? null
         : (receipts.get(String(params[0])) ?? null);
+    if (method === "eth_getTransactionByHash" && filled && holdConfirmation)
+      throw Object.assign(new Error("Temporary confirmation RPC outage"), { code: -32000 });
     if (method === "eth_getTransactionByHash")
       return sentTransactions.get(String(params[0])) ?? null;
     if (method === "eth_getBalance") return "0xde0b6b3a7640000";
@@ -600,6 +605,9 @@ async function setupWallet(
     journalKey,
     approvalHash,
     state: () => ({ approved, cancelled, filled, nftOwner }),
+    releaseConfirmation: () => {
+      holdConfirmation = false;
+    },
   };
 }
 
@@ -725,8 +733,7 @@ test("NFT approval confirms before signing and publishing", async ({ page }) => 
 test("cancelled order recovers without a receipt or another transaction", async ({ page }) => {
   test.setTimeout(90000);
   const wallet = await setupWallet(page, { restoreCancelled: true });
-  const drawer = await connectAndInspect(page);
-  await drawer.getByRole("button", { name: "Verificar transação", exact: true }).click();
+  await connectAndInspect(page);
   await expect
     .poll(async () =>
       page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).phase, wallet.journalKey),
@@ -763,6 +770,110 @@ test("buyer confirms an OpenSea purchase and sees completed ownership", async ({
     timeout: 25000,
   });
   expect(wallet.state().nftOwner).toBe(wallet.account.address);
+  expect(wallet.transactions).toHaveLength(1);
+});
+
+for (const mobile of [false, true]) {
+  test(`purchase confirmation retries reads without another send ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 });
+    const wallet = await setupWallet(page, {
+      confirmTransactions: true,
+      buying: true,
+      holdConfirmation: true,
+    });
+    const drawer = await connectAndInspect(page, true);
+    await drawer.getByRole("button", { name: "Comprar", exact: true }).click();
+    await drawer.getByRole("button", { name: "Confirmar compra", exact: true }).click();
+    await expect(
+      drawer.getByRole("heading", { name: "Confirmando compra", exact: true }),
+    ).toBeVisible();
+    await expect(drawer.getByText("0.01 ETH", { exact: true })).toBeVisible();
+    await expect
+      .poll(async () =>
+        page.evaluate(
+          (key) => JSON.parse(localStorage.getItem(key)!)?.error?.code,
+          wallet.journalKey,
+        ),
+      )
+      .toBe("CONFIRMATION_PENDING");
+    await expect(drawer.getByRole("alert")).toHaveCount(0);
+    await page.screenshot({
+      path: `test-results/purchase-confirming-${mobile ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
+    expect(wallet.transactions).toHaveLength(1);
+    expect(wallet.signedRequests).toHaveLength(0);
+    wallet.releaseConfirmation();
+    await expect(
+      drawer.getByRole("heading", { name: "Compra confirmada", exact: true }),
+    ).toBeVisible({ timeout: 30000 });
+    await expect(drawer.getByText("0.01 ETH", { exact: true })).toBeVisible();
+    expect(wallet.transactions).toHaveLength(1);
+  });
+}
+
+test("purchase confirmation resumes after reload without another wallet request", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, {
+    confirmTransactions: true,
+    buying: true,
+    holdConfirmation: true,
+  });
+  const drawer = await connectAndInspect(page, true);
+  await drawer.getByRole("button", { name: "Comprar", exact: true }).click();
+  await drawer.getByRole("button", { name: "Confirmar compra", exact: true }).click();
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        (key) => JSON.parse(localStorage.getItem(key)!)?.error?.code,
+        wallet.journalKey,
+      ),
+    )
+    .toBe("CONFIRMATION_PENDING");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "Confirmando compra", exact: true })).toBeVisible({
+    timeout: 30000,
+  });
+  wallet.releaseConfirmation();
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((key) => JSON.parse(localStorage.getItem(key)!)?.phase, wallet.journalKey),
+      { timeout: 30000 },
+    )
+    .toBe("complete");
+  expect(wallet.transactions).toHaveLength(1);
+  expect(wallet.signedRequests).toHaveLength(0);
+});
+
+test("verified purchase revert remains a failure instead of automatic success", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, {
+    confirmTransactions: true,
+    buying: true,
+    revertPurchase: true,
+  });
+  const drawer = await connectAndInspect(page, true);
+  await drawer.getByRole("button", { name: "Comprar", exact: true }).click();
+  await drawer.getByRole("button", { name: "Confirmar compra", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((key) => JSON.parse(localStorage.getItem(key)!)?.phase, wallet.journalKey),
+      { timeout: 30000 },
+    )
+    .toBe("failed");
+  await expect(drawer.getByRole("heading", { name: "Compra confirmada", exact: true })).toHaveCount(
+    0,
+  );
+  await expect(drawer.getByRole("alert").first()).toBeVisible();
   expect(wallet.transactions).toHaveLength(1);
 });
 
@@ -856,7 +967,6 @@ test("pending NFT approval recovers from confirmed state without another approva
   const wallet = await setupWallet(page, { restorePendingApproval: true });
   const drawer = await connectAndInspect(page);
   await expect(drawer.getByRole("button", { name: "Anunciar", exact: true })).toBeDisabled();
-  await drawer.getByRole("button", { name: "Verificar transação", exact: true }).click();
   await expect(
     drawer.getByRole("button", { name: "Continuar anúncio", exact: true }),
   ).toBeVisible();

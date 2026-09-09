@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { sendTransaction } from "thirdweb";
 import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
@@ -28,6 +29,11 @@ import {
   MIN_COMMUNITY_GNARS,
   validateCommunityFeePolicy,
 } from "@/lib/marketplace/community-policy";
+import {
+  confirmationAttemptKey,
+  confirmationPendingError,
+  createConfirmationRecovery,
+} from "@/lib/marketplace/confirmation";
 import { parseMarketplaceApiError } from "@/lib/marketplace/errors";
 import {
   assertMarketplaceJournalProtocol,
@@ -143,6 +149,8 @@ type Entry = {
   busy: boolean;
   listeners: Set<() => void>;
   invalidRaw?: string;
+  confirmation?: ReturnType<typeof createConfirmationRecovery>;
+  confirmingAutomatically?: boolean;
 };
 const entries = new Map<string, Entry>();
 const keyFor = (account: Address) => `gnars:marketplace:v1:8453:${account.toLowerCase()}`;
@@ -271,6 +279,7 @@ async function locked<T>(account: Address, action: () => Promise<T>): Promise<T>
 }
 
 export function useMarketplaceActions() {
+  const queryClient = useQueryClient();
   const writer = useWriteAccount(),
     writerRef = useRef(writer);
   writerRef.current = writer;
@@ -278,6 +287,7 @@ export function useMarketplaceActions() {
   const [journal, setJournal] = useState<Journal | null>(null),
     [isBusy, setBusy] = useState(false),
     [error, setError] = useState<MarketplaceActionError | null>(null);
+  const [isConfirmingAutomatically, setConfirmingAutomatically] = useState(false);
   const [invalidJournal, setInvalidJournal] = useState<{ raw: string; storageKey: string } | null>(
     null,
   );
@@ -287,6 +297,7 @@ export function useMarketplaceActions() {
     setJournal(null);
     setError(null);
     setBusy(false);
+    setConfirmingAutomatically(false);
     setInvalidJournal(null);
     if (!account) return;
     let entry = entries.get(keyFor(account));
@@ -310,9 +321,36 @@ export function useMarketplaceActions() {
       };
       entries.set(keyFor(account), entry);
     }
+    if (!entry.confirmation) {
+      const shared = entry;
+      shared.confirmation = createConfirmationRecovery({
+        attempt: () => confirmationAttemptKey(shared.journal),
+        check: async () => {
+          if (shared.busy) return;
+          const expected = confirmationAttemptKey(shared.journal);
+          try {
+            await reconcile(shared, account);
+            if (expected && shared.journal?.phase === "complete")
+              void queryClient.invalidateQueries({ queryKey: ["marketplace"] });
+          } catch {
+            await locked(account, async () => {
+              const latest = read(account);
+              if (latest && confirmationAttemptKey(latest) === expected)
+                save(shared, { ...latest, phase: "pending", error: confirmationPendingError });
+            }).catch(() => {});
+          }
+        },
+        changed: (active) => {
+          shared.confirmingAutomatically = active;
+          notify(shared);
+        },
+      });
+    }
     const sync = () => {
+      entry!.confirmation?.refresh();
       setJournal(entry!.journal ? { ...entry!.journal } : null);
       setBusy(entry!.busy);
+      setConfirmingAutomatically(Boolean(entry!.confirmingAutomatically));
       setError(entry!.journal?.error ?? null);
       setInvalidJournal(
         entry!.invalidRaw !== undefined
@@ -326,11 +364,17 @@ export function useMarketplaceActions() {
         });
     };
     entry.listeners.add(sync);
+    const visibility = () => entry!.confirmation!.setVisible(document.visibilityState !== "hidden");
+    visibility();
+    const release = entry.confirmation!.retain();
+    document.addEventListener("visibilitychange", visibility);
     sync();
     return () => {
       entry!.listeners.delete(sync);
+      document.removeEventListener("visibilitychange", visibility);
+      release();
     };
-  }, [account]);
+  }, [account, queryClient]);
 
   function signer(owner: Address): WriteAccount {
     const current = writerRef.current;
@@ -367,6 +411,9 @@ export function useMarketplaceActions() {
         await locked(account, async () => {
           const latest = read(account);
           if (!latest || latest.id !== entry.journal?.id || latest.phase === "complete") return;
+          if (confirmationAttemptKey(latest)) failure = confirmationPendingError;
+          else if (latest.error?.code === "TRANSACTION_MISMATCH") failure = latest.error;
+          else if (latest.transactionFailed && latest.error) failure = latest.error;
           // A failed status read must not make a rejected signed order retryable again.
           if (latest.kind === "list" && latest.listing && latest.error?.retryable === false)
             failure = latest.error;
@@ -470,7 +517,13 @@ export function useMarketplaceActions() {
       .catch(async (reason) => {
         await locked(owner, async () => {
           const saved = read(owner);
-          if (saved?.id !== intent.id || saved.phase === "complete" || saved.txStep !== step)
+          if (
+            saved?.id !== intent.id ||
+            saved.phase === "complete" ||
+            saved.transactionFailed ||
+            saved.error?.code === "TRANSACTION_MISMATCH" ||
+            saved.txStep !== step
+          )
             return;
           const rejected = !lateHash && !saved.txHash && isMarketplaceWalletRejection(reason);
           save(entry, {
@@ -478,10 +531,13 @@ export function useMarketplaceActions() {
             txHash: saved.txHash ?? lateHash,
             phase: rejected ? "failed" : saved.txHash || lateHash ? "pending" : "unknown",
             ...(rejected ? { transactionIntent: undefined, txStep: undefined } : {}),
-            error: {
-              code: rejected ? "wallet" : "unknown",
-              message: reason instanceof Error ? reason.message : "Wallet result unknown",
-            },
+            error:
+              saved.txHash || lateHash
+                ? confirmationPendingError
+                : {
+                    code: rejected ? "wallet" : "unknown",
+                    message: reason instanceof Error ? reason.message : "Wallet result unknown",
+                  },
           });
         }).catch(() => {
           entry.journal = {
@@ -589,14 +645,36 @@ export function useMarketplaceActions() {
           receipt = await client().getTransactionReceipt({ hash: saved.txHash });
         } catch (error) {
           if (error instanceof Error && error.name === "TransactionReceiptNotFoundError") {
-            save(entry, { ...saved, phase: "pending" });
+            save(entry, {
+              ...saved,
+              phase: "pending",
+              error:
+                saved.error?.code === "TRANSACTION_MISMATCH"
+                  ? saved.error
+                  : confirmationPendingError,
+            });
             return;
           }
           throw error;
         }
         if (!saved.transactionIntent) throw new Error("Saved transaction intent is unavailable");
         const tx = await client().getTransaction({ hash: saved.txHash });
-        if (!verifyMarketplaceTransaction(saved.transactionIntent, tx, receipt)) {
+        let verified = false;
+        try {
+          verified = verifyMarketplaceTransaction(saved.transactionIntent, tx, receipt);
+        } catch (reason) {
+          save(entry, {
+            ...saved,
+            phase: "pending",
+            error: {
+              code: "TRANSACTION_MISMATCH",
+              retryable: false,
+              message: reason instanceof Error ? reason.message : "Transaction intent mismatch",
+            },
+          });
+          return;
+        }
+        if (!verified) {
           save(entry, {
             ...saved,
             phase: "failed",
@@ -606,8 +684,22 @@ export function useMarketplaceActions() {
           return;
         }
         if (saved.sweep) {
-          verifySweepIntent(saved.sweep, saved.transactionIntent);
-          const result = getSweepResults(saved.sweep.listings, owner, receipt.logs);
+          let result;
+          try {
+            verifySweepIntent(saved.sweep, saved.transactionIntent);
+            result = getSweepResults(saved.sweep.listings, owner, receipt.logs);
+          } catch (reason) {
+            save(entry, {
+              ...saved,
+              phase: "pending",
+              error: {
+                code: "TRANSACTION_MISMATCH",
+                retryable: false,
+                message: reason instanceof Error ? reason.message : "Sweep receipt mismatch",
+              },
+            });
+            return;
+          }
           save(entry, {
             ...saved,
             sweep: { ...saved.sweep, result },
@@ -649,19 +741,41 @@ export function useMarketplaceActions() {
             abi: seaportAbi,
             functionName: "getOrderStatus",
             args: [orderHash],
+            blockNumber: receipt.blockNumber,
           });
           const status = chainStatus[1] ? "cancelled" : chainStatus[2] > 0n ? "filled" : "active";
-          if (saved.kind === "cancel" ? status !== "cancelled" : status !== "filled")
-            throw new Error("Marketplace execution is not confirmed");
+          if (saved.kind === "cancel" ? status !== "cancelled" : status !== "filled") {
+            save(entry, {
+              ...saved,
+              phase: "pending",
+              error: {
+                code: "TRANSACTION_MISMATCH",
+                retryable: false,
+                message: "The receipt does not confirm the expected marketplace execution",
+              },
+            });
+            return;
+          }
           if (saved.kind === "buy") {
             const nftOwner = await client().readContract({
               address: marketplaceCollectionAddress(saved.collectionAddress),
               abi: erc721Abi,
               functionName: "ownerOf",
               args: [BigInt(saved.tokenId)],
+              blockNumber: receipt.blockNumber,
             });
-            if (!isAddressEqual(nftOwner, owner))
-              throw new Error("The purchased NFT is not owned by this buyer");
+            if (!isAddressEqual(nftOwner, owner)) {
+              save(entry, {
+                ...saved,
+                phase: "pending",
+                error: {
+                  code: "TRANSACTION_MISMATCH",
+                  retryable: false,
+                  message: "The purchased NFT was not owned by this buyer at confirmation",
+                },
+              });
+              return;
+            }
           }
           save(entry, { ...saved, phase: "complete", error: undefined });
           await api(
@@ -1212,6 +1326,7 @@ export function useMarketplaceActions() {
     txHash: visible?.txHash ?? null,
     listingOutcome: visible?.listingOutcome ?? null,
     isBusy,
+    isConfirmingAutomatically,
     invalidJournal,
     txStep: visible?.txStep,
     list,

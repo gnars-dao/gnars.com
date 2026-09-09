@@ -585,14 +585,12 @@ export default function MarketplaceDetail({
                 ) : (
                   offer && (
                     <dl className="space-y-3 text-sm">
-                      {mode === "cancel" && (
-                        <div>
-                          <dt className="text-xs text-muted-foreground">{t("total")}</dt>
-                          <dd className="mt-1 break-all font-mono font-semibold">
-                            {formatEther(BigInt(offer.priceWei))} ETH
-                          </dd>
-                        </div>
-                      )}
+                      <div>
+                        <dt className="text-xs text-muted-foreground">{t("total")}</dt>
+                        <dd className="mt-1 break-all font-mono text-lg font-semibold">
+                          {formatEther(BigInt(offer.priceWei))} ETH
+                        </dd>
+                      </div>
                       <div>
                         <dt className="text-xs text-muted-foreground">{t("seller")}</dt>
                         <dd className="mt-1 break-all font-mono text-xs">
@@ -620,19 +618,13 @@ export default function MarketplaceDetail({
             <div className="max-h-[35dvh] overflow-y-auto">
               <MarketplaceRecovery showCompleted />
             </div>
-            {!success && !unresolved && !busy && mode !== "cancel" && (
+            {!success && !unresolved && !busy && mode === "sell" && (
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-xs text-muted-foreground">
-                  {t(mode === "sell" ? "proceeds" : "total")}
-                </span>
+                <span className="text-xs text-muted-foreground">{t("proceeds")}</span>
                 <span className="break-all font-mono text-lg font-semibold tabular-nums">
-                  {mode === "sell"
-                    ? quoteReady && quote.data
-                      ? `${formatEther(BigInt(quote.data.sellerWei))} ETH`
-                      : "-"
-                    : offer
-                      ? `${formatEther(BigInt(offer.priceWei))} ETH`
-                      : "-"}
+                  {quoteReady && quote.data
+                    ? `${formatEther(BigInt(quote.data.sellerWei))} ETH`
+                    : "-"}
                 </span>
               </div>
             )}
