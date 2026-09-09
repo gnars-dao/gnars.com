@@ -1,4 +1,41 @@
 {
+  "morpheusPage": {
+    "eyebrow": "Gnars × Morpheus",
+    "title": "A Gnars constrói na Morpheus",
+    "lede": "A Gnars — DAO de esportes de ação de propriedade da comunidade — roda uma subnet Builder na Morpheus, a rede de IA descentralizada, construindo de forma permissionless sobre o protocolo aberto e levando junto a cultura do skate, BMX e surf.",
+    "ctaStake": "Fazer stake de MOR",
+    "ctaFull": "Todas as formas de stake",
+    "how": {
+      "title": "Como o flywheel funciona",
+      "step1t": "Faça stake de MOR na subnet Gnars",
+      "step1d": "Qualquer um pode apoiar a subnet, a partir de 0,001 MOR. Seu stake sustenta o que a Gnars entrega na Morpheus.",
+      "step2t": "Os marcos destravam o airdrop de $gnars",
+      "step2d": "O airdrop de $gnars está travado e destrava em buckets conforme o stake total da comunidade cresce — quanto mais cedo você entra e mais stake traz, maior a fatia que destrava. (Alocação em definição, sujeita a mudança.)",
+      "step3t": "A Gnars amplifica a Morpheus",
+      "step3d": "Cada marco também faz a Gnars colocar a Morpheus na frente da sua crew — do anúncio da Morpheus na Gnars TV aos 10 mil MOR até uma ativação IRL e o spotlight principal."
+    },
+    "facts": {
+      "title": "As letras miúdas, verificadas on-chain",
+      "f1": "Seu principal continua seu — só a sua carteira consegue sacar, direto do contrato na Base.",
+      "f2": "O saque destrava 7 dias depois do último depósito — cada depósito novo reinicia o lock da posição inteira.",
+      "f3": "As recompensas vão para a subnet — você está apoiando o builder, não farmando yield."
+    },
+    "amp": {
+      "title": "A escada de amplificação",
+      "desc": "Os marcos não são só buckets de airdrop. A cada degrau que a comunidade sobe, a Gnars coloca a própria mídia e a própria crew atrás da Morpheus — alcance de verdade, entregue pela própria DAO.",
+      "liveChip": "{n, number} MOR em stake até agora",
+      "unlocked": "destravado",
+      "next": "próximo",
+      "upcoming": "na escada"
+    },
+    "crew": {
+      "title": "A crew explica",
+      "vlad": "A gente roda uma subnet Builder na Morpheus. Faça stake de MOR atrás da crew — cada moeda financia o que a Gnars entrega em IA descentralizada.",
+      "r4to": "A Morpheus também move os vaults de patrocínio: apoie um rider na /stake com stETH ou USDC e o rendimento chega em MOR — o principal libera 7 dias depois do último stake.",
+      "yan": "O airdrop de $gnars está travado. Cada marco que a comunidade cruza destrava o próximo bucket — quem staka cedo dita o ritmo.",
+      "pamtech": "E cada marco entrega marketing de verdade da Morpheus do nosso lado: o anúncio na Gnars TV aos 10 mil, edits, swag, ativações IRL."
+    }
+  },
   "title": "Stake or Die",
   "subtitle": "Escolha seu rider",
   "intro": "Escolha um personagem para te representar. Use as miniaturas, as setas ou as teclas de seta para alternar.",
@@ -117,13 +154,13 @@
     "viaMorpho": "rendimento via Morpho · estável",
     "viaMorpheus": "rendimento via Morpheus · em MOR",
     "estNote": "≈{rate}% APR estimado — varia com o preço do MOR e o tamanho do pool.",
-    "mainnetWarn": "O principal destrava após um lock de 7 dias.",
+    "mainnetWarn": "O principal destrava 7 dias depois do último stake.",
     "estYearLabel": "Valor estimado / ano",
     "estYearNote": "Pago em MOR na Arbitrum — estimativa ao vivo, não é garantia.",
     "approving": "aprovando…",
     "staking": "stakeando na mainnet…",
     "stakedMorTitle": "Stake com {name} na Morpheus",
-    "stakedMorDesc": "Rendendo MOR na Arbitrum — o principal destrava após 7 dias.",
+    "stakedMorDesc": "Rendendo MOR na Arbitrum — o principal destrava 7 dias depois do último stake.",
     "yourPosition": "Sua posição",
     "principal": "principal",
     "yield": "rendimento",
@@ -233,8 +270,8 @@
     "rateHelpLabel": "Sobre a taxa de {asset} na {venue}",
     "rateHelp": {
       "morphoUsdc": "Taxa anual, paga em USDC. Sem lock: saque quando quiser.",
-      "morpheusSteth": "Taxa anual estimada, paga em MOR. Seu stETH libera 7 dias depois do stake.",
-      "morpheusUsdc": "Taxa anual estimada, paga em MOR. Seu USDC libera 7 dias depois do stake."
+      "morpheusSteth": "Taxa anual estimada, paga em MOR. Seu stETH libera 7 dias depois do último stake.",
+      "morpheusUsdc": "Taxa anual estimada, paga em MOR. Seu USDC libera 7 dias depois do último stake."
     },
     "ratesLoading": "carregando as taxas…",
     "ratesNa": "n/d",
@@ -274,7 +311,7 @@
     },
     "subnet": {
       "title": "Co-patrocine a subnet Gnars Builder",
-      "desc": "Esse aqui não te paga nada. O MOR em stake sustenta a subnet Gnars Builder, que financia o que a DAO entrega. Seu MOR continua seu e libera 7 dias depois do stake.",
+      "desc": "Esse aqui não te paga nada. O MOR em stake sustenta a subnet Gnars Builder, que financia o que a DAO entrega. Seu MOR continua seu e libera 7 dias depois do último depósito.",
       "cta": "Apoiar a subnet",
       "milestonesTitle": "Metas de amplificação",
       "milestonesNote": "Conforme o MOR em stake cresce, a Gnars amplifica a Morpheus — compromisso unilateral da Gnars, construindo sobre o protocolo aberto da Morpheus.",
@@ -327,7 +364,7 @@
       "dialog": {
         "title": "Apoie os Gnars na Morpheus",
         "badge": "MOR · Base",
-        "desc": "Trave MOR na subnet Gnars Builder para apoiar a crew com capital de verdade. Seu principal continua seu — pode ser sacado depois de um bloqueio de 7 dias. Autocustódia na Base.",
+        "desc": "Trave MOR na subnet Gnars Builder para apoiar a crew com capital de verdade. Seu principal continua seu — você saca direto do contrato, 7 dias depois do último depósito. Sem intermediário, sem pedir licença. Tudo onchain na Base.",
         "milestonesLabel": "Metas de amplificação",
         "progressToEvent": "{pct}% do caminho até {n, number} MOR em stake",
         "totalStaked": "Total em stake",
@@ -338,10 +375,10 @@
         "cta": "Fazer stake de {amount, number} MOR",
         "phaseApprove": "aprovando MOR…",
         "phaseStake": "fazendo stake na Base…",
-        "disclaimer": "Você está apoiando o builder — as recompensas vão para a subnet, não para stakers individuais. Toda ação é uma transação na Base.",
+        "disclaimer": "Você está apoiando o builder — as recompensas vão para a subnet, não para stakers individuais. Reforçar o stake reinicia o lock de 7 dias da posição inteira. Toda ação é uma transação na Base.",
         "yourPosition": "Sua posição",
         "unlocksIn": "desbloqueia em {d}d {h}h",
-        "unlocked": "desbloqueado — saque quando quiser",
+        "unlocked": "desbloqueado — seu pra sacar",
         "withdraw": "Sacar",
         "phaseWithdraw": "sacando…",
         "toastStaked": "Stake feito na subnet Gnars",

@@ -1,4 +1,12 @@
 {
+  "base": {
+    "title": "Gnars on Base — A Complete Onchain DAO",
+    "description": "Gnars runs its whole stack on Base: daily auctions, onchain governance, a transparent treasury, droposals, swaps, and staking — with sponsored gas and social login."
+  },
+  "morpheus": {
+    "title": "Gnars × Morpheus — Stake or Die",
+    "description": "Gnars runs a Builder subnet on Morpheus, the decentralized AI network. Stake MOR to back the subnet, unlock the $gnars airdrop bucket by bucket, and put Morpheus in front of skate culture."
+  },
   "home": {
     "title": "Gnars — Community-Owned Skateboarding DAO",
     "description": "Gnars is a community-owned skateboarding DAO funding skate culture worldwide through auctions, proposals, and grants."

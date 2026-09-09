@@ -1,4 +1,41 @@
 {
+  "morpheusPage": {
+    "eyebrow": "Gnars × Morpheus",
+    "title": "Gnars builds on Morpheus",
+    "lede": "Gnars — the community-owned action-sports DAO — runs a Builder subnet on Morpheus, the decentralized AI network, building permissionlessly on the open protocol and bringing skate, BMX, and surf culture with it.",
+    "ctaStake": "Stake MOR",
+    "ctaFull": "Every way to stake",
+    "how": {
+      "title": "How the flywheel works",
+      "step1t": "Stake MOR into the Gnars subnet",
+      "step1d": "Anyone can back the subnet, from 0.001 MOR up. Your stake powers what Gnars ships on Morpheus.",
+      "step2t": "Milestones unlock the $gnars airdrop",
+      "step2d": "The $gnars airdrop is locked and unlocks in buckets as the community's total stake grows — the earlier you stake and the more you bring, the bigger the share you unlock. (Allocation being finalized, subject to change.)",
+      "step3t": "Gnars amplifies Morpheus",
+      "step3d": "Every milestone also triggers Gnars to put Morpheus in front of its crew — from a Morpheus ad on Gnars TV at 10k MOR up to an IRL activation and a flagship spotlight."
+    },
+    "facts": {
+      "title": "The fine print, verified on-chain",
+      "f1": "Your principal stays yours — only your wallet can withdraw it, straight from the contract on Base.",
+      "f2": "Withdrawals unlock 7 days after your last deposit — each new deposit restarts the lock on your whole position.",
+      "f3": "Rewards accrue to the subnet — you're backing the builder, not farming yield."
+    },
+    "amp": {
+      "title": "The amplification ladder",
+      "desc": "Milestones aren't just airdrop buckets. Every rung the community climbs, Gnars puts its own media and its own crew behind Morpheus — real reach, shipped by the DAO itself.",
+      "liveChip": "{n, number} MOR staked so far",
+      "unlocked": "unlocked",
+      "next": "next up",
+      "upcoming": "on the ladder"
+    },
+    "crew": {
+      "title": "The crew breaks it down",
+      "vlad": "We run a Builder subnet on Morpheus. Stake MOR behind the crew — every coin funds what Gnars ships next on decentralized AI.",
+      "r4to": "Morpheus also powers the sponsorship vaults: back a rider on /stake with stETH or USDC and the yield lands in MOR — principal unlocks 7 days after your last stake.",
+      "yan": "The $gnars airdrop is locked. Every milestone the community stakes past unlocks the next bucket — early stakers set the pace.",
+      "pamtech": "And every milestone ships real Morpheus marketing from our side: the Gnars TV ad at 10k, edits, swag, IRL activations."
+    }
+  },
   "title": "Stake or Die",
   "subtitle": "Pick your rider",
   "intro": "Choose a character to represent you. Use the thumbnails, arrows, or arrow keys to switch.",
@@ -117,13 +154,13 @@
     "viaMorpho": "yield via Morpho · stable",
     "viaMorpheus": "yield via Morpheus · in MOR",
     "estNote": "≈{rate}% APR estimate — swings with the MOR price and pool size.",
-    "mainnetWarn": "Principal unlocks after a 7-day lock.",
+    "mainnetWarn": "Principal unlocks 7 days after your last stake.",
     "estYearLabel": "Estimated value / year",
     "estYearNote": "Paid in MOR on Arbitrum — a live estimate, not a guarantee.",
     "approving": "approving…",
     "staking": "staking on mainnet…",
     "stakedMorTitle": "Staked with {name} on Morpheus",
-    "stakedMorDesc": "Earning MOR on Arbitrum — your principal unlocks after 7 days.",
+    "stakedMorDesc": "Earning MOR on Arbitrum — your principal unlocks 7 days after your last stake.",
     "yourPosition": "Your position",
     "principal": "principal",
     "yield": "yield",
@@ -233,8 +270,8 @@
     "rateHelpLabel": "About the {asset} rate on {venue}",
     "rateHelp": {
       "morphoUsdc": "Annual rate, paid in USDC. No lock: withdraw whenever you want.",
-      "morpheusSteth": "Estimated annual rate, paid in MOR. Your stETH unlocks 7 days after you stake.",
-      "morpheusUsdc": "Estimated annual rate, paid in MOR. Your USDC unlocks 7 days after you stake."
+      "morpheusSteth": "Estimated annual rate, paid in MOR. Your stETH unlocks 7 days after your last stake.",
+      "morpheusUsdc": "Estimated annual rate, paid in MOR. Your USDC unlocks 7 days after your last stake."
     },
     "ratesLoading": "loading rates…",
     "ratesNa": "n/a",
@@ -274,7 +311,7 @@
     },
     "subnet": {
       "title": "Co-sponsor the Gnars Builder subnet",
-      "desc": "This one pays you nothing. Staked MOR powers the Gnars Builder subnet, which funds what the DAO ships. Your MOR stays yours and unlocks 7 days after you stake.",
+      "desc": "This one pays you nothing. Staked MOR powers the Gnars Builder subnet, which funds what the DAO ships. Your MOR stays yours and unlocks 7 days after your last deposit.",
       "cta": "Back the subnet",
       "milestonesTitle": "Amplification milestones",
       "milestonesNote": "As staked MOR grows, Gnars amplifies Morpheus — Gnars's own commitment, building on Morpheus's open protocol.",
@@ -327,7 +364,7 @@
       "dialog": {
         "title": "Back Gnars on Morpheus",
         "badge": "MOR · Base",
-        "desc": "Lock MOR into the Gnars Builder subnet to back the crew with real capital. Your principal stays yours — withdrawable after a 7-day lock. Self-custody on Base.",
+        "desc": "Lock MOR into the Gnars Builder subnet to back the crew with real capital. Your principal stays yours — you pull it straight from the contract, 7 days after your last deposit. No middleman, no permission slip. Fully onchain on Base.",
         "milestonesLabel": "Amplification milestones",
         "progressToEvent": "{pct}% of the way to {n, number} MOR staked",
         "totalStaked": "Total staked",
@@ -338,10 +375,10 @@
         "cta": "Stake {amount, number} MOR",
         "phaseApprove": "approving MOR…",
         "phaseStake": "staking on Base…",
-        "disclaimer": "You're backing the builder — rewards accrue to the subnet, not to individual stakers. Every action is a transaction on Base.",
+        "disclaimer": "You're backing the builder — rewards accrue to the subnet, not to individual stakers. Topping up restarts the 7-day lock on your whole position. Every action is a transaction on Base.",
         "yourPosition": "Your position",
         "unlocksIn": "unlocks in {d}d {h}h",
-        "unlocked": "unlocked — withdraw anytime",
+        "unlocked": "unlocked — yours to withdraw",
         "withdraw": "Withdraw",
         "phaseWithdraw": "withdrawing…",
         "toastStaked": "Staked on the Gnars subnet",
