@@ -34,17 +34,21 @@ import { formatMarketplacePrice, parseMarketplacePrice } from "@/lib/marketplace
 import { getListingOrderHash, getListingPriceWei } from "@/lib/marketplace/seaport";
 import type { SweepQuote } from "@/lib/marketplace/sweep";
 import { validateSweepQuote } from "@/lib/marketplace/sweep-journal";
+import type { MarketplaceItem } from "@/types/marketplace";
 import type { MarketplaceSweepSelection } from "./marketplace-sweep-model";
+import { ownSweepListings } from "./marketplace-sweep-model";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { NftArtwork } from "./NftArtwork";
 
 export function MarketplaceSweep({
   selections,
+  inventory,
   onClear,
   onRemove,
   enabled,
 }: {
   selections: MarketplaceSweepSelection[];
+  inventory: MarketplaceItem[];
   onClear: () => void;
   onRemove: (tokenId: string) => void;
   enabled: boolean;
@@ -62,6 +66,7 @@ export function MarketplaceSweep({
   const [savedQuote, setSavedQuote] = useState<{ key: string; quote: SweepQuote } | null>(null);
   const [now, setNow] = useState(0);
   const request = useRef<AbortController | null>(null);
+  const scheduledReview = useRef<ReturnType<typeof setTimeout> | null>(null);
   const title = useRef<HTMLHeadingElement | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const manual = selections.length > 0;
@@ -77,6 +82,11 @@ export function MarketplaceSweep({
   ]);
   const quote = savedQuote?.key === key ? savedQuote.quote : null;
   const error = errorState?.key === key ? errorState : null;
+  const empty = error?.empty || (!!quote && !quote.items.length);
+  const ownListings = ownSweepListings(
+    inventory,
+    writer ? getAddress(writer.account.address) : undefined,
+  );
   const expired = !!quote && quote.expiresAt <= now;
   const blocked =
     actions.isBusy ||
@@ -106,7 +116,8 @@ export function MarketplaceSweep({
   }, [result, onClear, queryClient]);
 
   async function review() {
-    if (!writer || invalidMax || blocked) return;
+    if (!open || !enabled || !writer || invalidMax || blocked) return;
+    if (scheduledReview.current) clearTimeout(scheduledReview.current);
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
@@ -189,9 +200,25 @@ export function MarketplaceSweep({
     }
   }
 
+  const latestReview = useRef(review);
+  useEffect(() => {
+    latestReview.current = review;
+  });
+  const hasWriter = !!writer;
+  const hasResult = !!result;
+  useEffect(() => {
+    request.current?.abort();
+    setLoading(false);
+    if (!open || !enabled || !hasWriter || invalidMax || blocked || hasResult) return;
+    scheduledReview.current = setTimeout(() => void latestReview.current(), 400);
+    return () => {
+      if (scheduledReview.current) clearTimeout(scheduledReview.current);
+      request.current?.abort();
+    };
+  }, [key, open, enabled, hasWriter, invalidMax, blocked, hasResult]);
+
   function showReview() {
     setOpen(true);
-    if (writer && !quote && !actions.sweepResult) void review();
   }
 
   return (
@@ -310,7 +337,7 @@ export function MarketplaceSweep({
                   min={1}
                   max={10}
                   value={count}
-                  disabled={manual || loading || blocked}
+                  disabled={manual || blocked}
                   onChange={(event) => {
                     const value = Number(event.target.value);
                     if (Number.isInteger(value) && value >= 1 && value <= 10) setQuantity(value);
@@ -325,7 +352,7 @@ export function MarketplaceSweep({
                   inputMode="decimal"
                   placeholder={t("sweep.noLimit")}
                   aria-invalid={invalidMax}
-                  disabled={loading || blocked}
+                  disabled={blocked}
                   onChange={(event) => setMaximum(event.target.value)}
                 />
                 {invalidMax && (
@@ -364,15 +391,38 @@ export function MarketplaceSweep({
                     {t("sweep.loading")}
                   </p>
                 )}
-                {error && (
+                {error && !error.empty && (
                   <p role="alert" className="my-4 text-sm text-destructive">
-                    {t(error.empty ? "sweep.empty" : "sweep.quoteError")}
+                    {t("sweep.quoteError")}
                   </p>
                 )}
-                {!loading && quote && !quote.items.length && (
-                  <p role="status" className="py-10 text-sm text-muted-foreground">
-                    {t("sweep.empty")}
-                  </p>
+                {!loading && empty && (
+                  <>
+                    <div role="status" className="space-y-2 py-5 text-sm text-muted-foreground">
+                      <p>{t(maxWei ? "sweep.emptyWithLimit" : "sweep.empty")}</p>
+                      <p>{t("sweep.scope")}</p>
+                    </div>
+                    {ownListings.length > 0 && (
+                      <section aria-label={t("sweep.ownListings")}>
+                        <h3 className="text-sm font-semibold">{t("sweep.ownListings")}</h3>
+                        <ul className="divide-y">
+                          {ownListings.map(({ item }) => (
+                            <li key={item.tokenId} className="flex items-center gap-3 py-3">
+                              <div className="w-16 shrink-0 overflow-hidden rounded-md">
+                                <NftArtwork item={item} sizes="64px" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold">{item.name}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {t("sweep.ownListingExcluded")}
+                                </p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                  </>
                 )}
                 {!loading && quote && quote.items.length > 0 && (
                   <>

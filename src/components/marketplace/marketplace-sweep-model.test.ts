@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
 import type { MarketplaceItem, MarketplaceOffer } from "@/types/marketplace";
-import { selectableSweepOffer, toggleSweepSelection } from "./marketplace-sweep-model";
+import {
+  ownSweepListings,
+  selectableSweepOffer,
+  toggleSweepSelection,
+} from "./marketplace-sweep-model";
 
 const protocol = "0x1111111111111111111111111111111111111111";
 const seller = "0x2222222222222222222222222222222222222222";
@@ -54,6 +58,27 @@ describe("sweep selection", () => {
   it("fails closed without a configured custom protocol", () => {
     vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", "");
     expect(selectableSweepOffer(item, buyer, 100_000)).toBeUndefined();
+  });
+  it("previews own active native listings without making them buyable", () => {
+    const own = ownSweepListings([item], seller, 100_000);
+    expect(own).toEqual([{ item, offer }]);
+    expect(selectableSweepOffer(own[0].item, seller, 100_000)).toBeUndefined();
+    expect(ownSweepListings([item], buyer, 100_000)).toEqual([]);
+    expect(ownSweepListings([item], undefined, 100_000)).toEqual([]);
+  });
+  it("does not preview OpenSea, other collections, expired or other-seller offers as own", () => {
+    expect(
+      ownSweepListings(
+        [
+          { ...item, offers: [{ ...offer, source: "opensea" }] },
+          { ...item, collectionAddress: buyer },
+          { ...item, offers: [{ ...offer, expiresAt: 99 }] },
+          { ...item, offers: [{ ...offer, seller: buyer }] },
+        ],
+        seller,
+        100_000,
+      ),
+    ).toEqual([]);
   });
   it("toggles by NFT identity rather than allowing two orders for the same NFT", () => {
     const first = toggleSweepSelection([], { item, offer });

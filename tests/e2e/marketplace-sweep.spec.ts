@@ -88,8 +88,15 @@ function fixture(): SweepQuote {
   };
 }
 
-async function setup(page: Page, mode: "reject" | "unknown" = "reject") {
+async function setup(page: Page, mode: "reject" | "unknown" = "reject", ownOnly = false) {
   const quote = fixture();
+  const inventory = ownOnly
+    ? quote.items.map((item) => ({
+        ...item,
+        owner: buyer,
+        offers: item.offers.map((offer) => ({ ...offer, seller: buyer })),
+      }))
+    : quote.items;
   const prompts: Array<{ method: string; params: unknown[] }> = [];
   const quoteRequests: unknown[] = [];
   let quoteFails = false;
@@ -282,8 +289,12 @@ async function setup(page: Page, mode: "reject" | "unknown" = "reject") {
       if (url.pathname === "/api/marketplace/sweep/quote") {
         quoteRequests.push(req.postDataJSON());
         return route.fulfill({
-          status: quoteFails ? 503 : 200,
-          json: quoteFails ? { error: "unavailable" } : quote,
+          status: quoteFails ? 503 : ownOnly ? 409 : 200,
+          json: quoteFails
+            ? { error: "unavailable" }
+            : ownOnly
+              ? { code: "SWEEP_EMPTY", error: "No available floor listings." }
+              : quote,
         });
       }
       if (url.pathname === "/api/marketplace/sweep/fulfillment")
@@ -324,7 +335,7 @@ async function setup(page: Page, mode: "reject" | "unknown" = "reject") {
       return route.fulfill({ json: { items: [], available: true, nextCursor: null } });
     if (url.pathname.startsWith("/api/marketplace"))
       return route.fulfill({
-        json: { ...ready, items: quote.items, nextCursor: null, ownershipVerified: true },
+        json: { ...ready, items: inventory, nextCursor: null, ownershipVerified: true },
       });
     if (url.pathname.startsWith("/api/ens"))
       return route.fulfill({ json: { ens: null, address: null } });
@@ -345,6 +356,8 @@ async function setup(page: Page, mode: "reject" | "unknown" = "reject") {
   await page.getByRole("button", { name: /metamask/i }).click();
   await expect(page.getByRole("link", { name: buyer, exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "À venda", exact: true }).click();
+  await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Ver Gnar #42", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Comprar floor", exact: true }).click({ timeout: 10000 });
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("button", { name: "Atualizar cotação", exact: true })).toBeVisible();
@@ -356,6 +369,57 @@ async function setup(page: Page, mode: "reject" | "unknown" = "reject") {
       quoteFails = fail;
     },
   };
+}
+
+for (const mobile of [false, true]) {
+  test(`own listings stay visible but cannot be swept ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize(
+      mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+    );
+    const state = await setup(page, "reject", true);
+    const drawer = page.getByRole("dialog");
+    await expect(
+      drawer.getByText("Nenhum Gnar disponível para esta carteira no contrato Gnars.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(drawer.getByText("Seus anúncios", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("Gnar #42", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("Sua carteira · fora da compra", { exact: true })).toHaveCount(2);
+    await expect(drawer.getByRole("img").first()).toBeVisible();
+    await expect(
+      drawer.getByRole("button", { name: "Comprar até 3 NFTs", exact: true }),
+    ).toBeDisabled();
+    await expect(drawer.getByText("0.02 ETH", { exact: true })).toHaveCount(0);
+    await expect(
+      drawer.getByText("Anúncios da OpenSea e de outras coleções não entram neste lote."),
+    ).toBeVisible();
+    await page.screenshot({
+      path: `test-results/sweep-own-listings-${mobile ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
+    expect(
+      await drawer
+        .locator(".overflow-y-auto")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+    const before = state.quoteRequests.length;
+    await drawer.getByLabel("Máximo por NFT (ETH)", { exact: true }).fill("0,005");
+    await expect.poll(() => state.quoteRequests.length).toBeGreaterThan(before);
+    await expect(
+      drawer.getByText(
+        "Nenhum Gnar disponível para esta carteira no contrato Gnars dentro deste limite de preço.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    const after = state.quoteRequests.length;
+    await page.waitForTimeout(1200);
+    expect(state.quoteRequests).toHaveLength(after);
+    expect(state.prompts).toHaveLength(0);
+  });
 }
 
 for (const mobile of [false, true])
@@ -370,7 +434,6 @@ for (const mobile of [false, true])
     const drawer = page.getByRole("dialog");
     await drawer.getByLabel("Quantidade", { exact: true }).fill("2");
     await drawer.getByLabel("Máximo por NFT (ETH)", { exact: true }).fill("0,02");
-    await drawer.getByRole("button", { name: "Atualizar cotação", exact: true }).click();
     await expect(
       drawer.getByRole("button", { name: "Comprar até 2 NFTs", exact: true }),
     ).toBeEnabled();

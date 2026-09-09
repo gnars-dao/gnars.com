@@ -4,6 +4,25 @@ import type { MarketplaceItem, MarketplaceOffer } from "@/types/marketplace";
 
 export type MarketplaceSweepSelection = { item: MarketplaceItem; offer: MarketplaceOffer };
 
+export function ownSweepListings(
+  inventory: MarketplaceItem[],
+  buyer?: Address,
+  now = Date.now(),
+): MarketplaceSweepSelection[] {
+  if (!buyer) return [];
+  return inventory.flatMap((item) => {
+    const offer = selectableSweepOffer(
+      {
+        ...item,
+        offers: item.offers.filter((offer) => offer.seller.toLowerCase() === buyer.toLowerCase()),
+      },
+      undefined,
+      now,
+    );
+    return offer ? [{ item, offer }] : [];
+  });
+}
+
 export function selectableSweepOffer(item: MarketplaceItem, buyer?: Address, now = Date.now()) {
   const protocol = getConfiguredGnarsMarketplaceAddress()?.toLowerCase();
   if (

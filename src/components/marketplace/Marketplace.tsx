@@ -509,6 +509,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       <MarketplaceModerationQueue />
       <MarketplaceSweep
         key={sweepContext}
+        inventory={items}
         selections={sweepItems}
         enabled={
           view === "listings" && !!page?.capabilities.customTrading && !selected && !submissionOpen
