@@ -81,9 +81,11 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
   const source = listingSource(value.input ?? { source: value.offer?.source });
   assertMarketplaceJournalProtocol({ kind: "list", input: { ...value.input, source } });
   const collectionAddress = value.input?.collectionAddress ?? value.offer?.collectionAddress;
-  const feePolicy = collectionAddress
-    ? validateCommunityFeePolicy(value.input?.expectedQuote?.feePolicy ?? value.offer?.feePolicy)
-    : undefined;
+  const savedFeePolicy = value.input?.expectedQuote?.feePolicy ?? value.offer?.feePolicy;
+  const feePolicy =
+    collectionAddress || savedFeePolicy !== undefined
+      ? validateCommunityFeePolicy(savedFeePolicy)
+      : undefined;
   const listing = validateListingStructure(value.listing, {
     source,
     collectionAddress,
@@ -98,14 +100,17 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
     ? listing.parameters.consideration[getCommunityFeeWei(priceWei, feePolicy) > 0n ? 2 : 1]
     : undefined;
   const expectedQuote = feePolicy
-    ? buildCommunityListingQuote(
-        priceWei.toString(),
-        {
-          amount: royalty ? BigInt(royalty.startAmount) : 0n,
-          recipient: royalty?.recipient ?? account,
-        },
-        feePolicy,
-      )
+    ? {
+        ...buildCommunityListingQuote(
+          priceWei.toString(),
+          {
+            amount: royalty ? BigInt(royalty.startAmount) : 0n,
+            recipient: royalty?.recipient ?? account,
+          },
+          feePolicy,
+        ),
+        source,
+      }
     : undefined;
   return JSON.stringify({
     version: 1,
@@ -119,7 +124,8 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
     input: {
       tokenId,
       source,
-      ...(collectionAddress ? { collectionAddress, expectedQuote } : {}),
+      ...(collectionAddress ? { collectionAddress } : {}),
+      ...(expectedQuote ? { expectedQuote } : {}),
       ...(source === "gnars-contract" ? { protocolAddress: value.input.protocolAddress } : {}),
       priceEth: formatEther(priceWei),
       durationDays: Math.max(

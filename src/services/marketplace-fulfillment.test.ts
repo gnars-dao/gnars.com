@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { decodeFunctionData, zeroAddress, zeroHash } from "viem";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DAO_ADDRESSES } from "@/lib/config";
+import { GNARS_MARKETPLACE_FEE_POLICY } from "@/lib/marketplace/community-policy";
 import { prepareMarketplaceFulfillment } from "./marketplace-fulfillment";
 
 const mocks = vi.hoisted(() => ({
@@ -66,6 +69,7 @@ beforeEach(() => {
     value: 100n,
   });
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe("just-in-time OpenSea fulfillment", () => {
   const externalInput = { ...input, source: "opensea" as const };
@@ -105,6 +109,88 @@ describe("just-in-time OpenSea fulfillment", () => {
   });
 });
 describe("just-in-time local fulfillment", () => {
+  it.each(["gnars", "gnars-contract"] as const)(
+    "fulfills %s fee and royalty terms without rewriting the signed order",
+    async (source) => {
+      vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", buyer);
+      const core = await vi.importActual<typeof import("@/lib/marketplace/seaport")>(
+        "@/lib/marketplace/seaport",
+      );
+      const now = Math.floor(Date.now() / 1000);
+      const payment = (amount: string, recipient: `0x${string}`) => ({
+        itemType: 0,
+        token: zeroAddress,
+        identifierOrCriteria: "0",
+        startAmount: amount,
+        endAmount: amount,
+        recipient,
+      });
+      const listing = core.validateListingStructure(
+        {
+          signature: "0xabcd",
+          parameters: {
+            offerer: offer.seller,
+            zone: zeroAddress,
+            offer: [
+              {
+                itemType: 2,
+                token: DAO_ADDRESSES.token,
+                identifierOrCriteria: "12",
+                startAmount: "1",
+                endAmount: "1",
+              },
+            ],
+            consideration: [
+              payment("9400", offer.seller as `0x${string}`),
+              payment("100", GNARS_MARKETPLACE_FEE_POLICY.recipient),
+              payment("500", DAO_ADDRESSES.treasury),
+            ],
+            orderType: 0,
+            startTime: String(now - 60),
+            endTime: String(now + 86400),
+            zoneHash: zeroHash,
+            salt: "123",
+            conduitKey: zeroHash,
+            counter: "0",
+          },
+        },
+        { source },
+      );
+      const original = structuredClone(listing);
+      mocks.order.mockResolvedValueOnce(listing);
+      mocks.offer.mockReturnValueOnce({ ...offer, priceWei: "10000" });
+      mocks.encode.mockImplementationOnce(core.getListingFulfillment);
+      const result = await prepareMarketplaceFulfillment({
+        ...input,
+        source,
+        expectedPriceWei: "10000",
+      });
+      const decoded = decodeFunctionData({ abi: core.seaportAbi, data: result.transaction.data });
+      expect(decoded.functionName).toBe("fulfillOrder");
+      if (decoded.functionName !== "fulfillOrder") throw new Error("Unexpected transaction");
+      expect(decoded.args[0].signature).toBe(original.signature);
+      expect(
+        decoded.args[0].parameters.consideration.map((item) => ({
+          recipient: item.recipient.toLowerCase(),
+          amount: item.startAmount.toString(),
+        })),
+      ).toEqual(
+        original.parameters.consideration.map((item) => ({
+          recipient: item.recipient.toLowerCase(),
+          amount: item.startAmount,
+        })),
+      );
+      expect(result.transaction.value).toBe("10000");
+      expect(mocks.simulate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: result.transaction.data,
+          value: 10000n,
+          account: buyer,
+        }),
+      );
+      expect(listing).toEqual(original);
+    },
+  );
   it("carries the custom source through storage, validation and calldata construction", async () => {
     await prepareMarketplaceFulfillment({ ...input, source: "gnars-contract" });
     expect(mocks.order).toHaveBeenCalledWith(hash, "gnars-contract");

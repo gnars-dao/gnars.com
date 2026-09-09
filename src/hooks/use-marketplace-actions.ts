@@ -32,6 +32,7 @@ import { parseMarketplaceApiError } from "@/lib/marketplace/errors";
 import {
   assertMarketplaceJournalProtocol,
   assertPublishedListing,
+  buildNativeListingQuote,
   canCancelSavedListing,
   listingSource,
   parseCommunityQuote,
@@ -151,13 +152,9 @@ function journalOptions(value: Journal): ListingSourceOptions {
     throw new Error("Saved collection does not match this attempt");
   return {
     source: listingSource(identity),
-    ...(collectionAddress
-      ? {
-          collectionAddress,
-          feePolicy:
-            value.kind === "list" ? value.input?.expectedQuote?.feePolicy : value.offer?.feePolicy,
-        }
-      : {}),
+    ...(collectionAddress ? { collectionAddress } : {}),
+    feePolicy:
+      value.kind === "list" ? value.input?.expectedQuote?.feePolicy : value.offer?.feePolicy,
   };
 }
 const communityPrefix = (collectionAddress?: Address) => (collectionAddress ? "/community" : "");
@@ -718,14 +715,7 @@ export function useMarketplaceActions() {
       });
       return parseCommunityQuote(response.quote, price.toString(), royalty);
     }
-    return {
-      priceWei: price.toString(),
-      royaltyWei: royalty.amount.toString(),
-      royaltyRecipient: royalty.amount ? royalty.recipient : null,
-      sellerWei: (price - royalty.amount).toString(),
-      fees: [],
-      source,
-    };
+    return buildNativeListingQuote(price.toString(), royalty, source);
   }
   async function list(input: ListInput) {
     return execute(async (entry, owner) => {
@@ -824,16 +814,12 @@ export function useMarketplaceActions() {
         throw new Error("Listing fees changed; review the price again");
       if (source === "opensea" && !fixed.expectedQuote)
         throw new Error("Review OpenSea fees before listing");
-      if (fixed.collectionAddress && (!fixed.expectedQuote?.feePolicy || !amounts.feePolicy))
-        throw new Error("Review the community fee quote before listing");
+      if (source !== "opensea" && (!fixed.expectedQuote?.feePolicy || !amounts.feePolicy))
+        throw new Error("Review the marketplace fee quote before listing");
       const listingOptions: ListingSourceOptions = {
         source,
-        ...(fixed.collectionAddress
-          ? {
-              collectionAddress: fixed.collectionAddress,
-              feePolicy: amounts.feePolicy,
-            }
-          : {}),
+        ...(fixed.collectionAddress ? { collectionAddress: fixed.collectionAddress } : {}),
+        feePolicy: amounts.feePolicy,
       };
       if (fixed.expectedRoyaltyWei !== undefined && fixed.expectedRoyaltyWei !== amounts.royaltyWei)
         throw new Error("The collection royalty changed; review the price again");
@@ -1271,9 +1257,8 @@ export function useMarketplaceActions() {
               priceWei: getListingPriceWei(listing).toString(),
               currency: "ETH",
               expiresAt: Number(listing.parameters.endTime),
-              ...(saved.collectionAddress
-                ? { collectionAddress: saved.collectionAddress, feePolicy: options.feePolicy }
-                : {}),
+              ...(saved.collectionAddress ? { collectionAddress: saved.collectionAddress } : {}),
+              ...(options.feePolicy ? { feePolicy: options.feePolicy } : {}),
             },
           });
         });

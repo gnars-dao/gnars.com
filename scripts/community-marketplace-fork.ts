@@ -22,7 +22,10 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { BUILDER_CODE, BUILDER_CODE_SUFFIX } from "../src/lib/config";
 import { generateMarketplaceSalt } from "../src/lib/marketplace/attribution";
-import { COMMUNITY_FEE_RECIPIENT } from "../src/lib/marketplace/community-policy";
+import {
+  COMMUNITY_FEE_RECIPIENT,
+  GNARS_MARKETPLACE_FEE_POLICY,
+} from "../src/lib/marketplace/community-policy";
 import { buildCommunityListingQuote } from "../src/lib/marketplace/listing-intent";
 import {
   getListingCancellation,
@@ -145,11 +148,12 @@ async function main() {
     assert(deployed.contractAddress);
     assert((await client.getTransaction({ hash })).input.endsWith(BUILDER_CODE_SUFFIX.slice(2)));
     const collection = deployed.contractAddress;
-    const feePolicy = { basisPoints: 250, recipient: COMMUNITY_FEE_RECIPIENT }; // Explicit test rate, not production policy.
+    const feePolicy = GNARS_MARKETPLACE_FEE_POLICY;
     const options = { source: "gnars-contract" as const, collectionAddress: collection, feePolicy };
     const price = parseEther("0.01");
     const royalty = await getListingRoyalty(client, 1n, price, collection);
     const quote = buildCommunityListingQuote(price.toString(), royalty, feePolicy);
+    assert.equal(quote.fees[0].amountWei, (price / 100n).toString());
     const send = async (to: Address, data: Hex, value = 0n, wallet = buyerWallet) => {
       const hash = await wallet.sendTransaction({
         to,

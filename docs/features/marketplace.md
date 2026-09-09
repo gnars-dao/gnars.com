@@ -48,8 +48,13 @@ unchanged for signing, execution and the detail view.
   and its own storage readiness. It is not live merely because its code exists.
 - OpenSea and Gnars (`gnars`) retain canonical Seaport 1.6,
   `0x0000000000000068F116a894984e2DB1123eB395`. The custom destination uses only
-  `NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS`. Native Gnars listings retain their
-  royalty-only pricing. Community listings use the explicit fee policy below.
+  `NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS`. New native listings on either local
+  destination include a fixed 1% Gnars fee plus any onchain creator royalty,
+  deducted from the seller's asking price. The fee goes to the builders/treasury
+  split below. OpenSea listings retain only OpenSea's own required fees.
+  Existing signed native orders retain their original terms; adding a fee requires
+  cancellation and a new signature. No contract deployment or database migration
+  is required: payments are enforced by the signed Seaport consideration.
 - New OpenSea listings use the canonical conduit key and operator
   `0x1e0049783f008a0085193e00003d00cd54003c71`; Gnars-native listings use direct
   Seaport approvals to their selected protocol address. Legacy zero-conduit signed orders remain readable and
@@ -103,11 +108,15 @@ server-side Alchemy metadata; selecting a card still requires fresh onchain
 ownership verification. EOA and smart-wallet inventories are never merged.
 Media-to-NFT creation requires a separate verified mint contract and is not part
 of this existing-token picker.
+A transferable ERC721 representing a basket can use this single-token listing
+path. The marketplace transfers the wrapper, not each underlying asset; it does
+not verify basket contents or redemption. Multiple independent NFTs in one signed
+order are not supported by the current validator.
 Collection/token identity, ERC721 support, ownership, approval, signature, exact
 fee consideration and royalties are validated before publication. Metadata comes
 from a bounded Alchemy request, not an arbitrary caller-supplied URL.
 
-`MARKETPLACE_COMMUNITY_FEE_BPS` must be explicitly configured; blank fails closed,
+`MARKETPLACE_COMMUNITY_FEE_BPS=100` sets the approved 1% rate; blank fails closed,
 not zero. Its recipient is pinned to
 `0x15e69fd67dcc17e061ceeb93dac791e0f5af0eae`. The signed order routes that fee on
 settlement. Network gas and third-party royalties are not redirected. Each order
@@ -116,7 +125,8 @@ stores its fee policy snapshot, preserving old orders after rate changes.
 Apply `scripts/marketplace-community-schema.sql` with the local admin connection.
 It adds isolated community orders and moderation audit tables, with RLS and
 restricted runtime grants. Existing native orders are not migrated or rewritten.
-No fee rate or administrator list is supplied by default.
+The environment example supplies the approved 1% rate. No administrator list is
+supplied by default.
 
 `MARKETPLACE_COMMUNITY_ADMIN_ADDRESSES` defines moderators. Hide/restore requests
 require signed wallet authorization binding action, order, expected revision,

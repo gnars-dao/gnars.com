@@ -8,8 +8,13 @@ import {
   zeroAddress,
   zeroHash,
 } from "viem";
-import { BUILDER_CODE, BUILDER_CODE_SUFFIX, DAO_ADDRESSES } from "../../src/lib/config";
-import { seaportAbi } from "../../src/lib/marketplace/seaport";
+import {
+  BUILDER_CODE,
+  BUILDER_CODE_SUFFIX,
+  DAO_ADDRESSES,
+  MARKETPLACE_CONFIG,
+} from "../../src/lib/config";
+import { SEAPORT_ADDRESS, seaportAbi } from "../../src/lib/marketplace/seaport";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const CONTRACT = "0xC35813d40961151c11C97cB9d67D0D25CD4Cc86e";
@@ -18,12 +23,18 @@ type RpcInput = { method: string; params?: unknown[]; id?: number };
 // Opt-in integration smoke: exercises the running app's real activation configuration.
 test.describe("activated Gnars contract", () => {
   test.skip(process.env.MARKETPLACE_ACTIVATION_SMOKE !== "1", "Requires activated local server");
-  for (const approved of [false, true]) {
-    test(`routes ${approved ? "typed signature" : "NFT approval"} to the deployed contract`, async ({
+  for (const { approved, protocol, marketplaceName } of [false, true].flatMap((approved) => [
+    { approved, protocol: CONTRACT as `0x${string}`, marketplaceName: "Contrato Gnars" },
+    { approved, protocol: SEAPORT_ADDRESS, marketplaceName: "Seaport" },
+  ])) {
+    test(`routes ${approved ? "typed signature" : "NFT approval"} with 1% fee to ${marketplaceName}`, async ({
       page,
       request,
     }) => {
       test.setTimeout(90000);
+      await page.setViewportSize(
+        approved ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+      );
       const ready = await (await request.get("/api/marketplace/readiness")).json();
       expect(ready.capabilities.customTrading).toBe(true);
       const prompts: RpcInput[] = [];
@@ -90,7 +101,7 @@ test.describe("activated Gnars contract", () => {
               return encodeFunctionResult({
                 abi: erc721Abi,
                 functionName: "getApproved",
-                result: approved ? CONTRACT : zeroAddress,
+                result: approved ? protocol : zeroAddress,
               });
             if (decoded.functionName === "isApprovedForAll")
               return encodeFunctionResult({
@@ -104,7 +115,7 @@ test.describe("activated Gnars contract", () => {
           try {
             const decoded = decodeFunctionData({ abi: seaportAbi, data: call.data });
             if (decoded.functionName === "getCounter") {
-              expect(call.to.toLowerCase()).toBe(CONTRACT.toLowerCase());
+              expect(call.to.toLowerCase()).toBe(protocol.toLowerCase());
               return encodeFunctionResult({
                 abi: seaportAbi,
                 functionName: "getCounter",
@@ -270,12 +281,20 @@ test.describe("activated Gnars contract", () => {
             }),
         ),
       ).toBe(true);
-      await options.getByRole("option", { name: "Contrato Gnars", exact: true }).click();
-      await expect(destination).toContainText("Contrato Gnars");
+      await options.getByRole("option", { name: marketplaceName, exact: true }).click();
+      await expect(destination).toContainText(marketplaceName);
       await drawer.getByLabel("Preço (ETH)", { exact: true }).fill("0,01");
       await expect(drawer.getByRole("button", { name: /Revisar e assinar/ })).toBeEnabled();
+      await expect(
+        drawer.getByText("Taxa do marketplace Gnars (1%)", { exact: true }),
+      ).toBeVisible();
+      await expect(drawer.getByText("0.0001 ETH", { exact: true })).toBeVisible();
+      await expect(drawer.getByText("0.0099 ETH", { exact: true })).toBeVisible();
+      await expect(
+        drawer.getByRole("link", { name: "Split builders + tesouro", exact: true }),
+      ).toHaveAttribute("href", `/pt-br/members/${MARKETPLACE_CONFIG.communityFeeRecipient}`);
       await page.screenshot({
-        path: `test-results/marketplace-contract-activation-${approved ? "signature" : "approval"}.png`,
+        path: `test-results/marketplace-contract-activation-${marketplaceName}-${approved ? "signature" : "approval"}.png`,
         fullPage: true,
       });
       await drawer.getByRole("button", { name: /Revisar e assinar/ }).click();
@@ -283,11 +302,16 @@ test.describe("activated Gnars contract", () => {
       if (approved) {
         expect(prompts[0].method).toBe("eth_signTypedData_v4");
         const typed = JSON.parse(prompts[0].params![1] as string);
-        expect(typed.domain.verifyingContract.toLowerCase()).toBe(CONTRACT.toLowerCase());
+        expect(typed.domain.verifyingContract.toLowerCase()).toBe(protocol.toLowerCase());
         expect(Number(typed.domain.chainId)).toBe(8453);
         expect(typed.message.conduitKey).toBe(zeroHash);
-        expect(typed.message.consideration).toHaveLength(1);
+        expect(typed.message.consideration).toHaveLength(2);
         expect(typed.message.consideration[0].recipient.toLowerCase()).toBe(ACCOUNT.toLowerCase());
+        expect(typed.message.consideration[0].startAmount).toBe("9900000000000000");
+        expect(typed.message.consideration[1].recipient.toLowerCase()).toBe(
+          MARKETPLACE_CONFIG.communityFeeRecipient,
+        );
+        expect(typed.message.consideration[1].startAmount).toBe("100000000000000");
         expect(
           toHex(BigInt(typed.message.salt), { size: 32 }).startsWith(stringToHex(BUILDER_CODE)),
         ).toBe(true);
@@ -298,7 +322,7 @@ test.describe("activated Gnars contract", () => {
         expect(tx.data.endsWith(BUILDER_CODE_SUFFIX.slice(2))).toBe(true);
         const decoded = decodeFunctionData({ abi: erc721Abi, data: tx.data });
         expect(decoded.functionName).toBe("approve");
-        expect(String(decoded.args?.[0]).toLowerCase()).toBe(CONTRACT.toLowerCase());
+        expect(String(decoded.args?.[0]).toLowerCase()).toBe(protocol.toLowerCase());
         expect(decoded.args?.[1]).toBe(42n);
       }
     });

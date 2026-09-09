@@ -1,7 +1,7 @@
 import { zeroAddress, zeroHash, type Address, type PublicClient } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { COMMUNITY_FEE_RECIPIENT } from "./community-policy";
+import { COMMUNITY_FEE_RECIPIENT, GNARS_MARKETPLACE_FEE_POLICY } from "./community-policy";
 import { parseMarketplaceApiError } from "./errors";
 import { canCancelSavedListing } from "./listing-intent";
 import {
@@ -50,6 +50,51 @@ const listing = {
   signature: "0x1234",
 };
 describe("marketplace recovery guards", () => {
+  it.each(["gnars", "gnars-contract"])(
+    "preserves the native 1%% fee and signature for %s",
+    (source) => {
+      const custom = "0x3333333333333333333333333333333333333333";
+      vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+      const signed = structuredClone(listing);
+      signed.parameters.consideration = [
+        {
+          ...listing.parameters.consideration[0],
+          startAmount: "19800000000000000",
+          endAmount: "19800000000000000",
+        },
+        {
+          ...listing.parameters.consideration[0],
+          recipient: COMMUNITY_FEE_RECIPIENT,
+          startAmount: "200000000000000",
+          endAmount: "200000000000000",
+        },
+      ];
+      const repaired = JSON.parse(
+        repairMarketplaceJournal(
+          JSON.stringify({
+            account: owner,
+            listing: signed,
+            input: {
+              source,
+              ...(source === "gnars-contract" ? { protocolAddress: custom } : {}),
+              expectedQuote: { feePolicy: GNARS_MARKETPLACE_FEE_POLICY },
+            },
+          }),
+          owner,
+        ),
+      );
+      expect(repaired.listing).toEqual(signed);
+      expect(repaired.input.collectionAddress).toBeUndefined();
+      expect(repaired.input.expectedQuote).toMatchObject({
+        source,
+        sellerWei: "19800000000000000",
+        feePolicy: GNARS_MARKETPLACE_FEE_POLICY,
+      });
+      expect(getListingOrderHash(repaired.listing.parameters)).toBe(
+        getListingOrderHash(validateListingStructure(signed, { allowExpired: true }).parameters),
+      );
+    },
+  );
   it("preserves community collection and signed fee snapshot across journal repair", () => {
     const custom = "0x3333333333333333333333333333333333333333";
     const collectionAddress = "0x4444444444444444444444444444444444444444";

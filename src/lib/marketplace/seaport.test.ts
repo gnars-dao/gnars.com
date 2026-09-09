@@ -13,7 +13,7 @@ import { entryPoint06Abi } from "viem/account-abstraction";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { COMMUNITY_FEE_RECIPIENT } from "./community-policy";
+import { COMMUNITY_FEE_RECIPIENT, GNARS_MARKETPLACE_FEE_POLICY } from "./community-policy";
 import { OPENSEA_CONDUIT_ADDRESS, OPENSEA_CONDUIT_KEY } from "./routing";
 import {
   canAbandonMarketplaceSignature,
@@ -200,6 +200,147 @@ describe("community ERC721 Seaport orders", () => {
     expect(getListingCancellation(order, options).to).toBe(custom);
     vi.stubEnv("MARKETPLACE_COMMUNITY_FEE_BPS", "");
     expect(getListingCancellation(order, options).to).toBe(custom);
+  });
+});
+
+describe.each(["gnars", "gnars-contract"] as const)("native marketplace fees on %s", (source) => {
+  const custom = "0x3333333333333333333333333333333333333333" as Address;
+  const options = { source };
+  const newOptions = { source, feePolicy: GNARS_MARKETPLACE_FEE_POLICY };
+  function nativeOrder(royalty: bigint, withFee = true, recipient = royaltyRecipient) {
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    const order = listing();
+    const payment = order.parameters.consideration[0];
+    const fee = withFee ? 10000000000000000n : 0n;
+    payment.startAmount = payment.endAmount = (1000000000000000000n - fee - royalty).toString();
+    if (fee > 0n)
+      order.parameters.consideration.push({
+        ...payment,
+        recipient: COMMUNITY_FEE_RECIPIENT,
+        startAmount: fee.toString(),
+        endAmount: fee.toString(),
+      });
+    if (royalty > 0n)
+      order.parameters.consideration.push({
+        ...payment,
+        recipient,
+        startAmount: royalty.toString(),
+        endAmount: royalty.toString(),
+      });
+    return order;
+  }
+  function nativeClient(order: SignedListing, royalty: bigint, recipient = royaltyRecipient) {
+    return client(order, {
+      getApproved: source === "gnars" ? SEAPORT_ADDRESS : custom,
+      supportsInterface: true,
+      royaltyInfo: [recipient, royalty],
+    });
+  }
+  it.each([0n, 50000000000000000n])(
+    "validates new fees with royalty %s and preserves whole ERC721 fulfillment",
+    async (royalty) => {
+      const order = nativeOrder(royalty);
+      order.signature = await account.signTypedData(getListingTypedData(order.parameters, options));
+      expect(validateListingStructure(order, newOptions)).toEqual(order);
+      await expect(
+        validateListingOnchain(nativeClient(order, royalty), order, newOptions),
+      ).resolves.toBeDefined();
+      await expect(
+        validateListingOnchain(nativeClient(order, royalty), order, options),
+      ).resolves.toBeDefined();
+      const fulfillment = getListingFulfillment(order, options);
+      expect(fulfillment.value).toBe(1000000000000000000n);
+      const decoded = decodeFunctionData({ abi: seaportAbi, data: fulfillment.data });
+      expect(decoded.functionName).toBe("fulfillOrder");
+      if (decoded.functionName === "fulfillOrder") {
+        expect(decoded.args[0].parameters.offer).toHaveLength(1);
+        expect(decoded.args[0].parameters.offer[0]).toMatchObject({
+          itemType: 2,
+          startAmount: 1n,
+          endAmount: 1n,
+          identifierOrCriteria: 42n,
+        });
+      }
+      expect(getListingCancellation(order, options).value).toBe(0n);
+    },
+  );
+  it.each([0n, 50000000000000000n])(
+    "reads and cancels legacy royalty %s but rejects publication without the new fee",
+    async (royalty) => {
+      const order = nativeOrder(royalty, false);
+      order.signature = await account.signTypedData(getListingTypedData(order.parameters, options));
+      expect(validateListingStructure(order, options)).toEqual(order);
+      await expect(
+        validateListingOnchain(nativeClient(order, royalty), order, options),
+      ).resolves.toBeDefined();
+      expect(getListingCancellation(order, options).value).toBe(0n);
+      expect(getListingFulfillment(order, options).value).toBe(1000000000000000000n);
+      expect(() => validateListingStructure(order, newOptions)).toThrow("fee policy");
+      await expect(
+        validateListingOnchain(nativeClient(order, royalty), order, newOptions),
+      ).rejects.toThrow("fee policy");
+    },
+  );
+  it("does not mistake a legacy royalty paid to the split for a marketplace fee", async () => {
+    const royalty = 10000000000000000n;
+    for (const withFee of [false, true]) {
+      const order = nativeOrder(royalty, withFee, COMMUNITY_FEE_RECIPIENT);
+      order.signature = await account.signTypedData(getListingTypedData(order.parameters, options));
+      await expect(
+        validateListingOnchain(
+          nativeClient(order, royalty, COMMUNITY_FEE_RECIPIENT),
+          order,
+          options,
+        ),
+      ).resolves.toBeDefined();
+      if (!withFee)
+        await expect(
+          validateListingOnchain(
+            nativeClient(order, royalty, COMMUNITY_FEE_RECIPIENT),
+            order,
+            newOptions,
+          ),
+        ).rejects.toThrow("royalty");
+    }
+  });
+  it.each(["amount", "recipient"])(
+    "rejects an incorrect inferred or explicit fee %s",
+    async (field) => {
+      for (const royalty of [0n, 50000000000000000n]) {
+        const order = nativeOrder(royalty);
+        const payment = order.parameters.consideration[1];
+        if (field === "recipient") payment.recipient = royaltyRecipient;
+        else payment.startAmount = payment.endAmount = "9999999999999999";
+        // Keep gross price fixed so the expected fee cannot round to the altered amount.
+        if (field === "amount") {
+          const seller = order.parameters.consideration[0];
+          seller.startAmount = seller.endAmount = (BigInt(seller.startAmount) + 1n).toString();
+        }
+        order.signature = await account.signTypedData(
+          getListingTypedData(order.parameters, options),
+        );
+        expect(() => validateListingStructure(order, newOptions)).toThrow("fee policy");
+        await expect(
+          validateListingOnchain(nativeClient(order, royalty), order, options),
+        ).rejects.toThrow("fee policy");
+      }
+    },
+  );
+  it("rejects different native rates and never applies the native policy to OpenSea", () => {
+    const order = nativeOrder(0n);
+    expect(() =>
+      validateListingStructure(order, {
+        ...options,
+        feePolicy: { ...GNARS_MARKETPLACE_FEE_POLICY, basisPoints: 250 },
+      }),
+    ).toThrow("fee policy");
+    expect(() =>
+      validateListingStructure(order, {
+        source: "opensea",
+        feePolicy: GNARS_MARKETPLACE_FEE_POLICY,
+      }),
+    ).toThrow("fee policy");
+    expect(() => validateListingStructure(order, { source: "opensea" })).not.toThrow();
   });
 });
 
@@ -566,7 +707,7 @@ describe("canonical Gnars Seaport orders", () => {
         order,
       ),
     ).resolves.toBeDefined();
-    await expect(validateListingOnchain(client(order), order)).rejects.toThrow("royalty");
+    await expect(validateListingOnchain(client(order), order)).rejects.toThrow("fee policy");
   });
   it("allows required OpenSea fee items only through the explicit source path", async () => {
     const order = listing();

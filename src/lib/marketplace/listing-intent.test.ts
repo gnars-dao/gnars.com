@@ -1,9 +1,11 @@
 import { zeroAddress, zeroHash, type Address } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { GNARS_MARKETPLACE_FEE_POLICY } from "./community-policy";
 import {
   assertMarketplaceJournalProtocol,
   assertPublishedListing,
+  buildNativeListingQuote,
   canCancelSavedListing,
   listingSource,
   parseOpenSeaQuote,
@@ -22,6 +24,39 @@ const rawQuote = {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("listing destination and confirmed quote", () => {
+  it.each(["gnars", "gnars-contract"] as const)(
+    "deducts the fixed fee and royalties for %s",
+    (source) => {
+      const quote = buildNativeListingQuote("10001", { amount: 500n, recipient }, source);
+      expect(quote).toEqual({
+        source,
+        priceWei: "10001",
+        sellerWei: "9401",
+        royaltyWei: "500",
+        royaltyRecipient: recipient,
+        feePolicy: GNARS_MARKETPLACE_FEE_POLICY,
+        fees: [{ ...GNARS_MARKETPLACE_FEE_POLICY, amountWei: "100" }],
+      });
+      expect(
+        BigInt(quote.sellerWei) + BigInt(quote.royaltyWei) + BigInt(quote.fees[0].amountWei),
+      ).toBe(10001n);
+      expect(() =>
+        buildNativeListingQuote("10000", { amount: 9900n, recipient }, source),
+      ).toThrow();
+      expect(
+        buildNativeListingQuote("1", { amount: 0n, recipient: zeroAddress }, source).sellerWei,
+      ).toBe("1");
+    },
+  );
+  it("never replaces OpenSea fees with the native policy", () => {
+    expect(() =>
+      buildNativeListingQuote(
+        "10000",
+        { amount: 0n, recipient: zeroAddress },
+        "opensea" as "gnars",
+      ),
+    ).toThrow();
+  });
   it("pins custom journal domains across reloads and deployment changes, preserving legacy attempts", () => {
     const custom = "0x3333333333333333333333333333333333333333";
     vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);

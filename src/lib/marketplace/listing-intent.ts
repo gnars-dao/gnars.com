@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { MarketplaceOffer, MarketplaceSource } from "@/types/marketplace";
 import {
   getCommunityFeeWei,
+  GNARS_MARKETPLACE_FEE_POLICY,
   marketplaceCollectionAddress,
   validateCommunityFeePolicy,
   type CommunityFeePolicy,
@@ -17,6 +18,16 @@ export type MarketplaceListingQuote = OpenSeaListingQuote & {
   royaltyRecipient: Address | null;
   feePolicy?: CommunityFeePolicy;
 };
+
+export function buildNativeListingQuote(
+  priceWei: string,
+  royalty: { amount: bigint; recipient: Address },
+  source: "gnars" | "gnars-contract",
+): MarketplaceListingQuote {
+  if (source !== "gnars" && source !== "gnars-contract")
+    throw new Error("Native listing quote requires a Gnars source");
+  return { ...buildCommunityListingQuote(priceWei, royalty, GNARS_MARKETPLACE_FEE_POLICY), source };
+}
 
 export function buildCommunityListingQuote(
   priceWei: string,

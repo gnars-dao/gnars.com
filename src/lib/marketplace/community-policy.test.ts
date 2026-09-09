@@ -5,6 +5,7 @@ import {
   COMMUNITY_FEE_RECIPIENT,
   getCommunityFeePolicy,
   getCommunityFeeWei,
+  GNARS_MARKETPLACE_FEE_POLICY,
   marketplaceCollectionAddress,
   validateCommunityFeePolicy,
 } from "./community-policy";
@@ -17,6 +18,15 @@ import {
 const policy = { basisPoints: 250, recipient: COMMUNITY_FEE_RECIPIENT };
 afterEach(() => vi.unstubAllEnvs());
 describe("community marketplace fee policy", () => {
+  it("pins native listings to one percent independently of community activation", () => {
+    vi.stubEnv("MARKETPLACE_COMMUNITY_FEE_BPS", undefined);
+    expect(GNARS_MARKETPLACE_FEE_POLICY).toEqual({
+      basisPoints: 100,
+      recipient: COMMUNITY_FEE_RECIPIENT,
+    });
+    expect(getCommunityFeeWei(10000n, GNARS_MARKETPLACE_FEE_POLICY)).toBe(100n);
+    expect(getCommunityFeePolicy()).toBeNull();
+  });
   it.each([undefined, "", "-1", "10000", "2.5", " 250", "0250", "abc"])(
     "fails closed for unconfigured/invalid bps %s",
     (value) => {

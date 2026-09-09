@@ -37,7 +37,7 @@ import { useMarketplaceActions } from "@/hooks/use-marketplace-actions";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
-import { DAO_ADDRESSES } from "@/lib/config";
+import { DAO_ADDRESSES, MARKETPLACE_CONFIG } from "@/lib/config";
 import { parseMarketplacePrice } from "@/lib/marketplace-display";
 import { cn } from "@/lib/utils";
 import type {
@@ -523,26 +523,50 @@ export default function MarketplaceDetail({
                       </select>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {t(listingDestination === "opensea" ? "openSeaFeeNote" : "royaltyNote")}
+                      {t(listingDestination === "opensea" ? "openSeaFeeNote" : "royaltyNote", {
+                        percent: MARKETPLACE_CONFIG.marketplaceFeeBasisPoints / 100,
+                      })}
                     </p>
                     {quoteReady && quote.data ? (
                       <dl className="space-y-2 text-xs">
                         <div className="flex flex-wrap justify-between gap-2">
                           <dt className="text-muted-foreground">
-                            {t(listingDestination === "opensea" ? "openSeaFees" : "royalties")}
+                            {t(listingDestination === "opensea" ? "openSeaFees" : "gnarsFee", {
+                              percent: MARKETPLACE_CONFIG.marketplaceFeeBasisPoints / 100,
+                            })}
                           </dt>
                           <dd className="break-all font-mono">
                             {formatEther(
-                              listingDestination === "opensea"
-                                ? quote.data.fees.reduce(
-                                    (sum, fee) => sum + BigInt(fee.amountWei),
-                                    0n,
-                                  )
-                                : BigInt(quote.data.royaltyWei),
+                              quote.data.fees.reduce((sum, fee) => sum + BigInt(fee.amountWei), 0n),
                             )}{" "}
                             ETH
                           </dd>
                         </div>
+                        {listingDestination !== "opensea" && (
+                          <>
+                            <div className="flex flex-wrap justify-between gap-2">
+                              <dt className="text-muted-foreground">
+                                {t("community.feeRecipient")}
+                              </dt>
+                              <dd>
+                                <Link
+                                  href={`/members/${MARKETPLACE_CONFIG.communityFeeRecipient}`}
+                                  title={MARKETPLACE_CONFIG.communityFeeRecipient}
+                                  prefetch={false}
+                                  className="underline underline-offset-4"
+                                >
+                                  {t("feeSplit")}
+                                </Link>
+                              </dd>
+                            </div>
+                            <div className="flex flex-wrap justify-between gap-2">
+                              <dt className="text-muted-foreground">{t("royalties")}</dt>
+                              <dd className="break-all font-mono">
+                                {formatEther(BigInt(quote.data.royaltyWei))} ETH
+                              </dd>
+                            </div>
+                          </>
+                        )}
                       </dl>
                     ) : quote.isFetching ? (
                       <LoaderCircle className="size-4 animate-spin" aria-label={t("loading")} />

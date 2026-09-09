@@ -19,6 +19,7 @@ import { z } from "zod";
 import type { MarketplaceSource } from "@/types/marketplace";
 import {
   getCommunityFeeWei,
+  GNARS_MARKETPLACE_FEE_POLICY,
   marketplaceCollectionAddress,
   validateCommunityFeePolicy,
   type CommunityFeePolicy,
@@ -219,7 +220,7 @@ export const listingSchema = z
         consideration: z
           .array(item.extend({ recipient: address }))
           .min(1)
-          .max(2),
+          .max(3),
         orderType: z.literal(0),
         startTime: uint,
         endTime: uint,
@@ -243,14 +244,6 @@ export type ListingSourceOptions = {
   collectionAddress?: Address;
   feePolicy?: CommunityFeePolicy;
 };
-const communityListingSchema = listingSchema.extend({
-  parameters: listingSchema.shape.parameters.extend({
-    consideration: z
-      .array(item.extend({ recipient: address }))
-      .min(1)
-      .max(3),
-  }),
-});
 const openSeaListingSchema = listingSchema.extend({
   parameters: listingSchema.shape.parameters.extend({
     consideration: z
@@ -277,16 +270,16 @@ export function validateListingStructure(
   if (community && options.source !== "gnars-contract")
     throw new Error("Community collections require the Gnars contract");
   if (community) validateCommunityFeePolicy(options.feePolicy);
-  else if (options.feePolicy !== undefined)
-    throw new Error("Community collection required for fees");
+  else if (options.feePolicy !== undefined) {
+    const policy = validateCommunityFeePolicy(options.feePolicy);
+    if (
+      options.source === "opensea" ||
+      policy.basisPoints !== GNARS_MARKETPLACE_FEE_POLICY.basisPoints
+    )
+      throw new Error("Invalid native marketplace fee policy");
+  }
   const collection = marketplaceCollectionAddress(options.collectionAddress);
-  const listing = (
-      community
-        ? communityListingSchema
-        : options.source === "opensea"
-          ? openSeaListingSchema
-          : listingSchema
-    ).parse(raw),
+  const listing = (options.source === "opensea" ? openSeaListingSchema : listingSchema).parse(raw),
     p = listing.parameters,
     nft = p.offer[0];
   if (
@@ -316,7 +309,7 @@ export function validateListingStructure(
       isAddressEqual(c.recipient, zeroAddress)
     )
       throw new Error("Only fixed native ETH consideration is supported");
-  if (community) {
+  if (options.feePolicy !== undefined) {
     const fee = getCommunityFeeWei(getListingPriceWei(listing), options.feePolicy!);
     if (
       fee > 0n &&
@@ -324,9 +317,9 @@ export function validateListingStructure(
         !isAddressEqual(p.consideration[1].recipient, options.feePolicy!.recipient) ||
         BigInt(p.consideration[1].startAmount) !== fee)
     )
-      throw new Error("Listing does not match the community fee policy");
+      throw new Error("Listing does not match the marketplace fee policy");
     if (p.consideration.length > (fee > 0n ? 3 : 2))
-      throw new Error("Unexpected community consideration");
+      throw new Error("Unexpected marketplace consideration");
   }
   const start = BigInt(p.startTime),
     end = BigInt(p.endTime),
@@ -528,10 +521,13 @@ export async function validateListingOnchain(
     getListingPriceWei(listing),
     options.collectionAddress,
   );
-  const fee =
-    options.collectionAddress !== undefined
-      ? getCommunityFeeWei(getListingPriceWei(listing), options.feePolicy!)
-      : 0n;
+  // A legacy royalty may pay the split too; payment count distinguishes the new fee item.
+  const legacyConsiderationCount = royalty.amount > 0n ? 2 : 1;
+  const feePolicy =
+    options.feePolicy ??
+    (p.consideration.length > legacyConsiderationCount ? GNARS_MARKETPLACE_FEE_POLICY : undefined);
+  if (feePolicy) validateListingStructure(listing, { ...options, feePolicy });
+  const fee = feePolicy ? getCommunityFeeWei(getListingPriceWei(listing), feePolicy) : 0n;
   const royaltyIndex = fee > 0n ? 2 : 1;
   if (
     royalty.amount === 0n

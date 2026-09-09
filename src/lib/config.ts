@@ -14,6 +14,7 @@ export function getConfiguredGnarsMarketplaceAddress(): string | undefined {
 }
 
 export const MARKETPLACE_CONFIG = {
+  marketplaceFeeBasisPoints: 100,
   communityFeeRecipient: "0x15e69fd67dcc17e061ceeb93dac791e0f5af0eae",
 } as const;
 

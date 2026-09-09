@@ -1,4 +1,7 @@
+import { zeroAddress, zeroHash } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DAO_ADDRESSES } from "@/lib/config";
+import { GNARS_MARKETPLACE_FEE_POLICY } from "@/lib/marketplace/community-policy";
 import {
   enforceMarketplaceBudget,
   enforceOpenSeaProviderBudget,
@@ -218,6 +221,7 @@ describe("durable marketplace orders", () => {
     expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), listing, {
       requireApproval: true,
       source: "gnars",
+      feePolicy: GNARS_MARKETPLACE_FEE_POLICY,
     });
     expect(mocks.query.mock.calls.some(([sql]) => sql.includes("pg_advisory_xact_lock"))).toBe(
       true,
@@ -343,6 +347,7 @@ describe("isolated Gnars contract order storage", () => {
     expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), listing, {
       requireApproval: true,
       source: "gnars-contract",
+      feePolicy: GNARS_MARKETPLACE_FEE_POLICY,
     });
     const insert = mocks.query.mock.calls.find(([sql]) =>
       sql.startsWith("INSERT INTO marketplace_contract_orders"),
@@ -435,6 +440,129 @@ describe("isolated Gnars contract order storage", () => {
     ).rejects.toThrow("not configured");
     expect(mocks.query).not.toHaveBeenCalled();
   });
+});
+
+describe.each(["gnars", "gnars-contract"] as const)("%s native fee publication", (source) => {
+  const protocol = "0x3333333333333333333333333333333333333333";
+  function signedOrder(withFee = true) {
+    const now = Math.floor(Date.now() / 1000);
+    const payment = (amount: string, recipient: string) => ({
+      itemType: 0,
+      token: zeroAddress,
+      identifierOrCriteria: "0",
+      startAmount: amount,
+      endAmount: amount,
+      recipient,
+    });
+    return {
+      parameters: {
+        offerer: seller,
+        zone: zeroAddress,
+        offer: [
+          {
+            itemType: 2,
+            token: DAO_ADDRESSES.token,
+            identifierOrCriteria: "12",
+            startAmount: "1",
+            endAmount: "1",
+          },
+        ],
+        consideration: [
+          payment(withFee ? "9400" : "9500", seller),
+          ...(withFee ? [payment("100", GNARS_MARKETPLACE_FEE_POLICY.recipient)] : []),
+          payment("500", DAO_ADDRESSES.treasury),
+        ],
+        orderType: 0,
+        startTime: String(now - 60),
+        endTime: String(now + 86400),
+        zoneHash: zeroHash,
+        salt: "123",
+        conduitKey: zeroHash,
+        counter: "0",
+      },
+      signature: "0xabcd",
+    };
+  }
+  beforeEach(async () => {
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol);
+    const real = await vi.importActual<typeof import("@/lib/marketplace/seaport")>(
+      "@/lib/marketplace/seaport",
+    );
+    mocks.structure.mockImplementation(real.validateListingStructure);
+  });
+  function storedOrder(order: ReturnType<typeof signedOrder>, storedProtocol = protocol) {
+    const original = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, ...args) =>
+      sql.startsWith("SELECT order_hash, signed_order")
+        ? { rows: [{ order_hash: hash, signed_order: order, protocol_address: storedProtocol }] }
+        : original(sql, ...args),
+    );
+  }
+  it("persists the exact seller, marketplace fee and royalty signed terms", async () => {
+    const order = signedOrder();
+    await saveMarketplaceOrder(order, source);
+    expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), order, {
+      source,
+      requireApproval: true,
+      feePolicy: GNARS_MARKETPLACE_FEE_POLICY,
+    });
+    const insert = mocks.query.mock.calls.find(([sql]) =>
+      sql.startsWith("INSERT INTO marketplace_"),
+    );
+    expect(JSON.parse(insert![1][5])).toEqual(order);
+  });
+  it.each(["missing", "recipient", "amount"])("rejects a new order with %s fee", async (fault) => {
+    const order = signedOrder(fault !== "missing");
+    if (fault === "recipient") order.parameters.consideration[1].recipient = seller;
+    if (fault === "amount") {
+      order.parameters.consideration[0].startAmount = "9401";
+      order.parameters.consideration[0].endAmount = "9401";
+      order.parameters.consideration[1].startAmount = "99";
+      order.parameters.consideration[1].endAmount = "99";
+    }
+    await expect(saveMarketplaceOrder(order, source)).rejects.toThrow(/fee/i);
+    expect(mocks.validate).not.toHaveBeenCalled();
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it("revalidates an existing royalty-only retry without changing its signed terms", async () => {
+    const order = signedOrder(false);
+    storedOrder(order);
+    await saveMarketplaceOrder(order, source);
+    expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), order, {
+      source,
+      requireApproval: true,
+    });
+    expect(mocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("SELECT order_hash, signed_order"),
+      [hash, ...(source === "gnars-contract" ? [protocol] : [])],
+    );
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it.each(["Invalid signature", "Listing is cancelled"])(
+    "rejects a legacy retry: %s",
+    async (error) => {
+      const order = signedOrder(false);
+      storedOrder(order);
+      mocks.validate.mockRejectedValueOnce(new Error(error));
+      await expect(saveMarketplaceOrder(order, source)).rejects.toThrow(error);
+      expect(mocks.connect).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects a stored order whose signed identity does not match the request", async () => {
+    const order = signedOrder(false);
+    storedOrder(order);
+    mocks.hash.mockReturnValueOnce(hash).mockReturnValueOnce(zeroHash);
+    await expect(saveMarketplaceOrder(order, source)).rejects.toThrow("could not be verified");
+    expect(mocks.validate).not.toHaveBeenCalled();
+  });
+  if (source === "gnars-contract") {
+    it("rejects a stored order from another protocol", async () => {
+      const order = signedOrder(false);
+      storedOrder(order, seller);
+      await expect(saveMarketplaceOrder(order, source)).rejects.toThrow("could not be verified");
+      expect(mocks.validate).not.toHaveBeenCalled();
+    });
+  }
 });
 
 describe("distributed paid-operation budgets", () => {

@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { Pool } from "pg";
 import { erc721Abi, isAddressEqual, type Address, type Hex } from "viem";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { GNARS_MARKETPLACE_FEE_POLICY } from "@/lib/marketplace/community-policy";
 import {
   getGnarsMarketplaceAddress,
   getMarketplaceProtocolAddress,
@@ -212,9 +213,29 @@ export async function saveMarketplaceOrder(raw: unknown, source: LocalMarketplac
   if (!(await storageReady(source)))
     throw marketplaceUnavailable("Marketplace order storage is unavailable.");
   const listing = validateListingStructure(raw, { source });
+  const candidateHash = getListingOrderHash(listing.parameters).toLowerCase();
+  const saved = await database().query<StoredOrder>(
+    `SELECT order_hash, signed_order${custom ? ", protocol_address" : ""} FROM ${table} WHERE chain_id = 8453 AND order_hash = $1${custom ? " AND protocol_address = $2" : ""}`,
+    [candidateHash, ...(custom ? [protocol.toLowerCase()] : [])],
+  );
+  if (saved.rows[0]) {
+    const row = saved.rows[0];
+    const stored = validateListingStructure(row.signed_order, { source });
+    if (
+      row.order_hash.toLowerCase() !== candidateHash ||
+      getListingOrderHash(stored.parameters).toLowerCase() !== candidateHash ||
+      (custom && row.protocol_address !== protocol.toLowerCase())
+    )
+      throw marketplaceUnavailable("Stored listing could not be verified.");
+    // A retry retains the original signed terms, but must still have a valid signature and owner.
+    await validateListingOnchain(marketplaceClient, listing, { requireApproval: true, source });
+    return localMarketplaceOffer(stored, source);
+  }
+  validateListingStructure(listing, { source, feePolicy: GNARS_MARKETPLACE_FEE_POLICY });
   const { orderHash } = await validateListingOnchain(marketplaceClient, listing, {
     requireApproval: true,
     source,
+    feePolicy: GNARS_MARKETPLACE_FEE_POLICY,
   });
   const offer = localMarketplaceOffer(listing, source);
   const client = await database().connect();

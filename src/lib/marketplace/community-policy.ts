@@ -4,6 +4,10 @@ import { DAO_ADDRESSES, MARKETPLACE_CONFIG } from "@/lib/config";
 export const COMMUNITY_FEE_RECIPIENT = MARKETPLACE_CONFIG.communityFeeRecipient;
 export const MIN_COMMUNITY_GNARS = 6;
 export type CommunityFeePolicy = { basisPoints: number; recipient: Address };
+export const GNARS_MARKETPLACE_FEE_POLICY: CommunityFeePolicy = {
+  basisPoints: MARKETPLACE_CONFIG.marketplaceFeeBasisPoints,
+  recipient: COMMUNITY_FEE_RECIPIENT,
+};
 
 export function validateCommunityFeePolicy(raw: unknown): CommunityFeePolicy {
   if (!raw || typeof raw !== "object") throw new Error("Community fee policy required");
