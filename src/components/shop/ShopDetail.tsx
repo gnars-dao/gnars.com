@@ -9,18 +9,20 @@ import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";
-import { formatPrice } from "./shared";
+import { COVER_PLATE, formatPrice } from "./shared";
 
 export function ShopDetail({ item }: { item: ShopItem }) {
   const t = useTranslations("shop");
   const [activeImage, setActiveImage] = useState(0);
-  const images = item.images.length > 0 ? item.images : [];
+  const images = item.images;
   const cover = images[Math.min(activeImage, images.length - 1)];
   const price = formatPrice(item.priceUSD);
   const isComingSoon = item.status === "coming-soon";
   const isAffiliate = item.type === "affiliate";
   const isEmail = item.externalUrl?.startsWith("mailto:") ?? false;
-  const canBuy = isAffiliate && !!item.externalUrl && !isComingSoon;
+  // Every non-active status blocks the sale, not just coming-soon: a sold-out
+  // item used to show its badge beside a live "Shop now".
+  const canBuy = isAffiliate && !!item.externalUrl && item.status === "active";
 
   return (
     <div className="container mx-auto max-w-5xl px-4">
@@ -33,10 +35,13 @@ export function ShopDetail({ item }: { item: ShopItem }) {
       </Link>
 
       <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-        <div className="flex flex-col gap-3">
-          {cover && (
+        {/* Guarding the whole column, not just the picture: an item with no
+            images used to render an empty first cell and push the copy into
+            column 2. */}
+        {cover && (
+          <div className="flex flex-col gap-3">
             <div className="relative aspect-square w-full">
-              <div className="pointer-events-none absolute inset-0 hidden dark:block [background:radial-gradient(circle_at_center,rgba(255,255,255,0.10),transparent_65%)]" />
+              <div className={COVER_PLATE} />
               <Image
                 src={cover}
                 alt={item.title}
@@ -45,36 +50,36 @@ export function ShopDetail({ item }: { item: ShopItem }) {
                 className={cn("object-contain p-4 drop-shadow-md", isComingSoon && "grayscale")}
               />
             </div>
-          )}
 
-          {images.length > 1 && (
-            <div className="flex flex-wrap gap-2">
-              {images.map((src, i) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setActiveImage(i)}
-                  aria-label={`${item.title} — ${i + 1}`}
-                  aria-pressed={i === activeImage}
-                  className={cn(
-                    "relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-md border transition-colors",
-                    i === activeImage
-                      ? "border-primary"
-                      : "border-border hover:border-muted-foreground",
-                  )}
-                >
-                  <Image
-                    src={src}
-                    alt=""
-                    fill
-                    sizes="64px"
-                    className={cn("object-contain p-1", isComingSoon && "grayscale")}
-                  />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+            {images.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                {images.map((src, i) => (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setActiveImage(i)}
+                    aria-label={`${item.title} — ${i + 1}`}
+                    aria-pressed={i === activeImage}
+                    className={cn(
+                      "relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-md border transition-colors",
+                      i === activeImage
+                        ? "border-primary"
+                        : "border-border hover:border-muted-foreground",
+                    )}
+                  >
+                    <Image
+                      src={src}
+                      alt=""
+                      fill
+                      sizes="64px"
+                      className={cn("object-contain p-1", isComingSoon && "grayscale")}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-col">
           {item.vendor && (

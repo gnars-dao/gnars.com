@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";
-import { formatPrice, isDirectBuyLink, type ShopCardLabels } from "./shared";
+import { COVER_PLATE, formatPrice, isDirectBuyLink, type ShopCardLabels } from "./shared";
 
 function CardInner({ item, labels }: { item: ShopItem; labels: ShopCardLabels }) {
   const cover = item.images[0];
@@ -15,7 +15,7 @@ function CardInner({ item, labels }: { item: ShopItem; labels: ShopCardLabels })
   return (
     <div className="group flex h-full flex-col">
       <div className="relative aspect-square w-full">
-        <div className="pointer-events-none absolute inset-0 hidden dark:block [background:radial-gradient(circle_at_center,rgba(255,255,255,0.10),transparent_65%)]" />
+        <div className={COVER_PLATE} />
         {cover && (
           <Image
             src={cover}
@@ -52,7 +52,7 @@ function CardInner({ item, labels }: { item: ShopItem; labels: ShopCardLabels })
         </h3>
         <div className="mt-2 flex items-center justify-between">
           {price && <span className="text-lg font-bold">{price}</span>}
-          <span className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors group-hover:text-primary">
+          <span className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors group-hover:text-primary">
             {isExternal ? labels.shopNow : labels.viewDetails}
             <ArrowUpRight className="h-3.5 w-3.5" />
           </span>
