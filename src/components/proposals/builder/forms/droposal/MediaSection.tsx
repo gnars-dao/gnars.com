@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { Link, Upload, X } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { toast } from "sonner";
 import { type ProposalFormValues } from "@/components/proposals/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { VideoThumbnailSelector } from "@/components/ui/video-thumbnail-selector";
-import { ipfsToGatewayUrl, uploadToPinata } from "@/lib/pinata";
+import { usePinataUpload } from "@/hooks/use-pinata-upload";
+import { ipfsToGatewayUrl } from "@/lib/pinata";
 
 // Supported media types for Zora (same as create-coin page)
 const SUPPORTED_IMAGE_TYPES = [
@@ -40,6 +41,7 @@ interface MediaSectionProps {
 }
 
 export function MediaSection({ index }: MediaSectionProps) {
+  const uploadToPinata = usePinataUpload();
   const t = useTranslations("propose.droposalBuilder.media");
   const { setValue, watch } = useFormContext<ProposalFormValues>();
   const [coverPreview, setCoverPreview] = useState<string | null>(null);

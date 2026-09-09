@@ -11,10 +11,7 @@
 // vault 0x3A36…bCbD8 — the same recipe, not guessed. See the portal's
 // scripts/deploy-sponsorship-vault.cjs for the CLI equivalent / provenance.
 
-import {
-  getAddress, encodeAbiParameters, encodeFunctionData,
-  type Address, type Hex,
-} from "viem";
+import { encodeAbiParameters, encodeFunctionData, getAddress, type Address, type Hex } from "viem";
 
 export const CHAIN_ID = 8453;
 
@@ -34,89 +31,243 @@ export const SAFE_TX_SERVICE = "https://safe-transaction-base.safe.global";
 
 // copied verbatim from the live SOPA vault
 export const PERFORMANCE_FEE = 500000000000000000n; // 0.5e18 = 50%
-export const MAX_RATE = 6341958396n;                // ≈ 20% APR cap (per-second WAD)
-export const LIQUIDITY_DATA: Hex = "0x";            // Moonwell adapter takes empty data
-export const ABSOLUTE_CAP = (1n << 128n) - 1n;      // type(uint128).max
-export const RELATIVE_CAP = 1000000000000000000n;   // 1e18 = 100%
-export const SPLIT_TOTAL = 1000000n;                // 0xSplits PERCENTAGE_SCALE (1e6)
+export const MAX_RATE = 6341958396n; // ≈ 20% APR cap (per-second WAD)
+export const LIQUIDITY_DATA: Hex = "0x"; // Moonwell adapter takes empty data
+export const ABSOLUTE_CAP = (1n << 128n) - 1n; // type(uint128).max
+export const RELATIVE_CAP = 1000000000000000000n; // 1e18 = 100%
+export const SPLIT_TOTAL = 1000000n; // 0xSplits PERCENTAGE_SCALE (1e6)
 
 // Reward split shown on /stake, and the on-chain shares it maps to.
 export const REWARD_SPLIT = { you: 50, skater: 25, treasury: 25 } as const;
 
 // ---- ABIs -----------------------------------------------------------------
-export const vaultFactoryAbi = [{
-  type: "function", name: "createVaultV2", stateMutability: "nonpayable",
-  inputs: [{ name: "owner", type: "address" }, { name: "asset", type: "address" }, { name: "salt", type: "bytes32" }],
-  outputs: [{ type: "address" }],
-}, {
-  // On-chain signature: owner/asset/newVaultV2 are all indexed.
-  type: "event", name: "CreateVaultV2", inputs: [
-    { name: "owner", type: "address", indexed: true },
-    { name: "asset", type: "address", indexed: true },
-    { name: "salt", type: "bytes32", indexed: false },
-    { name: "newVaultV2", type: "address", indexed: true },
-  ],
-}] as const;
+export const vaultFactoryAbi = [
+  {
+    type: "function",
+    name: "createVaultV2",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "asset", type: "address" },
+      { name: "salt", type: "bytes32" },
+    ],
+    outputs: [{ type: "address" }],
+  },
+  {
+    // On-chain signature: owner/asset/newVaultV2 are all indexed.
+    type: "event",
+    name: "CreateVaultV2",
+    inputs: [
+      { name: "owner", type: "address", indexed: true },
+      { name: "asset", type: "address", indexed: true },
+      { name: "salt", type: "bytes32", indexed: false },
+      { name: "newVaultV2", type: "address", indexed: true },
+    ],
+  },
+] as const;
 
-export const adapterFactoryAbi = [{
-  type: "function", name: "createMorphoVaultV1Adapter", stateMutability: "nonpayable",
-  inputs: [{ name: "parentVault", type: "address" }, { name: "morphoVaultV1", type: "address" }],
-  outputs: [{ type: "address" }],
-}, {
-  // On-chain signature: all three addresses are indexed.
-  type: "event", name: "CreateMorphoVaultV1Adapter", inputs: [
-    { name: "parentVault", type: "address", indexed: true },
-    { name: "morphoVaultV1", type: "address", indexed: true },
-    { name: "morphoVaultV1Adapter", type: "address", indexed: true },
-  ],
-}] as const;
+export const adapterFactoryAbi = [
+  {
+    type: "function",
+    name: "createMorphoVaultV1Adapter",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "parentVault", type: "address" },
+      { name: "morphoVaultV1", type: "address" },
+    ],
+    outputs: [{ type: "address" }],
+  },
+  {
+    // On-chain signature: all three addresses are indexed.
+    type: "event",
+    name: "CreateMorphoVaultV1Adapter",
+    inputs: [
+      { name: "parentVault", type: "address", indexed: true },
+      { name: "morphoVaultV1", type: "address", indexed: true },
+      { name: "morphoVaultV1Adapter", type: "address", indexed: true },
+    ],
+  },
+] as const;
 
 const splitParamsTuple = {
-  type: "tuple", name: "_split", components: [
+  type: "tuple",
+  name: "_split",
+  components: [
     { name: "recipients", type: "address[]" },
     { name: "allocations", type: "uint256[]" },
     { name: "totalAllocation", type: "uint256" },
     { name: "distributionIncentive", type: "uint16" },
   ],
 } as const;
-export const splitFactoryAbi = [{
-  type: "function", name: "createSplit", stateMutability: "nonpayable",
-  inputs: [splitParamsTuple, { name: "_owner", type: "address" }, { name: "_creator", type: "address" }],
-  outputs: [{ type: "address" }],
-}, {
-  // SplitFactoryV2 announces the new proxy address here. On-chain signature
-  // carries a trailing `nonce` — omitting it makes topic0 mismatch and the log
-  // won't decode.
-  type: "event", name: "SplitCreated", inputs: [
-    { name: "split", type: "address", indexed: true },
-    splitParamsTuple,
-    { name: "owner", type: "address", indexed: false },
-    { name: "creator", type: "address", indexed: false },
-    { name: "nonce", type: "uint256", indexed: false },
-  ],
-}] as const;
+export const splitFactoryAbi = [
+  {
+    type: "function",
+    name: "createSplit",
+    stateMutability: "nonpayable",
+    inputs: [
+      splitParamsTuple,
+      { name: "_owner", type: "address" },
+      { name: "_creator", type: "address" },
+    ],
+    outputs: [{ type: "address" }],
+  },
+  {
+    // SplitFactoryV2 announces the new proxy address here. On-chain signature
+    // carries a trailing `nonce` — omitting it makes topic0 mismatch and the log
+    // won't decode.
+    type: "event",
+    name: "SplitCreated",
+    inputs: [
+      { name: "split", type: "address", indexed: true },
+      splitParamsTuple,
+      { name: "owner", type: "address", indexed: false },
+      { name: "creator", type: "address", indexed: false },
+      { name: "nonce", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
 
 export const vaultAbi = [
-  { type: "function", name: "submit", stateMutability: "nonpayable", inputs: [{ type: "bytes" }], outputs: [] },
-  { type: "function", name: "setCurator", stateMutability: "nonpayable", inputs: [{ type: "address" }], outputs: [] },
-  { type: "function", name: "setName", stateMutability: "nonpayable", inputs: [{ type: "string" }], outputs: [] },
-  { type: "function", name: "setSymbol", stateMutability: "nonpayable", inputs: [{ type: "string" }], outputs: [] },
-  { type: "function", name: "setIsAllocator", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "bool" }], outputs: [] },
-  { type: "function", name: "addAdapter", stateMutability: "nonpayable", inputs: [{ type: "address" }], outputs: [] },
-  { type: "function", name: "increaseAbsoluteCap", stateMutability: "nonpayable", inputs: [{ type: "bytes" }, { type: "uint256" }], outputs: [] },
-  { type: "function", name: "increaseRelativeCap", stateMutability: "nonpayable", inputs: [{ type: "bytes" }, { type: "uint256" }], outputs: [] },
-  { type: "function", name: "setLiquidityAdapterAndData", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "bytes" }], outputs: [] },
-  { type: "function", name: "setMaxRate", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
-  { type: "function", name: "setPerformanceFee", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
-  { type: "function", name: "setPerformanceFeeRecipient", stateMutability: "nonpayable", inputs: [{ type: "address" }], outputs: [] },
-  { type: "function", name: "performanceFee", stateMutability: "view", inputs: [], outputs: [{ type: "uint96" }] },
-  { type: "function", name: "performanceFeeRecipient", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { type: "function", name: "maxRate", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "liquidityAdapter", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { type: "function", name: "isAdapter", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }] },
-  { type: "function", name: "totalAssets", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "convertToAssets", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  {
+    type: "function",
+    name: "submit",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "bytes" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setCurator",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setName",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "string" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setSymbol",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "string" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setIsAllocator",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "address" }, { type: "bool" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "addAdapter",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "increaseAbsoluteCap",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "bytes" }, { type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "increaseRelativeCap",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "bytes" }, { type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setLiquidityAdapterAndData",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "address" }, { type: "bytes" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setMaxRate",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setPerformanceFee",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setPerformanceFeeRecipient",
+    stateMutability: "nonpayable",
+    inputs: [{ type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "performanceFee",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint96" }],
+  },
+  {
+    type: "function",
+    name: "performanceFeeRecipient",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "maxRate",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "liquidityAdapter",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "isAdapter",
+    stateMutability: "view",
+    inputs: [{ type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "totalAssets",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "convertToAssets",
+    stateMutability: "view",
+    inputs: [{ type: "uint256" }],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
 ] as const;
 
 export type SafeCall = { to: Address; data: Hex; value?: bigint };
@@ -127,7 +278,10 @@ export type SafeCall = { to: Address; data: Hex; value?: bigint };
  * too would set the cap under a meaningless id and leave the adapter uncapped.
  */
 export function idData(adapter: Address): Hex {
-  return encodeAbiParameters([{ type: "string" }, { type: "address" }], ["this", getAddress(adapter)]);
+  return encodeAbiParameters(
+    [{ type: "string" }, { type: "address" }],
+    ["this", getAddress(adapter)],
+  );
 }
 
 const enc = (fn: string, args: readonly unknown[]): Hex =>
@@ -177,7 +331,7 @@ export function buildConfigCalls(
     ...submitThenCall(vault, enc("increaseAbsoluteCap", [id, ABSOLUTE_CAP])),
     ...submitThenCall(vault, enc("increaseRelativeCap", [id, RELATIVE_CAP])),
     { to: vault, data: enc("setLiquidityAdapterAndData", [adapter, LIQUIDITY_DATA]) }, // allocator, direct
-    { to: vault, data: enc("setMaxRate", [MAX_RATE]) },                                // allocator, direct
+    { to: vault, data: enc("setMaxRate", [MAX_RATE]) }, // allocator, direct
     // Recipient BEFORE fee: setPerformanceFee reverts while the recipient is
     // still address(0) (FeeInvariantBroken).
     ...submitThenCall(vault, enc("setPerformanceFeeRecipient", [split])),
@@ -209,27 +363,41 @@ export function encodeMultiSend(calls: SafeCall[]): Hex {
 
 export const SAFE_TX_TYPES = {
   SafeTx: [
-    { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" },
-    { name: "operation", type: "uint8" }, { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" },
-    { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" },
+    { name: "to", type: "address" },
+    { name: "value", type: "uint256" },
+    { name: "data", type: "bytes" },
+    { name: "operation", type: "uint8" },
+    { name: "safeTxGas", type: "uint256" },
+    { name: "baseGas", type: "uint256" },
+    { name: "gasPrice", type: "uint256" },
+    { name: "gasToken", type: "address" },
+    { name: "refundReceiver", type: "address" },
     { name: "nonce", type: "uint256" },
   ],
 } as const;
 
 /** Next Safe nonce = max(on-chain, highest queued + 1), to avoid collisions. */
 export async function nextSafeNonce(safe: Address): Promise<number> {
-  let onchain = 0, queued = -1;
+  let onchain = 0,
+    queued = -1;
   try {
     const r = await fetch(`${SAFE_TX_SERVICE}/api/v1/safes/${safe}/`);
     const j = await r.json();
     onchain = Number(j.nonce ?? 0) || 0;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
-    const r = await fetch(`${SAFE_TX_SERVICE}/api/v1/safes/${safe}/multisig-transactions/?ordering=-nonce&limit=1`);
+    const r = await fetch(
+      `${SAFE_TX_SERVICE}/api/v1/safes/${safe}/multisig-transactions/?ordering=-nonce&limit=1`,
+    );
     const j = await r.json();
     if (j.results?.[0]?.nonce != null) queued = Number(j.results[0].nonce);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return Math.max(onchain, queued + 1);
 }
 
-export const safeQueueUrl = (safe: Address) => `https://app.safe.global/transactions/queue?safe=base:${safe}`;
+export const safeQueueUrl = (safe: Address) =>
+  `https://app.safe.global/transactions/queue?safe=base:${safe}`;

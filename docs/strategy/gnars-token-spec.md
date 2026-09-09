@@ -60,10 +60,10 @@ because the airdrop is what makes holders whole.
 
 ## Migration mechanics
 
-Runs through **Upgrader** (Onchain Inc, verified on Base `0x999Cd4Dcb412A8272a62BeeB271662d1C72d3c7e`,
-reader `0x76a51fBC42e932ed3a5e1Ec413a7E03a3EC800AE`):
+Runs through **UpgraderEth** (Onchain Inc, Base `0x064fd3d95f322909489dc085bb0044a343191ad3`, upgrade id 0 —
+subject to a redeploy if the on-chain deadline is adopted; the site reads both from env, see `gnars-migration-handoff.md`):
 
-1. `schedule(tokens)` → users `deposit(upgradeId, user, token, amt, false)` → `execute(...)` (sells all
+1. `schedule(tokens)` → users `deposit(upgradeId, user, address(0), amount)` with the ETH as `msg.value` (four arguments; ETH is the only eligible token) → `execute(...)` (sells all
    deposits, deploys the new token on Clanker, dev-buys it) → `claim(upgradeId, user)` pro-rata.
 2. Upgrader can sell Zora V4 hooked pools (register the **gnars→ZORA→WETH** route). Old $gnars is
    sellable this way.
@@ -118,15 +118,14 @@ per-step governance proposal), then sweeps everything to the DAO treasury at the
 
 ## Verified addresses
 
-| Thing                          | Address                                      |
-| ------------------------------ | -------------------------------------------- |
-| old $gnars (Zora creator coin) | `0x0cf0c3b75d522290d7d12c74d7f1f0cc47ccb23b` |
-| ZORA (routing hub)             | `0x1111111111166b7FE7bd91427724B487980aFc69` |
-| Upgrader                       | `0x999Cd4Dcb412A8272a62BeeB271662d1C72d3c7e` |
-| UpgraderReader                 | `0x76a51fBC42e932ed3a5e1Ec413a7E03a3EC800AE` |
-| Migration multisig (temp)      | `0xBe6C3D651d2F6e9eFA562b5a7CDf411304cad076` |
-| Trade referrer (haxixe.eth)    | `0x8Bf5941d27176242745B716251943Ae4892a3C26` |
-| DAO treasury                   | `0x72ad986ebac0246d2b3c565ab2a1ce3a14ce6f88` |
+| Thing                                                                      | Address                                      |
+| -------------------------------------------------------------------------- | -------------------------------------------- |
+| old $gnars (Zora creator coin)                                             | `0x0cf0c3b75d522290d7d12c74d7f1f0cc47ccb23b` |
+| ZORA (routing hub)                                                         | `0x1111111111166b7FE7bd91427724B487980aFc69` |
+| UpgraderEth (upgrade id 0; may be redeployed — the site reads it from env) | `0x064fd3d95f322909489dc085bb0044a343191ad3` |
+| Migration multisig (temp)                                                  | `0xBe6C3D651d2F6e9eFA562b5a7CDf411304cad076` |
+| Trade referrer (haxixe.eth)                                                | `0x8Bf5941d27176242745B716251943Ae4892a3C26` |
+| DAO treasury                                                               | `0x72ad986ebac0246d2b3c565ab2a1ce3a14ce6f88` |
 
 ## Phases
 

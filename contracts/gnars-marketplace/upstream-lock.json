@@ -1,0 +1,26 @@
+{
+  "contract": "Seaport",
+  "version": "1.6",
+  "compiler": "0.8.24+commit.e11b9ed9",
+  "evmVersion": "cancun",
+  "viaIR": true,
+  "optimizerRuns": 4294967295,
+  "bytecodeHash": "none",
+  "license": "MIT",
+  "sources": [
+    {
+      "repository": "ProjectOpenSea/seaport-core",
+      "commit": "523097f9cee66c15d308c900c50f336b291cda08",
+      "directory": "seaport-core"
+    },
+    {
+      "repository": "ProjectOpenSea/seaport-types",
+      "commit": "b72493221ee1d2f2fb30ed94a3cc535a9028d09f",
+      "directory": "seaport-types"
+    }
+  ],
+  "conduitController": "0x00000000F9490004C11Cef243f5400493c00Ad63",
+  "canonicalSeaport": "0x0000000000000068F116a894984e2DB1123eB395",
+  "deploymentReference": "https://github.com/ProjectOpenSea/seaport/blob/1.6/docs/Deployment.md",
+  "auditStatus": "Exact pinned source audit coverage not established. This artifact is not represented as audited."
+}

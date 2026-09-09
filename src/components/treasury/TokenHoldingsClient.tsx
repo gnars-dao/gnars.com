@@ -1,8 +1,8 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { TREASURY_TOKEN_ALLOWLIST } from "@/lib/config";
 import { formatFiatUsd } from "@/lib/i18n/fiat";
 import { toIntlLocale } from "@/lib/i18n/format";

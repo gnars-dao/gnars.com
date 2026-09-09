@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { blockscoutGet, blockscoutAddressTokens } from "./blockscout";
+import { blockscoutAddressTokens, blockscoutGet } from "./blockscout";
 
 const TOKENS_PATH = "addresses/0x8Bf5941d27176242745B716251943Ae4892a3C26/tokens?type=ERC-20";
 
 function response500() {
-  return new Response('"Internal server error"', { status: 500, statusText: "Internal Server Error" });
+  return new Response('"Internal server error"', {
+    status: 500,
+    statusText: "Internal Server Error",
+  });
 }
 function response200() {
   const item = { to: { hash: "0xabc" } };
@@ -23,14 +26,20 @@ function response200() {
  */
 describe("blockscoutGet", () => {
   it("returns null on the 500 + non-JSON body (no crash)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => response500()));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response500()),
+    );
     const res = await blockscoutGet<{ items?: unknown[] }>(TOKENS_PATH);
     expect(res).toBeNull();
     vi.unstubAllGlobals();
   });
 
   it("returns parsed JSON on 200", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => response200()));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response200()),
+    );
     const res = await blockscoutGet<{ items?: unknown[] }>(TOKENS_PATH);
     expect(res?.items?.length).toBe(1);
     vi.unstubAllGlobals();
@@ -46,7 +55,9 @@ describe("blockscoutAddressTokens", () => {
     const calls: unknown[] = fetchMock.mock.calls;
     const call0 = calls[0] as unknown[];
     const calledUrl = call0[0] as string;
-    expect(calledUrl).toContain("/addresses/0x8Bf5941d27176242745B716251943Ae4892a3C26/tokens?type=ERC-20");
+    expect(calledUrl).toContain(
+      "/addresses/0x8Bf5941d27176242745B716251943Ae4892a3C26/tokens?type=ERC-20",
+    );
     vi.unstubAllGlobals();
   });
 });

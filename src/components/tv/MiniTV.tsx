@@ -14,15 +14,27 @@ const Gnar3DTVScene = dynamic(() => import("./Gnar3DTVScene").then((mod) => mod.
 });
 
 export function MiniTV() {
+  const pathname = usePathname();
+  const { heroTVVisible } = useMiniTVVisibility();
+  if (
+    heroTVVisible ||
+    pathname.startsWith("/tv") ||
+    pathname === "/marketplace" ||
+    pathname.startsWith("/marketplace/") ||
+    pathname === "/migrate" ||
+    pathname.startsWith("/migrate/")
+  )
+    return null;
+
+  return <VisibleMiniTV />;
+}
+
+function VisibleMiniTV() {
   const t = useTranslations("wallet");
   const [isHovered, setIsHovered] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const pathname = usePathname();
-  const { heroTVVisible } = useMiniTVVisibility();
-  const isOnTVPage = pathname.startsWith("/tv");
-
   // Feed is fetched on mount, but videoUrl only passed on hover
   const { items, creatorCoinImages } = useTVFeed({});
   const videoItems = useMemo(() => items.filter((i) => i.videoUrl), [items]);
@@ -107,7 +119,7 @@ export function MiniTV() {
       tabIndex={0}
       aria-label={t("tv.openFullscreen")}
       className={`fixed bottom-4 left-4 z-40 h-[120px] w-[120px] cursor-pointer transition-opacity duration-700 ease-in-out ${
-        isLoaded && !heroTVVisible && !isOnTVPage ? "opacity-100" : "opacity-0 pointer-events-none"
+        isLoaded ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}

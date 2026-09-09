@@ -3,6 +3,7 @@ import path from "path";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 import matter from "gray-matter";
+import { OPTIMIZED_IMAGE_HOSTS, OPTIMIZED_IMAGE_SUFFIXES } from "./src/lib/image-hosts";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -55,10 +56,16 @@ const nextConfig: NextConfig = {
     // Proposal banners / Zora media are immutable IPFS content — cache long.
     minimumCacheTTL: 2592000,
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**",
-      },
+      ...OPTIMIZED_IMAGE_HOSTS.map((hostname) => ({
+        protocol: "https" as const,
+        hostname,
+        port: "",
+      })),
+      ...OPTIMIZED_IMAGE_SUFFIXES.map((suffix) => ({
+        protocol: "https" as const,
+        hostname: `**${suffix}`,
+        port: "",
+      })),
     ],
   },
   typescript: {
@@ -73,6 +80,14 @@ const nextConfig: NextConfig = {
     },
     // Persist Turbopack compile artifacts across dev restarts (Next.js 16 beta).
     turbopackFileSystemCacheForDev: true,
+    // Prerender pressure on the public Goldsky subgraph. The default (8 pages
+    // per worker x 3 workers) opened ~20 concurrent renders, each fanning out
+    // into several subgraph reads, and Goldsky answered the burst with 429s
+    // that aborted the whole build. `src/lib/subgraph-gate.ts` bounds the
+    // requests; these two bound the pages and give a page that still loses the
+    // race a second chance instead of failing the deploy.
+    staticGenerationMaxConcurrency: 4,
+    staticGenerationRetryCount: 2,
   },
   async redirects() {
     const blogRedirects = generateBlogRedirects();

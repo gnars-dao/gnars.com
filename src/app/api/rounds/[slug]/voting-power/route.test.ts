@@ -1,15 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAddress } from "viem";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoundWithSubmissions } from "@/features/rounds/types";
+import { getPublicRoundBySlug, getRoundVoteUsage, getRoundVotingPower } from "@/services/rounds";
+import { GET } from "./route";
 
 vi.mock("@/services/rounds", () => ({
   getPublicRoundBySlug: vi.fn(),
   getRoundVoteUsage: vi.fn(),
   getRoundVotingPower: vi.fn(),
 }));
-
-import { getPublicRoundBySlug, getRoundVoteUsage, getRoundVotingPower } from "@/services/rounds";
-import { GET } from "./route";
 
 const walletAddress = "0x39a7b6fa1597bb6657fe84e64e3b836c37d6f75d";
 

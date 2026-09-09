@@ -122,8 +122,8 @@
     "description": "Pick your Gnars rider and stake your identity onchain."
   },
   "migrate": {
-    "title": "Gnars Migration — Gnars DAO",
-    "description": "Consolidate your scattered Zora coins into $gnars in one batched flow. Routed through ZORA, with a burn on every migration to strengthen $gnars liquidity."
+    "title": "Migrate to new $gnars — Gnars DAO",
+    "description": "Sell your scattered Zora coins to ETH and deposit into the Gnars migration — one shared entry into the new $gnars on Clanker. ETH is the only way in."
   },
   "proposeTerms": {
     "title": "Proposal Commitment — Gnars DAO",

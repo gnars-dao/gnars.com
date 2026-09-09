@@ -197,19 +197,37 @@ function SocialStats() {
     <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
       <p className="flex items-baseline gap-1.5">
         <span className={cn("font-mono text-lg font-bold tabular-nums", GOLD_TEXT)}>
-          {usd(graph.total, locale)}
+          {graph.morResolved === false && graph.total === 0 ? "—" : usd(graph.total, locale)}
         </span>
-        <span className={cn("text-xs", MICRO)}>{t("staked")}</span>
+        <span className={cn("text-xs", MICRO)}>
+          {t(graph.morResolved === false ? "stakedPartial" : "staked")}
+        </span>
       </p>
       <p className="flex items-baseline gap-1.5">
-        <span className="font-mono text-sm tabular-nums">{graph.backerCount}</span>
-        <span className={cn("text-xs", MICRO)}>{t("backers", { n: graph.backerCount })}</span>
+        <span className="font-mono text-sm tabular-nums">
+          {(graph.morResolved === false || graph.backersResolved === false) &&
+          graph.backerCount === 0
+            ? "—"
+            : graph.backerCount}
+        </span>
+        <span className={cn("text-xs", MICRO)}>
+          {t(
+            graph.morResolved === false || graph.backersResolved === false
+              ? "backersPartial"
+              : "backers",
+            { n: graph.backerCount },
+          )}
+        </span>
       </p>
       <p className="flex items-baseline gap-1.5">
         <span className={cn("font-mono text-sm tabular-nums", GOLD_TEXT)}>
-          {usd(graph.treasuryUsd, locale)}
+          {graph.morResolved === false && graph.treasuryUsd === 0
+            ? "—"
+            : usd(graph.treasuryUsd, locale)}
         </span>
-        <span className={cn("text-xs", MICRO)}>{t("treasury")}</span>
+        <span className={cn("text-xs", MICRO)}>
+          {t(graph.morResolved === false ? "treasuryPartial" : "treasury")}
+        </span>
       </p>
     </div>
   );

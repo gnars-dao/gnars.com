@@ -2,17 +2,10 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { AlertTriangle, CheckCircle, ExternalLink, Info, Loader2 } from "lucide-react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import {
-  getContract,
-  prepareContractCall,
-  readContract,
-  sendTransaction,
-  waitForReceipt,
-} from "thirdweb";
+import { getContract, readContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { parseEventLogs } from "viem";
 import { Markdown } from "@/components/common/Markdown";
@@ -23,17 +16,19 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import Image from "@/components/ui/content-image";
 import { createProposalAction } from "@/app/[locale]/propose/actions";
 import { useProposalIndexing } from "@/hooks/use-proposal-indexing";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
+import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { ipfsToGatewayUrl } from "@/lib/pinata";
 import { encodeTransactions } from "@/lib/proposal-utils";
 import { requestRevalidation } from "@/lib/request-revalidation";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 import { type ProposalFormValues } from "./schema";
 
 const governorAbi = [
@@ -139,8 +134,8 @@ export function ProposalPreview() {
     if (indexing.status !== "ready") return;
     const tags = ["proposals", "feed"];
     if (indexing.proposalNumber != null) tags.push(`proposal:${indexing.proposalNumber}`);
-    requestRevalidation(tags);
-  }, [indexing.status, indexing.proposalNumber]);
+    if (hash) requestRevalidation(tags, { transactionHash: hash });
+  }, [indexing.status, indexing.proposalNumber, hash]);
 
   // Watch form values for reactive preview
   const watchedData = useWatch<ProposalFormValues>();
@@ -278,7 +273,11 @@ export function ProposalPreview() {
         setIsWalletPending(false);
 
         setIsConfirming(true);
-        const receipt = await waitForReceipt({ client, chain: base, transactionHash: txHash });
+        const receipt = await waitForSuccessfulReceipt({
+          client,
+          chain: base,
+          transactionHash: txHash,
+        });
         setIsConfirming(false);
 
         try {
@@ -296,8 +295,8 @@ export function ProposalPreview() {
         }
 
         // Early kick for other users' caches; /api/revalidate runs a
-        // delayed second pass internally to cover subgraph indexing lag.
-        requestRevalidation(["proposals", "feed"]);
+        // client-side delayed second pass to cover subgraph indexing lag.
+        requestRevalidation(["proposals", "feed"], { transactionHash: txHash });
 
         setIsSuccess(true);
       } catch (error) {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { canShowRoundVotingControls } from "./RoundDetailView";
 
 vi.mock("thirdweb/react", () => ({
   useActiveAccount: () => null,
@@ -12,8 +13,6 @@ vi.mock("@/i18n/navigation", () => ({
   Link: "a",
   useRouter: () => ({ refresh: vi.fn() }),
 }));
-
-import { canShowRoundVotingControls } from "./RoundDetailView";
 
 describe("RoundDetailView voting controls", () => {
   it("does not enable voting controls when votingPower is 0", () => {

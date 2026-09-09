@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { parseUnits, type Address, type Hex } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { STORE_CHECKOUT } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 /**
  * Pay a fixed USDC amount on Base to a recipient and wait for the receipt.
@@ -48,7 +49,7 @@ export function useUsdcPayment() {
         });
         // The receipt carries the real mined tx hash — for AA this differs from the userOp
         // hash above, and it's what the server verifies against on-chain.
-        const receipt = await waitForReceipt({ client, chain: base, transactionHash });
+        const receipt = await waitForSuccessfulReceipt({ client, chain: base, transactionHash });
         return receipt.transactionHash as Hex;
       } finally {
         setIsPaying(false);

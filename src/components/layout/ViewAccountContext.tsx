@@ -47,14 +47,22 @@ export function ViewAccountProvider({ children }: { children: ReactNode }) {
   const [viewMode, setViewModeState] = useState<ViewMode | null>(null);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored === "eoa" || stored === "sa") {
-        setViewModeState(stored);
+    const read = () => {
+      try {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        setViewModeState(stored === "eoa" || stored === "sa" ? stored : null);
+      } catch {
+        // localStorage unavailable — stick with default
       }
-    } catch {
-      // localStorage unavailable — stick with default
-    }
+    };
+    read();
+    // Two tabs must not sign as two different addresses for one wallet: follow
+    // the choice made in any other tab.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY || e.key === null) read();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const setViewMode = useCallback((mode: ViewMode) => {

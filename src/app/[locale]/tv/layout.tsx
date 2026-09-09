@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { RouteMessages } from "@/i18n/RouteMessages";
 import { TV_MINIAPP_CONFIG, TV_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 
 const tvConfig = TV_MINIAPP_CONFIG.miniapp;
@@ -53,5 +54,7 @@ export default function TVLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return <div className="overflow-hidden">{children}</div>;
+  return (
+    <RouteMessages route="tv">{<div className="overflow-hidden">{children}</div>}</RouteMessages>
+  );
 }

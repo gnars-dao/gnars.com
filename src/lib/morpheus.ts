@@ -148,6 +148,16 @@ export const depositPoolAbi = [
   },
   {
     type: "function",
+    name: "claimReceiver",
+    stateMutability: "view",
+    inputs: [
+      { name: "rewardPoolIndex", type: "uint256" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
     name: "getLatestUserReward",
     stateMutability: "view",
     inputs: [

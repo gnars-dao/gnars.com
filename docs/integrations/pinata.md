@@ -1,99 +1,84 @@
 # Pinata IPFS Upload Integration
 
-This implementation allows users to upload banner images to IPFS via Pinata when creating proposals.
+Proposal banners, droposal media, propdate attachments, and bounty claim media upload
+directly from the browser to Pinata. File bytes do not pass through a Vercel Function.
+Uploads require a connected wallet and a signature authorizing the file metadata.
 
-## Setup
+## Configuration
 
-1. **Get your Pinata API Key:**
-   - Go to [Pinata Dashboard](https://app.pinata.cloud/developers/api-keys)
-   - Create a new API key with the following permissions:
-     - `pinFileToIPFS`
-     - `pinJSONToIPFS`
-   - Copy the JWT token
+- Set the server-only `PINATA_JWT` with permission to create upload URLs through
+  `https://uploads.pinata.cloud/v3/files/sign` (`org:files:write`). Never expose this JWT
+  through a `NEXT_PUBLIC_*` variable or client code.
+- Uploaded files use Pinata's public network. Stored references are `ipfs://{CID}`;
+  the display gateway is `https://ipfs.skatehive.app/ipfs/{CID}`.
+- Production Vercel WAF limits `POST /api/pinata/signed-url` to **60 requests per hour
+  per IP**. The rule was published and verified during the repository audit. Preserve
+  it when changing the firewall; the function's local counters are not a replacement.
 
-2. **Configure Environment Variable:**
+See [Pinata's signed URL API](https://docs.pinata.cloud/api-reference/endpoint/create-signed-upload-url)
+for the upstream size and MIME restriction fields, and
+[Vercel quota strategy](../architecture/vercel-quota-strategy.md) for the other deployed
+API rate limits.
 
-   ```bash
-   # Add to your .env.local file
-   PINATA_JWT=your_jwt_token_here
-   ```
+## Request Flow
 
-3. **Gateway Configuration:**
-   - Images are served via: `https://ipfs.skatehive.app/ipfs/{CID}`
-   - IPFS URLs stored in format: `ipfs://{CID}`
+1. A component calls `usePinataUpload()` with a `File`, optional name, and optional
+   progress callback. The hook uses the current `useWriteAccount()` signer.
+2. `src/lib/pinata.ts` validates the name, explicit MIME type, and declared byte size.
+3. The wallet signs a canonical request message binding the Gnars audience, Base chain,
+   POST method, API path, file metadata digest, wallet address, issue time, and nonce.
+4. The browser sends `{ upload, authorization }` as small JSON to
+   `POST /api/pinata/signed-url`.
+5. The server validates the payload and signature, then requests a Pinata URL with an
+   exact MIME allowlist and `max_file_size` equal to the signed declared size.
+6. The browser sends the multipart file directly to that URL. The result is converted
+   into the existing `{ success, data: { cid, ipfsUrl, gatewayUrl, ... } }` shape.
 
-## Implementation Details
+The server uses viem's public-client signature verification, supporting EOA signatures
+and ERC-1271/ERC-6492 smart wallets on Base. Authorizations expire after five minutes;
+future issue times have at most 30 seconds of clock-skew tolerance. A nonce distinguishes
+requests but is not persisted as a globally single-use token.
 
-### Files Created/Modified
+## Limits
 
-1. **`/src/app/api/pinata/upload/route.ts`**
-   - Server-side API endpoint that handles file uploads
-   - Validates file type (images only) and size (max 10MB)
-   - Uploads to Pinata's public IPFS network
-   - Returns CID and gateway URL
+| Control                              | Limit                                               | Enforcement                                                                      |
+| ------------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Images and audio                     | 100 MiB per file                                    | Client schema, server schema, Pinata signed size cap                             |
+| Video                                | 500 MiB per file                                    | Client schema, server schema, Pinata signed size cap                             |
+| MIME type                            | Explicit `image/*`, `video/*`, or `audio/*` subtype | Server rejects empty/wildcard/arbitrary types; Pinata receives the exact subtype |
+| Filename                             | 1-255 characters after trimming                     | Client and server schema                                                         |
+| Signing request body                 | 24,000 bytes                                        | Streamed server byte limit                                                       |
+| Signed upload URL                    | 60-second expiry                                    | Pinata                                                                           |
+| URL requests per IP                  | 60 per hour                                         | Distributed Vercel WAF; secondary local counter                                  |
+| URL requests per wallet              | 20 per hour                                         | Secondary process-local counter                                                  |
+| Authorized declared bytes per wallet | 1 GiB per hour                                      | Secondary process-local counter                                                  |
 
-2. **`/src/lib/pinata.ts`**
-   - Utility functions for uploading and URL conversion
-   - `uploadToPinata()`: Client-side upload handler
-   - `ipfsToGatewayUrl()`: Converts IPFS URLs to gateway URLs
+Wallet counters reset on cold starts and are independent across function instances.
+They are **not global wallet quotas**. The byte counter measures URL authorizations,
+not completed upstream storage usage, and failed upload attempts still consume it.
+Treat a signed URL as a short-lived bearer capability; do not publish it or log it.
 
-3. **`/src/components/proposals/ProposalDetailsForm.tsx`**
-   - Integrated real IPFS upload functionality
-   - Shows loading state during upload
-   - Provides user feedback via toast notifications
-   - Displays preview using gateway URL
+## API Behavior
 
-4. **`/src/components/proposals/ProposalPreview.tsx`**
-   - Updated to display IPFS images using gateway
-   - Properly renders banner from IPFS CID
+- Invalid metadata: `400`; missing/invalid/expired wallet authorization: `401`.
+- Oversized JSON: `413`; exhausted local limit: `429` with `Retry-After`.
+- Missing upload configuration or signature-verification outage: `503`.
+- Pinata authorization failure: `502`.
+- Signed URL responses and errors use `Cache-Control: no-store`.
+- The retired `POST /api/pinata/upload` endpoint returns **410**. Do not send files
+  there; its old multipart workflow cannot support large files on Vercel.
 
-## Features
+## Code and Verification
 
-- ✅ Real IPFS upload via Pinata
-- ✅ File validation (type and size)
-- ✅ Loading states and user feedback
-- ✅ Automatic preview using skatehive.app gateway
-- ✅ Error handling with descriptive messages
-- ✅ IPFS URL format stored in proposal metadata
+- `src/hooks/use-pinata-upload.ts`: wallet-aware component helper.
+- `src/lib/pinata.ts`: authorization request, direct upload, progress, response parsing.
+- `src/lib/pinata-policy.ts`: shared file constraints.
+- `src/lib/wallet-authorization.ts`, `src/lib/server/request-security.ts`: signed
+  request format, signature verification, streamed body limits, local counters.
+- `src/app/api/pinata/signed-url/route.ts`: secured URL issuance.
 
-## Usage Flow
-
-1. User clicks upload area in proposal form
-2. Selects an image file (PNG, JPG, max 10MB)
-3. File is validated client-side
-4. Loading toast appears: "Uploading to IPFS..."
-5. File is sent to `/api/pinata/upload`
-6. Server uploads to Pinata
-7. IPFS CID is returned
-8. Form stores `ipfs://{CID}`
-9. Preview shows image via `https://ipfs.skatehive.app/ipfs/{CID}`
-10. Success toast confirms upload
-
-## Error Handling
-
-- Invalid file types rejected with error message
-- Files over 10MB rejected
-- Upload failures show descriptive error
-- Missing PINATA_JWT returns 500 error
-- Failed Pinata uploads return proper error response
-
-## Testing
-
-1. Ensure `PINATA_JWT` is set in `.env.local`
-2. Navigate to `/propose`
-3. Go to "Details" step
-4. Click upload area under "Banner Image"
-5. Select an image file
-6. Verify loading state appears
-7. Verify success toast shows
-8. Verify image preview displays
-9. Go to "Preview" step
-10. Verify banner image displays correctly
-
-## Notes
-
-- Images are uploaded to public IPFS (accessible to anyone)
-- CIDs are content-addressed (same file = same CID)
-- Gateway URL provides HTTP access to IPFS content
-- Files persist on Pinata's infrastructure
-- skatehive.app gateway used for fast, reliable access
+Unit tests cover unsigned rejection without upstream access, byte/MIME limits, signed
+provider constraints, signature expiry, and request binding. Runtime acceptance should
+exercise a connected EOA and smart wallet, a small image, a video larger than 4.5 MB,
+progress display, and all four upload surfaces. Automated tests mock upstream calls;
+they do not consume Pinata storage.

@@ -82,13 +82,25 @@ interface APIFeedResponse {
     gnarsPaired: number;
     droposals: number;
     creatorsCount: number;
+    /** Three-state health of each upstream. Not "ok" ⇒ `total` is a floor. */
+    creatorContent?: SourceReport;
+    farcaster?: SourceReport;
   };
   fetchedAt: string;
   durationMs: number;
 }
 
+/** Shape-agnostic view of a source report: all we need on screen is the
+ *  verdict, the reason, and any count the payload chose to carry. */
+export type SourceReport = { status: "ok" | "incomplete" | "unavailable" } & Record<
+  string,
+  unknown
+>;
+
 interface UseTVFeedReturn {
   items: TVItem[];
+  /** Upstream health from the last successful fetch, for /debug/tv. */
+  sourceHealth: { creatorContent?: SourceReport; farcaster?: SourceReport } | null;
   creatorCoinImages: CreatorCoinImage[];
   loading: boolean;
   loadingMore: boolean;
@@ -109,6 +121,10 @@ interface UseTVFeedReturn {
  */
 export function useTVFeed({ priorityCoinAddress }: UseTVFeedOptions): UseTVFeedReturn {
   const [rawItems, setRawItems] = useState<TVItem[]>([]);
+  const [sourceHealth, setSourceHealth] = useState<{
+    creatorContent?: SourceReport;
+    farcaster?: SourceReport;
+  } | null>(null);
   const [creatorCoinImages, setCreatorCoinImages] = useState<CreatorCoinImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -173,6 +189,21 @@ export function useTVFeed({ priorityCoinAddress }: UseTVFeedOptions): UseTVFeedR
           `[gnars-tv] Stats: ${data.stats.withVideo} videos, ${data.stats.gnarsPaired} GNARS-paired, ${data.stats.creatorsCount} creators`,
         );
 
+        setSourceHealth({
+          creatorContent: data.stats.creatorContent,
+          farcaster: data.stats.farcaster,
+        });
+        // A degraded source is worth a line in the console too: /debug/tv is
+        // where it is readable, but nobody opens /debug/tv unprompted.
+        for (const [name, report] of Object.entries({
+          creatorContent: data.stats.creatorContent,
+          farcaster: data.stats.farcaster,
+        })) {
+          if (report && report.status !== "ok") {
+            console.warn(`[gnars-tv] source "${name}" is ${report.status}:`, report);
+          }
+        }
+
         // Build sticker images from creator avatars (normalize IPFS URLs)
         const coinImages: CreatorCoinImage[] = data.creators
           .filter((c) => c.avatarUrl)
@@ -231,6 +262,7 @@ export function useTVFeed({ priorityCoinAddress }: UseTVFeedOptions): UseTVFeedR
 
   return {
     items: rawItems,
+    sourceHealth,
     creatorCoinImages,
     loading,
     loadingMore,

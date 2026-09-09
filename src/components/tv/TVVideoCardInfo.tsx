@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { ChevronDown, Eye, EyeOff, Info } from "lucide-react";
 import { FaEthereum } from "react-icons/fa";
+import Image from "@/components/ui/content-image";
 import type { TVItem } from "./types";
 import { isDroposal, isGnarly, isGnarsPaired, isSkatehive } from "./utils";
 

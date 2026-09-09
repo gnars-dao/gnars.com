@@ -8,7 +8,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     const round = await getPublicRoundBySlug(slug);
     if (!round) return NextResponse.json({ error: "Round not found." }, { status: 404 });
 
-    return NextResponse.json({ round });
+    return NextResponse.json(
+      { round },
+      {
+        headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" },
+      },
+    );
   } catch (error) {
     console.error("[rounds] detail load failed", error);
     return NextResponse.json({ error: "Unable to load round." }, { status: 500 });

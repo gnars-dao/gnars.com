@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import Image from "next/image";
 import { MapPin } from "lucide-react";
+import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
 import { getAllInstallations } from "@/services/installations";
 

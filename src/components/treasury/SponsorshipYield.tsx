@@ -35,11 +35,11 @@
 // stake. The per-rider table below stays vault-only, since the fee is the only
 // part attributable per rider.
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ExternalLink, PiggyBank } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { useStakeGraphQuery } from "@/hooks/use-stake-graph";
 import { RIDER_LIST, type RiderId } from "@/lib/gnars-vaults";
 import { localizeFiat } from "@/lib/i18n/fiat";
@@ -71,6 +71,7 @@ const SPLITS_APP = (split: string) => `https://explorer.splits.org/accounts/${sp
 export function SponsorshipYield({ brlRate = null }: { brlRate?: number | null }) {
   const t = useTranslations("treasury.sponsorship");
   const tc = useTranslations("stake.characters");
+  const ts = useTranslations("stake");
   const locale = useLocale();
   const { data: graph } = useStakeGraphQuery();
 
@@ -121,6 +122,9 @@ export function SponsorshipYield({ brlRate = null }: { brlRate?: number | null }
   // the identical number the orbit prints — never a second sum to drift.
   const totalTvl = graph?.total ?? 0;
   const claimable = rows.filter((r) => r.split && (r.yieldUsd ?? 0) > 0);
+  const morIncomplete = graph?.morResolved === false;
+  const displayTotal = (value: number) =>
+    graph && (!morIncomplete || value > 0) ? usd(value) : "—";
 
   return (
     <Card className="gap-2">
@@ -132,9 +136,12 @@ export function SponsorshipYield({ brlRate = null }: { brlRate?: number | null }
 
       <CardContent className="space-y-4">
         <div>
-          <p className="font-mono text-2xl font-bold tabular-nums">
-            {graph ? usd(treasuryTotal) : "—"}
-          </p>
+          <p className="font-mono text-2xl font-bold tabular-nums">{displayTotal(treasuryTotal)}</p>
+          {morIncomplete ? (
+            <p role="status" className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              {ts("orbit.morpheusUnavailable")}
+            </p>
+          ) : null}
           {/* Both halves, always — including a zero one. "Vault fee $0" is what
               tells a reader the headline is not the vault fee, which is the
               confusion this card started from. */}
@@ -145,7 +152,7 @@ export function SponsorshipYield({ brlRate = null }: { brlRate?: number | null }
             </div>
             <div className="flex items-baseline gap-1.5">
               <dt>{t("fromMor")}</dt>
-              <dd className="font-mono tabular-nums">{graph ? usd(morShare) : "—"}</dd>
+              <dd className="font-mono tabular-nums">{displayTotal(morShare)}</dd>
             </div>
           </dl>
           <p className="mt-1.5 text-xs text-muted-foreground">{t("desc")}</p>
@@ -204,7 +211,7 @@ export function SponsorshipYield({ brlRate = null }: { brlRate?: number | null }
                     (r.yieldUsd ?? 0) > 0 ? "text-amber-500" : "text-muted-foreground"
                   }`}
                 >
-                  {usd(r.yieldUsd ?? 0)}
+                  {r.yieldUsd === null ? "—" : usd(r.yieldUsd)}
                 </span>
               </li>
             ))}
@@ -215,7 +222,7 @@ export function SponsorshipYield({ brlRate = null }: { brlRate?: number | null }
           <div className="flex items-baseline justify-between gap-2.5">
             <span className="text-xs text-muted-foreground">{t("totalTvl")}</span>
             <span className="font-mono text-sm font-semibold tabular-nums">
-              {graph ? usd(totalTvl) : "—"}
+              {displayTotal(totalTvl)}
             </span>
           </div>
           {/* Same word ("staked"), different subject: this figure is the

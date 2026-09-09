@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RouteMessages } from "@/i18n/RouteMessages";
 import { PROPOSALS_MINIAPP_CONFIG, PROPOSALS_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 
 const proposalsConfig = PROPOSALS_MINIAPP_CONFIG.miniapp;
@@ -28,5 +29,5 @@ export default function ProposalsLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return <>{children}</>;
+  return <RouteMessages route="proposals">{<>{children}</>}</RouteMessages>;
 }

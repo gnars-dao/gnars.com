@@ -9,7 +9,7 @@ import { loadStakeGraph } from "@/services/stake-graph";
  *    nothing else, so a region holding a warm header-cached response keeps
  *    serving the old graph until it expires on its own. That makes this value
  *    the real upper bound on how stale another user's orbit can be, which is
- *    why it is short (300s) and deliberately decoupled from the backstop.
+ *    why it is short (60s) and deliberately decoupled from the backstop.
  * 2. `getStakeGraph`'s `unstable_cache` (tag `stake`, 1800s backstop in the
  *    service). This is what protects the expensive part: a CDN miss costs a
  *    millisecond-scale data-cache read of a ~2KB payload, not the ~3.5s
@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 /** Cross-user staleness bound. See the note above on why this is not the
  * service's backstop TTL. */
-const CDN_TTL_SECONDS = 300;
+const CDN_TTL_SECONDS = 60;
 
 export async function GET() {
   try {
@@ -41,7 +41,7 @@ export async function GET() {
         // the indexer recovered.
         "Cache-Control": degraded
           ? "no-store"
-          : `public, s-maxage=${CDN_TTL_SECONDS}, stale-while-revalidate=${CDN_TTL_SECONDS * 2}`,
+          : `public, s-maxage=${CDN_TTL_SECONDS}, stale-while-revalidate=${CDN_TTL_SECONDS}`,
       },
     });
   } catch {

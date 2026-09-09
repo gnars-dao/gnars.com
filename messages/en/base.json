@@ -54,5 +54,12 @@
       "q4": "Grip tape money for the whole crew.",
       "q5": "Bid, win, govern. That's the loop."
     }
+  },
+  "how": {
+    "label": "How this runs on Base",
+    "gov": "The whole governance stack is deployed on Base (chain 8453): the auction house settles each Gnar onchain, votes land on the Nouns Builder governor, and passed proposals queue and execute through a timelock that holds the treasury itself. Every bid and vote below is a Base transaction — and with sponsored smart accounts, voting costs members nothing.",
+    "droposals": "A droposal is a governance proposal that, once executed on Base, deploys an NFT edition and wires its revenue split onchain — mint revenue flows to creators and the treasury through 0xSplits contracts on Base.",
+    "swap": "The swap routes through Base DEX liquidity via the 0x API, and a 0.5% affiliate fee on every trade flows straight to the Gnars treasury on Base — the site funds the DAO by being used.",
+    "staking": "Rider vaults are ERC-4626 vaults on Base — deposits earn yield there and the split settles onchain. The Gnars Builder subnet stake locks MOR (a LayerZero OFT on Base) in the BuildersV4 contract, withdrawable by the staker alone after a 7-day lock."
   }
 }

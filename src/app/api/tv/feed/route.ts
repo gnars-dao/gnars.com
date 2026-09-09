@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getCoin, getProfileCoins } from "@zoralabs/coins-sdk";
 import { GNARS_CREATOR_COIN, GNARS_ZORA_HANDLE } from "@/lib/config";
+import { mapConcurrent as runWithConcurrency } from "@/lib/server/map-concurrent";
 import { fetchGnarsPairedCoins } from "@/lib/zora-coins-subgraph";
 import { fetchDroposals } from "@/services/droposals";
 import {
+  buildFarcasterSliceReport,
   getFarcasterTVData,
   getQualifiedCreators,
   type QualifiedCreator,
@@ -16,7 +18,22 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const CACHE_CONTROL_HEADER = "public, s-maxage=3600, stale-while-revalidate=86400";
+/**
+ * `s-maxage` governs how often this regenerates, and therefore the upstream
+ * cost (~95 Zora reads per regeneration). It is deliberately UNCHANGED — that
+ * is the expensive knob and moving it without measured regenerations/day would
+ * be guesswork.
+ *
+ * `stale-while-revalidate` governs only WHAT is served while a regeneration is
+ * in flight, and concurrent revalidations are deduped, so lowering it costs no
+ * additional upstream calls. At 86400 a single bad generation was served,
+ * byte-identical, for a day — which is how the 375→0 creator-content collapse
+ * on 27/08 stayed invisible for over an hour. At 3600 the worst-case staleness
+ * is ~2h instead of ~25h, and past that window a request waits for a fresh
+ * answer instead of receiving a day-old corpse: a visible delay rather than a
+ * cached zero.
+ */
+const CACHE_CONTROL_HEADER = "public, s-maxage=3600, stale-while-revalidate=3600";
 
 // Gnars addresses (use centralized config)
 const GNARS_COIN_ADDRESS = GNARS_CREATOR_COIN;
@@ -56,41 +73,6 @@ interface CoinNode {
 
 interface CoinEdge {
   node?: CoinNode | { coin?: CoinNode };
-}
-
-/**
- * Run promises with concurrency limit
- */
-async function runWithConcurrency<T, R>(
-  items: T[],
-  fn: (item: T) => Promise<R>,
-  concurrency: number,
-): Promise<R[]> {
-  const results: R[] = [];
-  const executing: Promise<void>[] = [];
-
-  for (const item of items) {
-    const p = fn(item).then((result) => {
-      results.push(result);
-    });
-
-    executing.push(p);
-
-    if (executing.length >= concurrency) {
-      await Promise.race(executing);
-      // Remove completed promises
-      for (let i = executing.length - 1; i >= 0; i--) {
-        // Check if promise is settled by racing with an instant resolve
-        const settled = await Promise.race([executing[i].then(() => true), Promise.resolve(false)]);
-        if (settled) {
-          executing.splice(i, 1);
-        }
-      }
-    }
-  }
-
-  await Promise.all(executing);
-  return results;
 }
 
 const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mov"];
@@ -243,14 +225,56 @@ function computeCoinBalanceBoost(coinBalance?: number): number {
 /**
  * Fetch content from creators with concurrency limit
  */
+/**
+ * A "handle" that is really a truncated address — Zora hands back
+ * `0x9a67...91fd` for a profile with no name, and that string is display text,
+ * never an identifier. Passing it to getProfileCoins always resolves to a null
+ * profile, so it is skipped rather than counted as a failure: nothing broke,
+ * there was simply nothing askable.
+ */
+const TRUNCATED_ADDRESS_HANDLE = /^0x[0-9a-fA-F]{4}\.{3}[0-9a-fA-F]{4}$/;
+
+export function isUsableCreatorHandle(handle: string | null | undefined): boolean {
+  if (!handle) return false;
+  const trimmed = handle.trim();
+  if (trimmed.length === 0) return false;
+  return !TRUNCATED_ADDRESS_HANDLE.test(trimmed);
+}
+
+/**
+ * How the creator-content pass went. Three states, same rule as the Farcaster
+ * slice: `items` is only a total when nothing failed.
+ *
+ * This exists because the previous `catch {}` made the pass unfalsifiable. On
+ * 27/08 it silently went from 375 items to 0 and there was no way to tell a
+ * dead upstream from creators who simply had no coins — the investigation had
+ * to reconstruct it from two payloads saved by hand. Counting the failures is
+ * what turns that into a number somebody can read.
+ */
+export type CreatorContentReport =
+  | { status: "ok"; items: number; creatorsAsked: number; creatorsSkipped: number }
+  | {
+      status: "incomplete";
+      itemsSoFar: number;
+      creatorsAsked: number;
+      creatorsSkipped: number;
+      creatorsFailed: number;
+      reason: string;
+    }
+  | { status: "unavailable"; creatorsFailed: number; reason: string };
+
 async function fetchCreatorContent(
   creators: QualifiedCreator[],
   loadedAddresses: Set<string>,
-): Promise<TVItemData[]> {
+): Promise<{ items: TVItemData[]; report: CreatorContentReport }> {
   const allItems: TVItemData[] = [];
+  const askable = creators.filter((c) => isUsableCreatorHandle(c.handle));
+  const skipped = creators.length - askable.length;
+  let failed = 0;
+  let firstReason = "";
 
   await runWithConcurrency(
-    creators,
+    askable,
     async (creator) => {
       try {
         const response = await getProfileCoins({
@@ -277,14 +301,68 @@ async function fetchCreatorContent(
             allItems.push(item);
           }
         }
-      } catch {
-        // Skip on error — single creator failure shouldn't break the feed
+      } catch (err) {
+        // A single creator failing must not break the feed — but it must not
+        // vanish either. The count below is the difference between "nobody has
+        // content" and "we could not ask", which is the whole bug.
+        failed += 1;
+        if (!firstReason) {
+          firstReason = err instanceof Error ? err.message : String(err);
+        }
+        console.warn(`[api/tv] creator content failed for ${creator.handle}:`, err);
       }
     },
     MAX_CONCURRENT_COIN_FETCHES,
   );
 
-  return allItems;
+  return {
+    items: allItems,
+    report: buildCreatorContentReport({
+      items: allItems.length,
+      creatorsAsked: askable.length,
+      creatorsSkipped: skipped,
+      creatorsFailed: failed,
+      reason: firstReason,
+    }),
+  };
+}
+
+/**
+ * Turn the pass's tally into one verdict. Pure and exported so the rule is
+ * testable without Zora, a network, or the rest of the route.
+ *
+ * As with the Farcaster slice, the counts only appear on the branches where
+ * they mean something: `unavailable` carries no item count, because zero items
+ * from zero successful reads is not a measurement.
+ */
+export function buildCreatorContentReport({
+  items,
+  creatorsAsked,
+  creatorsSkipped,
+  creatorsFailed,
+  reason,
+}: {
+  items: number;
+  creatorsAsked: number;
+  creatorsSkipped: number;
+  creatorsFailed: number;
+  reason?: string;
+}): CreatorContentReport {
+  const why = reason || "Zora profile read failed";
+  if (creatorsFailed === 0) {
+    return { status: "ok", items, creatorsAsked, creatorsSkipped };
+  }
+  if (creatorsAsked > 0 && creatorsFailed >= creatorsAsked) {
+    return { status: "unavailable", creatorsFailed, reason: why };
+  }
+  return {
+    status: "incomplete",
+    itemsSoFar: items,
+    creatorsAsked,
+    creatorsSkipped,
+    creatorsFailed,
+    reason: why,
+  };
 }
 
 /**
@@ -439,15 +517,13 @@ export async function GET() {
       fetchCreatorContent(creators, loadedAddresses),
     );
 
-    const [pairedCoins, gnarsContent, droposals, farcasterData, creatorContent] = await Promise.all(
-      [
-        fetchPairedCoins(loadedAddresses),
-        fetchGnarsProfileContent(loadedAddresses),
-        fetchDroposals(50).catch(() => []),
-        getFarcasterTVData(),
-        creatorContentPromise,
-      ],
-    );
+    const [pairedCoins, gnarsContent, droposals, farcasterData, creatorResult] = await Promise.all([
+      fetchPairedCoins(loadedAddresses),
+      fetchGnarsProfileContent(loadedAddresses),
+      fetchDroposals(50).catch(() => []),
+      getFarcasterTVData(),
+      creatorContentPromise,
+    ]);
 
     const qualifiedCreators = farcasterData.qualifiedCreators;
 
@@ -474,7 +550,7 @@ export async function GET() {
     // Combine all sources (paired coins have highest priority)
     const allItems = [
       ...pairedCoins,
-      ...creatorContent,
+      ...creatorResult.items,
       ...gnarsContent,
       ...farcasterItems,
       ...droposalItems,
@@ -513,18 +589,42 @@ export async function GET() {
           gnarsPaired: pairedCoins.length,
           droposals: droposalItems.length,
           creatorsCount: qualifiedCreators.length,
-          farcasterItems: farcasterItems.length,
-          farcasterCreators: farcasterData.stats.creators,
-          farcasterCoins: farcasterData.stats.coins,
-          farcasterNfts: farcasterData.stats.nfts,
+          // One value instead of four bare counts. On a failed read there is
+          // no number here to quote — see buildFarcasterSliceReport. The four
+          // flat `farcasterCoins: 0`-style fields are gone deliberately: they
+          // were the confident zero inside an aggregate that adds up, which is
+          // the kind of number nobody audits. See issue #2.
+          // Same three-state rule as the Farcaster slice: when this is not
+          // "ok", `total` above is a lower bound. A silent `catch {}` here is
+          // what made the 375→0 collapse on 27/08 invisible.
+          creatorContent: creatorResult.report,
+          farcaster: buildFarcasterSliceReport(farcasterData.farcaster, {
+            items: farcasterItems.length,
+            creators: farcasterData.stats.creators,
+            coins: farcasterData.stats.coins,
+            nfts: farcasterData.stats.nfts,
+          }),
         },
         fetchedAt: new Date().toISOString(),
         durationMs: elapsed,
       },
-      { headers: { "Cache-Control": CACHE_CONTROL_HEADER } },
+      {
+        headers: {
+          "Cache-Control":
+            creatorResult.report.status === "ok" && farcasterData.farcaster.status === "ok"
+              ? CACHE_CONTROL_HEADER
+              : "no-store",
+        },
+      },
     );
   } catch (error) {
     console.error("[api/tv] Feed fetch error:", error);
-    return NextResponse.json({ error: "Failed to fetch TV feed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch TV feed" },
+      {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   }
 }

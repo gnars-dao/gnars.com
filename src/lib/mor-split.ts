@@ -13,10 +13,21 @@
 // nobody can rewrite a staker's split.
 
 import {
-  createPublicClient, http, fallback, getAddress, erc20Abi, formatUnits, type Address,
+  createPublicClient,
+  erc20Abi,
+  fallback,
+  formatUnits,
+  getAddress,
+  http,
+  type Address,
 } from "viem";
 import { arbitrum } from "viem/chains";
-import { ARBITRUM_PUSH_SPLIT_FACTORY, MOR_TOKEN, MOR_DECIMALS, MOR_GNARS_RECIPIENT } from "@/lib/morpheus";
+import {
+  ARBITRUM_PUSH_SPLIT_FACTORY,
+  MOR_DECIMALS,
+  MOR_GNARS_RECIPIENT,
+  MOR_TOKEN,
+} from "@/lib/morpheus";
 
 export const SPLIT_TOTAL_ALLOCATION = BigInt(1_000_000);
 /** staker 50% / Gnars 25% / athlete 25% (of 1,000,000). */
@@ -28,7 +39,8 @@ export const SPLIT_ALLOC = {
 
 /** Immutable split, fixed salt — the params already differ per (staker, athlete). */
 export const SPLIT_OWNER = getAddress("0x0000000000000000000000000000000000000000");
-export const SPLIT_SALT = "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
+export const SPLIT_SALT =
+  "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
 
 export const arbitrumClient = createPublicClient({
   chain: arbitrum,
@@ -48,7 +60,9 @@ export type SplitParams = {
 };
 
 const splitParamsTuple = {
-  type: "tuple", name: "_splitParams", components: [
+  type: "tuple",
+  name: "_splitParams",
+  components: [
     { name: "recipients", type: "address[]" },
     { name: "allocations", type: "uint256[]" },
     { name: "totalAllocation", type: "uint256" },
@@ -57,22 +71,58 @@ const splitParamsTuple = {
 } as const;
 
 export const pushSplitFactoryAbi = [
-  { type: "function", name: "createSplitDeterministic", stateMutability: "nonpayable",
-    inputs: [splitParamsTuple, { name: "_owner", type: "address" }, { name: "_creator", type: "address" }, { name: "_salt", type: "bytes32" }],
-    outputs: [{ name: "split", type: "address" }] },
-  { type: "function", name: "predictDeterministicAddress", stateMutability: "view",
-    inputs: [splitParamsTuple, { name: "_owner", type: "address" }, { name: "_salt", type: "bytes32" }],
-    outputs: [{ type: "address" }] },
-  { type: "function", name: "isDeployed", stateMutability: "view",
-    inputs: [splitParamsTuple, { name: "_owner", type: "address" }, { name: "_salt", type: "bytes32" }],
-    outputs: [{ name: "split", type: "address" }, { name: "exists", type: "bool" }] },
+  {
+    type: "function",
+    name: "createSplitDeterministic",
+    stateMutability: "nonpayable",
+    inputs: [
+      splitParamsTuple,
+      { name: "_owner", type: "address" },
+      { name: "_creator", type: "address" },
+      { name: "_salt", type: "bytes32" },
+    ],
+    outputs: [{ name: "split", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "predictDeterministicAddress",
+    stateMutability: "view",
+    inputs: [
+      splitParamsTuple,
+      { name: "_owner", type: "address" },
+      { name: "_salt", type: "bytes32" },
+    ],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "isDeployed",
+    stateMutability: "view",
+    inputs: [
+      splitParamsTuple,
+      { name: "_owner", type: "address" },
+      { name: "_salt", type: "bytes32" },
+    ],
+    outputs: [
+      { name: "split", type: "address" },
+      { name: "exists", type: "bool" },
+    ],
+  },
 ] as const;
 
 /** distribute(Split, token, distributor) — pushes each recipient's balance of `token`. */
 export const splitWalletAbi = [
-  { type: "function", name: "distribute", stateMutability: "nonpayable",
-    inputs: [splitParamsTuple, { name: "_token", type: "address" }, { name: "_distributor", type: "address" }],
-    outputs: [] },
+  {
+    type: "function",
+    name: "distribute",
+    stateMutability: "nonpayable",
+    inputs: [
+      splitParamsTuple,
+      { name: "_token", type: "address" },
+      { name: "_distributor", type: "address" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 /**
@@ -92,7 +142,8 @@ export function splitParamsFor(staker: Address, athlete: Address): SplitParams {
 /** The deterministic Arbitrum address of a staker's 3-way split (exists or not). */
 export async function predictSplitAddress(staker: Address, athlete: Address): Promise<Address> {
   return arbitrumClient.readContract({
-    address: ARBITRUM_PUSH_SPLIT_FACTORY, abi: pushSplitFactoryAbi,
+    address: ARBITRUM_PUSH_SPLIT_FACTORY,
+    abi: pushSplitFactoryAbi,
     functionName: "predictDeterministicAddress",
     args: [splitParamsFor(staker, athlete), SPLIT_OWNER, SPLIT_SALT],
   });
@@ -101,7 +152,8 @@ export async function predictSplitAddress(staker: Address, athlete: Address): Pr
 /** Whether a staker's 3-way split has been deployed yet. */
 export async function isSplitDeployed(staker: Address, athlete: Address): Promise<boolean> {
   const [, exists] = await arbitrumClient.readContract({
-    address: ARBITRUM_PUSH_SPLIT_FACTORY, abi: pushSplitFactoryAbi,
+    address: ARBITRUM_PUSH_SPLIT_FACTORY,
+    abi: pushSplitFactoryAbi,
     functionName: "isDeployed",
     args: [splitParamsFor(staker, athlete), SPLIT_OWNER, SPLIT_SALT],
   });
@@ -113,7 +165,10 @@ export async function splitMorBalance(staker: Address, athlete: Address): Promis
   try {
     const split = await predictSplitAddress(staker, athlete);
     const bal = await arbitrumClient.readContract({
-      address: MOR_TOKEN, abi: erc20Abi, functionName: "balanceOf", args: [split],
+      address: MOR_TOKEN,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [split],
     });
     return Number(formatUnits(bal, MOR_DECIMALS));
   } catch {
@@ -130,8 +185,26 @@ export async function splitMorBalance(staker: Address, athlete: Address): Promis
 export const SPLITS_WAREHOUSE = getAddress("0x8fb66F38cF86A3d5e8768f8F1754A24A6c661Fb8");
 
 export const splitsWarehouseAbi = [
-  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "id", type: "uint256" }], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "owner", type: "address" }, { name: "token", type: "address" }], outputs: [] },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "id", type: "uint256" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "token", type: "address" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 /**
@@ -141,7 +214,9 @@ export const splitsWarehouseAbi = [
 export async function warehouseMorBalance(owner: Address): Promise<number> {
   try {
     const bal = await arbitrumClient.readContract({
-      address: SPLITS_WAREHOUSE, abi: splitsWarehouseAbi, functionName: "balanceOf",
+      address: SPLITS_WAREHOUSE,
+      abi: splitsWarehouseAbi,
+      functionName: "balanceOf",
       args: [getAddress(owner), BigInt(MOR_TOKEN)],
     });
     return Number(formatUnits(bal <= BigInt(1) ? BigInt(0) : bal, MOR_DECIMALS));
@@ -160,21 +235,29 @@ export const MULTICALL3 = getAddress("0xcA11bde05977b3631167028862bE2a173976CA11
 
 export const multicall3Abi = [
   {
-    type: "function", name: "aggregate3", stateMutability: "payable",
-    inputs: [{
-      name: "calls", type: "tuple[]",
-      components: [
-        { name: "target", type: "address" },
-        { name: "allowFailure", type: "bool" },
-        { name: "callData", type: "bytes" },
-      ],
-    }],
-    outputs: [{
-      name: "returnData", type: "tuple[]",
-      components: [
-        { name: "success", type: "bool" },
-        { name: "returnData", type: "bytes" },
-      ],
-    }],
+    type: "function",
+    name: "aggregate3",
+    stateMutability: "payable",
+    inputs: [
+      {
+        name: "calls",
+        type: "tuple[]",
+        components: [
+          { name: "target", type: "address" },
+          { name: "allowFailure", type: "bool" },
+          { name: "callData", type: "bytes" },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "returnData",
+        type: "tuple[]",
+        components: [
+          { name: "success", type: "bool" },
+          { name: "returnData", type: "bytes" },
+        ],
+      },
+    ],
   },
 ] as const;

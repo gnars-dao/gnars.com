@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { Markdown } from "@/components/common/Markdown";
 import { extractFirstUrl, normalizeImageUrl } from "@/components/proposals/utils";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Blog } from "@/lib/schemas/blogs";
 import { formatSafeDistanceToNow } from "@/lib/utils/date";
@@ -136,7 +136,14 @@ export function BlogDetail({ blog }: BlogDetailProps) {
           </div>
         </CardHeader>
         <CardContent>
-          <Markdown className="prose-lg">{blog.markdown || ""}</Markdown>
+          {/* staticHtml preserva tabelas; o markdown do Paragraph as achata. */}
+          {blog.staticHtml ? (
+            <Markdown className="prose-lg" allowHtml>
+              {blog.staticHtml}
+            </Markdown>
+          ) : (
+            <Markdown className="prose-lg">{blog.markdown || ""}</Markdown>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -8,10 +8,18 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
-    const limit = searchParams.get("limit")
-      ? parseInt(searchParams.get("limit") as string, 10)
-      : 200;
-    const page = searchParams.get("page") ? parseInt(searchParams.get("page") as string, 10) : 0;
+    const rawLimit = searchParams.get("limit") ?? "200";
+    const rawPage = searchParams.get("page") ?? "0";
+    const limit = Number(rawLimit);
+    const page = Number(rawPage);
+    if (
+      !/^[1-9]\d{0,2}$/.test(rawLimit) ||
+      limit > 200 ||
+      !/^(0|[1-9]\d{0,3})$/.test(rawPage) ||
+      page > 1000
+    ) {
+      return NextResponse.json({ error: "Invalid pagination" }, { status: 400 });
+    }
 
     const proposals = await listProposals(limit, page);
 

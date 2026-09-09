@@ -1,6 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
-import { fetchFarcasterProfilesByAddress } from "@/services/farcaster";
+import { fetchFarcasterProfilesByAddress, lookupProfile } from "@/services/farcaster";
 import {
   fetchActiveVotesForVoters,
   fetchAllMembers,
@@ -26,14 +26,15 @@ const getCachedMembers = unstable_cache(
         fetchFarcasterProfilesByAddress(owners),
       ]);
 
-    const voterActivity =
-      voterActivityResult.status === "fulfilled"
-        ? voterActivityResult.value
-        : { counts: {}, support: {} };
+    // Required statistics must not replace a good cached snapshot with zeros.
+    if (voterActivityResult.status === "rejected") throw voterActivityResult.reason;
+    if (activeVotesResult.status === "rejected") throw activeVotesResult.reason;
+    if (nonCanceledResult.status === "rejected") throw nonCanceledResult.reason;
+    const voterActivity = voterActivityResult.value;
     const votesCountMap = voterActivity.counts;
     const voteSupportMap = voterActivity.support;
-    const activeVotesMap = activeVotesResult.status === "fulfilled" ? activeVotesResult.value : {};
-    const nonCanceledCount = nonCanceledResult.status === "fulfilled" ? nonCanceledResult.value : 0;
+    const activeVotesMap = activeVotesResult.value;
+    const nonCanceledCount = nonCanceledResult.value;
     const farcasterProfiles = farcasterResult.status === "fulfilled" ? farcasterResult.value : {};
 
     return members.map((m) => {
@@ -50,7 +51,10 @@ const getCachedMembers = unstable_cache(
         activeVotes,
         attendancePct,
         likePct,
-        farcaster: farcasterProfiles[key] ?? null,
+        farcaster: lookupProfile(farcasterProfiles[key]),
+        // When the whole Promise.allSettled leg rejected we never asked at
+        // all, so the honest status is "unavailable", not "absent".
+        farcasterStatus: farcasterProfiles[key]?.status ?? "unavailable",
       };
     });
   },
@@ -75,9 +79,20 @@ export async function GET(request: Request) {
         )
       : members;
 
-    return NextResponse.json({ members: filtered });
+    return NextResponse.json(
+      { members: filtered },
+      {
+        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+      },
+    );
   } catch (error) {
     console.error("[api/members] failed:", error);
-    return NextResponse.json({ error: "Failed to fetch members" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch members" },
+      {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   }
 }

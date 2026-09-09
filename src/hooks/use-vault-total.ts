@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, fallback, formatUnits, http, type Address } from "viem";
 import { base } from "viem/chains";
 import { RIDER_LIST } from "@/lib/gnars-vaults";
-import { blockscoutGet } from "@/services/blockscout";
+import { readVaultEarnings } from "@/lib/vault-accounting";
 
 const client = createPublicClient({
   chain: base,
@@ -87,36 +87,10 @@ export function useVaultPosition(
   return data ?? null;
 }
 
-type DecodedParam = { name?: string; value?: unknown };
-type LogItem = { decoded?: { method_call?: string; parameters?: DecodedParam[] } | null };
-
-/** Net principal an account put in: sum of its Deposit assets minus Withdraw assets.
- *  Delegates the fetch to the crash-safe Blockscout helper — a 500 with a
- *  non-JSON body (the production "Internal server error") now degrades to 0
- *  instead of calling `.json()` on the text body. */
-async function principalFromLogs(vault: Address, account: string): Promise<bigint> {
-  const json = await blockscoutGet<{ items?: LogItem[] }>(`addresses/${vault}/logs`);
-  if (!json) return BigInt(0);
-  const me = account.toLowerCase();
-  let principal = BigInt(0);
-  for (const log of json.items ?? []) {
-    const call = log.decoded?.method_call ?? "";
-    const params = log.decoded?.parameters ?? [];
-    const owner = params.find((p) => p.name === "owner")?.value;
-    if (typeof owner !== "string" || owner.toLowerCase() !== me) continue;
-    const assets = params.find((p) => p.name === "assets")?.value;
-    if (typeof assets !== "string" && typeof assets !== "number") continue;
-    const amt = BigInt(assets);
-    if (call.startsWith("Deposit(")) principal += amt;
-    else if (call.startsWith("Withdraw(")) principal -= amt;
-  }
-  return principal > BigInt(0) ? principal : BigInt(0);
-}
-
 export type VaultEarned = {
   /** Current position value, USDC. */
   current: number;
-  /** Net deposited, USDC. */
+  /** Protected deposit floor, USDC; partial withdrawals never lower it. */
   principal: number;
   /** current − principal, floored at 0, USDC. */
   earned: number;
@@ -137,31 +111,13 @@ export function useVaultEarned(vault?: Address, account?: string, nonce = 0): Va
     staleTime: 30_000,
     queryFn: async (): Promise<VaultEarned | null> => {
       try {
-        const shares = await client.readContract({
-          address: vault!,
-          abi,
-          functionName: "balanceOf",
-          args: [account as Address],
-        });
-        if (shares === BigInt(0)) {
-          return { current: 0, principal: 0, earned: 0, earnedRaw: BigInt(0), shares: BigInt(0) };
-        }
-        const [currentRaw, principalRaw] = await Promise.all([
-          client.readContract({
-            address: vault!,
-            abi,
-            functionName: "convertToAssets",
-            args: [shares],
-          }),
-          principalFromLogs(vault!, account!),
-        ]);
-        const earnedRaw = currentRaw > principalRaw ? currentRaw - principalRaw : BigInt(0);
+        const result = await readVaultEarnings(client, vault!, account as Address);
         return {
-          current: Number(formatUnits(currentRaw, 6)),
-          principal: Number(formatUnits(principalRaw, 6)),
-          earned: Number(formatUnits(earnedRaw, 6)),
-          earnedRaw,
-          shares,
+          current: Number(formatUnits(result.assets, 6)),
+          principal: Number(formatUnits(result.principal, 6)),
+          earned: Number(formatUnits(result.earned, 6)),
+          earnedRaw: result.earned,
+          shares: result.shares,
         };
       } catch {
         return null;

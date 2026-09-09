@@ -1,0 +1,68 @@
+/* Source stylesheet for the Claude Design bundle. Compiled by cfg.buildCmd into
+   .design-sync/.cache/ds-tailwind.css, which cfg.cssEntry points at.
+
+   Why this file exists at all: this repo is a Next.js app, so Tailwind v4 is only
+   ever compiled during `next build` and no static stylesheet is committed. The
+   design bundle needs a real one.
+
+   It imports the app's own globals.css rather than copying the token layer, so
+   the palette can never drift from what the site ships. */
+
+/* Geist / Geist Mono / Oswald come from next/font/google in the app. There is no
+   next/font here, so they load from the font host at runtime instead. */
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&family=Oswald:wght@200..700&display=swap");
+
+@import "../src/app/globals.css";
+
+/* Content scanning: the app's components and routes are where the utility classes
+   that must survive into this stylesheet actually appear. */
+@source "../src/components/**/*.{ts,tsx}";
+@source "../src/app/**/*.{ts,tsx}";
+
+/* Safelist. The design agent writes its OWN layout glue with Tailwind utilities,
+   and a class that appears nowhere in this repo's source would otherwise be absent
+   from the compiled sheet and silently do nothing. */
+@source inline("{flex,inline-flex,grid,block,inline-block,hidden,contents}");
+@source inline("{flex-row,flex-col,flex-wrap,flex-1,flex-none,shrink-0,grow}");
+@source inline("items-{start,center,end,baseline,stretch}");
+@source inline("justify-{start,center,end,between,around,evenly}");
+@source inline("grid-cols-{1,2,3,4,5,6,12}");
+@source inline("col-span-{1,2,3,4,6,full}");
+@source inline("{gap,gap-x,gap-y}-{0,0.5,1,1.5,2,2.5,3,4,5,6,8,10,12,16}");
+@source inline("{p,px,py,pt,pr,pb,pl}-{0,0.5,1,1.5,2,2.5,3,4,5,6,8,10,12,16,20,24}");
+@source inline("{m,mx,my,mt,mr,mb,ml}-{0,0.5,1,2,3,4,6,8,12,auto}");
+@source inline("{w,h,size}-{full,auto,fit,screen,0,1,2,3,4,5,6,8,10,12,16,20,24,32,40,48,64}");
+@source inline("{max-w,min-w}-{none,full,xs,sm,md,lg,xl,2xl,3xl,4xl,5xl,6xl,7xl,prose}");
+@source inline("text-{xs,sm,base,lg,xl,2xl,3xl,4xl,5xl,6xl,7xl}");
+@source inline("font-{thin,light,normal,medium,semibold,bold,extrabold,black}");
+@source inline("font-{sans,mono,display}");
+@source inline("text-{left,center,right,justify}");
+@source inline("{uppercase,lowercase,capitalize,normal-case,truncate,italic}");
+@source inline("tracking-{tighter,tight,normal,wide,wider,widest}");
+@source inline("leading-{none,tight,snug,normal,relaxed,loose}");
+@source inline("rounded{,-none,-xs,-sm,-md,-lg,-xl,-2xl,-3xl,-full}");
+@source inline("border{,-0,-2,-4,-t,-r,-b,-l}");
+@source inline("shadow{,-xs,-sm,-md,-lg,-xl,-2xl,-none}");
+@source inline("{relative,absolute,fixed,sticky,static}");
+@source inline("{overflow,overflow-x,overflow-y}-{auto,hidden,visible,scroll}");
+@source inline("{opacity,z}-{0,10,20,30,40,50,60,70,80,90,100}");
+@source inline("{cursor-pointer,select-none,transition,transition-all,duration-150,duration-200,duration-300}");
+
+/* Semantic tokens — the shadcn layer this repo actually themes. */
+@source inline("{bg,text,border,ring,fill,stroke}-{background,foreground,card,card-foreground,popover,popover-foreground,primary,primary-foreground,secondary,secondary-foreground,muted,muted-foreground,accent,accent-foreground,destructive,border,input,ring}");
+@source inline("{bg,text,border}-chart-{1,2,3,4,5}");
+
+/* The Tailwind palette colors this repo uses semantically for status. Grep of
+   src/ ranks these as the real brand vocabulary — the token layer has no chroma. */
+@source inline("{bg,text,border}-{amber,emerald,green,blue,red,yellow,orange,rose,violet,cyan,indigo,slate,zinc,neutral,gray}-{50,100,200,300,400,500,600,700,800,900}");
+@source inline("hover:{bg,text,border}-{amber,emerald,green,blue,red,yellow}-{400,500,600,700}");
+@source inline("dark:{bg,text,border}-{amber,emerald,green,blue,red,yellow,slate,zinc,neutral}-{300,400,500,600,800,900}");
+
+/* next/font injects these on <html> in the app. Nothing injects them here, and
+   @theme maps --font-sans/mono/display straight onto them: leave them undefined
+   and every design renders in a fallback font with no warning anywhere. */
+:root {
+  --font-geist-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-geist-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-oswald: "Oswald", ui-sans-serif, system-ui, sans-serif;
+}

@@ -18,13 +18,13 @@ export const serverPublicClient = createPublicClient({
     BASE_RPC_URLS.map((url) =>
       http(url, {
         timeout: 8_000,
-        retryCount: 1,
+        retryCount: 0,
         retryDelay: 500,
       }),
     ),
     {
       rank: false,
-      retryCount: BASE_RPC_URLS.length,
+      retryCount: 0,
       retryDelay: 100,
     },
   ),

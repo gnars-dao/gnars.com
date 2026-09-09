@@ -2,6 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { STORE_CHECKOUT } from "@/lib/config";
 import { sendOrderReceiptEmail } from "@/lib/email/order-receipt";
 import { checkoutInputSchema, type CheckoutResult } from "@/lib/schemas/checkout";
+import {
+  enforceRateLimit,
+  readJsonBody,
+  RequestSecurityError,
+  verifyWalletAuthorization,
+} from "@/lib/server/request-security";
+import { createOrderAccessToken } from "@/lib/server/store-order-access";
 import { isShippingSupported } from "@/lib/store/countries";
 import { isDropshipFulfillable } from "@/lib/store/fulfillment";
 import {
@@ -13,6 +20,11 @@ import {
 } from "@/services/keepkey-dropship";
 import { getProductBySlug } from "@/services/store";
 import { verifyUsdcPayment } from "@/services/store-payment";
+import {
+  claimCheckoutPayment,
+  completeCheckoutPayment,
+  isPaymentStorageReady,
+} from "@/services/store-payment-claims";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,11 +33,14 @@ export const dynamic = "force-dynamic";
  * Checkout readiness preflight. The client MUST call this before prompting an on-chain
  * payment: payment happens client-side first, so if fulfillment isn't configured we'd
  * otherwise take money and be unable to place the order. `ready:false` → client aborts
- * before charging. Live needs the KeepKey token + a payment recipient; sandbox needs neither.
+ * before charging. Live needs fulfillment, a recipient, and migrated payment storage;
+ * sandbox needs its fulfillment test token but no payment storage.
  */
 export async function GET() {
   const sandbox = isSandbox();
-  const ready = sandbox || (isDropshipConfigured() && Boolean(STORE_CHECKOUT.recipient));
+  const ready =
+    isDropshipConfigured() &&
+    (sandbox || (Boolean(STORE_CHECKOUT.recipient) && (await isPaymentStorageReady())));
   return NextResponse.json({ ready, sandbox });
 }
 
@@ -43,6 +58,30 @@ export async function GET() {
  * calls the fulfillment client directly once payment checks out.
  */
 export async function POST(request: NextRequest) {
+  try {
+    return await checkout(request);
+  } catch (error) {
+    const known = error instanceof RequestSecurityError;
+    return NextResponse.json(
+      {
+        error: {
+          code: known ? "request_rejected" : "server_error",
+          message: known ? error.message : "Unable to place order.",
+        },
+      },
+      {
+        status: known ? error.status : 503,
+        headers: {
+          "Cache-Control": "no-store",
+          ...(known && error.retryAfter ? { "Retry-After": String(error.retryAfter) } : {}),
+        },
+      },
+    );
+  }
+}
+
+async function checkout(request: NextRequest) {
+  await enforceRateLimit(request, { scope: "checkout-ip", limit: 20, windowSeconds: 3600 });
   if (!isDropshipConfigured()) {
     return NextResponse.json(
       { error: { code: "not_configured", message: "Store fulfillment is not configured" } },
@@ -50,8 +89,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await request.json().catch(() => null);
-  const parsed = checkoutInputSchema.safeParse(body);
+  const body = (await readJsonBody(request, 32_000)) as {
+    checkout?: unknown;
+    authorization?: unknown;
+  };
+  const parsed = checkoutInputSchema.safeParse(body?.checkout);
   if (!parsed.success) {
     return NextResponse.json(
       {
@@ -62,6 +104,18 @@ export async function POST(request: NextRequest) {
     );
   }
   const input = parsed.data;
+  const payer = await verifyWalletAuthorization({
+    authorization: body.authorization,
+    method: "POST",
+    path: "/api/store/checkout",
+    payload: input,
+  });
+  await enforceRateLimit(request, {
+    scope: "checkout-wallet",
+    subject: payer,
+    limit: 20,
+    windowSeconds: 3600,
+  });
 
   const product = await getProductBySlug(input.slug);
   if (!product) {
@@ -108,7 +162,9 @@ export async function POST(request: NextRequest) {
         { status: 402 },
       );
     }
-    const payment = await verifyUsdcPayment(input.txHash, product.price);
+    if (!(await isPaymentStorageReady()))
+      throw new RequestSecurityError(503, "Payment storage is unavailable.");
+    const payment = await verifyUsdcPayment(input.txHash, product.price, payer);
     if (!payment.ok) {
       const status = payment.code === "not_configured" ? 503 : 402;
       return NextResponse.json(
@@ -118,6 +174,12 @@ export async function POST(request: NextRequest) {
     }
     // Deterministic id from the payment → same tx can never place two orders.
     externalOrderId = `gnars-${input.txHash}`;
+    const completed = await claimCheckoutPayment(input.txHash, payer, input);
+    if (completed)
+      return NextResponse.json(
+        { ...completed, orderAccessToken: createOrderAccessToken(completed) },
+        { headers: { "Cache-Control": "no-store" } },
+      );
   }
 
   // KeepKey's dropship catalog only stocks the base wallet; color finishes are cosmetic and
@@ -136,26 +198,32 @@ export async function POST(request: NextRequest) {
       notes,
     });
 
-    // Best-effort order receipt — never let a mail failure fail an order that's placed.
-    await sendOrderReceiptEmail({
-      to: input.customerEmail,
-      customerName: input.customerName,
-      productTitle: product.title,
-      finish: input.finish || undefined,
-      amount: product.price,
-      currency: product.currency,
-      keepKeyOrderId: result.keepKeyOrderId,
-      externalOrderId,
-      shippingAddress: input.shippingAddress,
-      sandbox: result.sandbox,
-    });
-
     const payload: CheckoutResult = {
+      orderAccessToken: createOrderAccessToken({
+        keepKeyOrderId: result.keepKeyOrderId,
+        externalOrderId,
+      }),
       keepKeyOrderId: result.keepKeyOrderId,
       externalOrderId,
       status: result.status,
       sandbox: result.sandbox,
     };
+    const firstCompletion = sandbox || (await completeCheckoutPayment(input.txHash!, payload));
+    // Only the first completion sends a receipt; retries recover the saved result.
+    if (firstCompletion)
+      await sendOrderReceiptEmail({
+        to: input.customerEmail,
+        customerName: input.customerName,
+        productTitle: product.title,
+        finish: input.finish || undefined,
+        amount: product.price,
+        currency: product.currency,
+        keepKeyOrderId: result.keepKeyOrderId,
+        externalOrderId,
+        shippingAddress: input.shippingAddress,
+        sandbox: result.sandbox,
+      });
+
     return NextResponse.json(payload, { status: 201 });
   } catch (error) {
     if (error instanceof DropshipApiError) {

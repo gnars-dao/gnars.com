@@ -3,20 +3,23 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
+import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveAccount } from "thirdweb/react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useEnsNameAndAvatar } from "@/hooks/use-ens";
 import { useEthPrice } from "@/hooks/use-eth-price";
-import { useMorpheusStake } from "@/hooks/use-morpheus-stake";
+import { useMorpheusStakeFlow } from "@/hooks/use-morpheus-stake-flow";
 import { useStakeDeposit } from "@/hooks/use-stake-deposit";
 import { useVaultEarned, useVaultPosition } from "@/hooks/use-vault-total";
 import { Link } from "@/i18n/navigation";
+import { normalizeDecimalInput } from "@/lib/decimal-input";
 import { getRider } from "@/lib/gnars-vaults";
 import { claimLockEndFor, LOCK_OPTIONS, multiplierForYears } from "@/lib/lock-multiplier";
 import { riderCustomLine } from "@/lib/rider-lines";
 import type { StakeYields } from "@/services/yields";
 import { REWARD_SPLIT } from "./CharacterSelector";
+import { MorpheusStakeProgress } from "./MorpheusStakeProgress";
 
 // Adapted from the Claude-designed "Stake Dialog v2" — arcade-gold, three
 // columns (yield source / amount / your share) over a rewards-flow hero with the
@@ -123,7 +126,9 @@ export function StakeDialog({
     isStaking,
     account,
   } = useStakeDeposit();
-  const morpheus = useMorpheusStake();
+  const rider = getRider(riderId);
+  const stEthFlow = useMorpheusStakeFlow({ asset: "stEth", athlete: rider?.wallet, enabled: open });
+  const usdcFlow = useMorpheusStakeFlow({ asset: "usdc", athlete: rider?.wallet, enabled: open });
   const [refresh, setRefresh] = useState(0);
   const [oppId, setOppId] = useState<OppId>("vault-usdc");
   const [amount, setAmount] = useState(OPPS[0].default);
@@ -156,6 +161,15 @@ export function StakeDialog({
   const opp = OPPS.find((o) => o.id === oppId)!;
   const isMor = opp.kind === "mor";
   const isUsdc = opp.asset === "usdc";
+  const morpheus = opp.asset === "steth" ? stEthFlow : usdcFlow;
+  const recovery =
+    [stEthFlow, usdcFlow].find(
+      (candidate) => candidate.flow && candidate.flow.status !== "complete",
+    ) ?? [stEthFlow, usdcFlow].find((candidate) => candidate.flow);
+  const recovering = Boolean(recovery?.flow);
+  const checkingRecovery =
+    stEthFlow.loading || usdcFlow.loading || stEthFlow.isChecking || usdcFlow.isChecking;
+  const recoveryError = stEthFlow.error || usdcFlow.error;
 
   const aprFor = (o: Opp) =>
     (o.kind === "vault" ? yields?.usdc?.apy : yields?.mor?.[o.asset]?.apy) ?? 0;
@@ -168,7 +182,7 @@ export function StakeDialog({
   const lockMult = isMor ? multiplierForYears(lockYears, nowSec) : 1;
   const totalAsset = ((amountNum * rate) / 100) * lockMult; // yield in the deposit asset
   const totalUsd = totalAsset * assetUsd;
-  const busy = isMor ? morpheus.isBusy : isStaking;
+  const busy = isMor ? morpheus.isBusy || checkingRecovery || Boolean(morpheus.error) : isStaking;
 
   const switchOpp = (next: OppId) => {
     const o = OPPS.find((x) => x.id === next)!;
@@ -212,7 +226,6 @@ export function StakeDialog({
     return () => clearInterval(id);
   }, [line]);
 
-  const rider = getRider(riderId);
   const position = useVaultPosition(rider?.vault, account ?? undefined, refresh);
   const earned = useVaultEarned(rider?.vault, account ?? undefined, refresh);
 
@@ -220,17 +233,7 @@ export function StakeDialog({
     if (isMor) {
       if (!rider?.wallet) return;
       const lockEnd = claimLockEndFor(lockYears);
-      const ok = await morpheus.stake(
-        opp.asset === "steth" ? "stEth" : "usdc",
-        amount,
-        rider.wallet,
-        lockEnd,
-      );
-      if (ok) {
-        toast.success(t("opp.stakedMorTitle", { name }), { description: t("opp.stakedMorDesc") });
-        setRefresh((n) => n + 1);
-        onOpenChange(false);
-      } else toast.error(t("dlg.failTitle"), { description: morpheus.error ?? undefined });
+      await morpheus.start(amount, lockEnd);
       return;
     }
     if (!rider?.vault) {
@@ -262,13 +265,7 @@ export function StakeDialog({
   };
 
   const confirmLabel = isMor
-    ? morpheus.phase === "approve"
-      ? t("opp.approving")
-      : morpheus.phase === "stake"
-        ? t("opp.staking")
-        : morpheus.phase === "setReceiver"
-          ? t("opp.staking")
-          : `${t("opp.stakeVerb")} ${fmtAmount(amountNum, isUsdc)} ${opp.unit}`
+    ? `${t("opp.stakeVerb")} ${fmtAmount(amountNum, isUsdc)} ${opp.unit}`
     : stakePhase === "approve"
       ? t("dlg.approving")
       : stakePhase === "deposit"
@@ -281,7 +278,8 @@ export function StakeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton
-        className="max-h-[94vh] gap-0 overflow-y-auto border-white/[0.08] bg-[#0e0c0a] p-0 text-white sm:max-w-[1080px]"
+        aria-describedby={undefined}
+        className={`max-h-[94vh] gap-0 overflow-y-auto border-white/[0.08] bg-[#0e0c0a] p-0 text-white ${recovering ? "sm:max-w-[680px]" : "sm:max-w-[1080px]"}`}
         style={{ fontFamily: "var(--font-sans, system-ui), sans-serif" }}
       >
         <div className="flex flex-col gap-5 p-6 sm:p-8">
@@ -290,10 +288,10 @@ export function StakeDialog({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2.5">
                 <span style={{ color: GOLD, fontSize: 20 }}>⚡</span>
-                <h2 className="m-0 text-2xl font-black tracking-tight sm:text-[27px]">
-                  {t("stakeCta", { name })}
-                </h2>
-                {typeof overall === "number" && (
+                <DialogTitle className="m-0 text-2xl font-black sm:text-[27px]">
+                  {recovering ? t("flow.dialogTitle") : t("stakeCta", { name })}
+                </DialogTitle>
+                {!recovering && typeof overall === "number" && (
                   <span
                     className="rounded-full px-2.5 py-1 text-[11px] font-bold tracking-widest"
                     style={{
@@ -306,101 +304,152 @@ export function StakeDialog({
                   </span>
                 )}
               </div>
-              <p
-                className="mt-2 max-w-[660px] text-[14.5px] leading-relaxed"
-                style={{ color: muted }}
-              >
-                {t("dialogIntro", { name })}
-              </p>
+              {!recovering && (
+                <p
+                  className="mt-2 max-w-[660px] text-[14.5px] leading-relaxed"
+                  style={{ color: muted }}
+                >
+                  {t("dialogIntro", { name })}
+                </p>
+              )}
             </div>
           </div>
 
           {/* Hero: rewards flow + rider */}
-          <div
-            className="relative grid items-stretch gap-3.5 rounded-[20px] border border-white/[0.07] px-5 pt-[18px] sm:grid-cols-[minmax(0,1fr)_268px]"
-            style={{ background: "rgba(255,255,255,.03)" }}
-          >
-            <div className="min-w-0 pb-[18px]">
-              <div className="mb-1.5 flex items-baseline justify-between gap-4">
-                <span
-                  className="text-[11px] font-bold uppercase tracking-[0.22em]"
-                  style={{ color: muted }}
-                >
-                  {t("opp.howRewardsFlow")}
-                </span>
-                <span className="text-[15px] font-black" style={{ color: GOLD_HI }}>
-                  {isMor
-                    ? `≈$${fmt2(totalUsd)} ${t("opp.perYearMor")}`
-                    : `${fmt2(totalAsset)} ${opp.unit} / ${t("perYear")}`}
-                </span>
-              </div>
-              <RewardFlow
-                riderName={name}
-                riderImg={image}
-                faceSize={faceSize}
-                facePos={facePos}
-                youVal={share(REWARD_SPLIT.you)}
-                ridVal={share(REWARD_SPLIT.skater)}
-                gnaVal={share(REWARD_SPLIT.treasury)}
-                youLabel={t("youLabel")}
-                youAvatar={youAvatar ?? undefined}
-                gnarsLabel="Gnars"
-                srcLabel={t("flowSource")}
-                yieldLabel={t("opp.yield")}
-              />
-            </div>
-
-            {/* Rider speech + face crop */}
-            <div className="relative hidden min-h-[280px] flex-col gap-[15px] pt-1 sm:flex">
-              <div
-                className="relative flex-none rounded-2xl px-3.5 py-3"
-                style={{
-                  background: "linear-gradient(180deg,#1c1714,#141110)",
-                  border: `2px solid ${GOLD}`,
-                }}
-              >
-                <div
-                  className="mb-1.5 text-[10px] font-extrabold uppercase tracking-[0.2em]"
-                  style={{ color: GOLD_HI }}
-                >
-                  {name}
-                </div>
-                {/* reserve the full line's height (invisible) so typing never reflows the bubble */}
-                <div className="relative text-[13px] font-semibold leading-relaxed">
-                  <span className="invisible">{line}</span>
-                  <span className="absolute inset-x-0 top-0" style={{ color: "#e8e4df" }}>
-                    {line.slice(0, typed)}
-                    <span style={{ color: GOLD }}>{typed < line.length ? "▌" : ""}</span>
+          {!recovering && (
+            <div
+              className="relative grid items-stretch gap-3.5 rounded-[20px] border border-white/[0.07] px-5 pt-[18px] sm:grid-cols-[minmax(0,1fr)_268px]"
+              style={{ background: "rgba(255,255,255,.03)" }}
+            >
+              <div className="min-w-0 pb-[18px]">
+                <div className="mb-1.5 flex items-baseline justify-between gap-4">
+                  <span
+                    className="text-[11px] font-bold uppercase tracking-[0.22em]"
+                    style={{ color: muted }}
+                  >
+                    {t("opp.howRewardsFlow")}
+                  </span>
+                  <span className="text-[15px] font-black" style={{ color: GOLD_HI }}>
+                    {isMor
+                      ? `≈$${fmt2(totalUsd)} ${t("opp.perYearMor")}`
+                      : `${fmt2(totalAsset)} ${opp.unit} / ${t("perYear")}`}
                   </span>
                 </div>
+                <RewardFlow
+                  riderName={name}
+                  riderImg={image}
+                  faceSize={faceSize}
+                  facePos={facePos}
+                  youVal={share(REWARD_SPLIT.you)}
+                  ridVal={share(REWARD_SPLIT.skater)}
+                  gnaVal={share(REWARD_SPLIT.treasury)}
+                  youLabel={t("youLabel")}
+                  youAvatar={youAvatar ?? undefined}
+                  gnarsLabel="Gnars"
+                  srcLabel={t("flowSource")}
+                  yieldLabel={t("opp.yield")}
+                />
+              </div>
+
+              {/* Rider speech + face crop */}
+              <div className="relative hidden min-h-[280px] flex-col gap-[15px] pt-1 sm:flex">
                 <div
-                  className="absolute -bottom-2.5 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45"
+                  className="relative flex-none rounded-2xl px-3.5 py-3"
                   style={{
-                    background: "#141110",
-                    borderRight: `2px solid ${GOLD}`,
-                    borderBottom: `2px solid ${GOLD}`,
+                    background: "linear-gradient(180deg,#1c1714,#141110)",
+                    border: `2px solid ${GOLD}`,
+                  }}
+                >
+                  <div
+                    className="mb-1.5 text-[10px] font-extrabold uppercase tracking-[0.2em]"
+                    style={{ color: GOLD_HI }}
+                  >
+                    {name}
+                  </div>
+                  {/* reserve the full line's height (invisible) so typing never reflows the bubble */}
+                  <div className="relative text-[13px] font-semibold leading-relaxed">
+                    <span className="invisible">{line}</span>
+                    <span className="absolute inset-x-0 top-0" style={{ color: "#e8e4df" }}>
+                      {line.slice(0, typed)}
+                      <span style={{ color: GOLD }}>{typed < line.length ? "▌" : ""}</span>
+                    </span>
+                  </div>
+                  <div
+                    className="absolute -bottom-2.5 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45"
+                    style={{
+                      background: "#141110",
+                      borderRight: `2px solid ${GOLD}`,
+                      borderBottom: `2px solid ${GOLD}`,
+                    }}
+                  />
+                </div>
+                {/* face crop with a soft bottom fade — no box, blends into the panel */}
+                <div
+                  aria-hidden
+                  className="min-h-[170px] flex-1"
+                  style={{
+                    backgroundImage: `url(${image})`,
+                    backgroundRepeat: "no-repeat",
+                    backgroundSize: faceSize,
+                    backgroundPosition: facePos,
+                    WebkitMaskImage: "linear-gradient(180deg,#000 62%,rgba(0,0,0,0) 100%)",
+                    maskImage: "linear-gradient(180deg,#000 62%,rgba(0,0,0,0) 100%)",
                   }}
                 />
               </div>
-              {/* face crop with a soft bottom fade — no box, blends into the panel */}
-              <div
-                aria-hidden
-                className="min-h-[170px] flex-1"
-                style={{
-                  backgroundImage: `url(${image})`,
-                  backgroundRepeat: "no-repeat",
-                  backgroundSize: faceSize,
-                  backgroundPosition: facePos,
-                  WebkitMaskImage: "linear-gradient(180deg,#000 62%,rgba(0,0,0,0) 100%)",
-                  maskImage: "linear-gradient(180deg,#000 62%,rgba(0,0,0,0) 100%)",
-                }}
-              />
             </div>
-          </div>
+          )}
+
+          {!recovering && (checkingRecovery || recoveryError) && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-3 border-y border-white/10 py-3 text-sm text-white/70"
+            >
+              {checkingRecovery ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  {t("flow.loading")}
+                </>
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1">{t("flow.readError")}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void stEthFlow.checkStatus();
+                      void usdcFlow.checkStatus();
+                    }}
+                    className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-white/20 px-3"
+                  >
+                    <RefreshCw className="h-4 w-4" aria-hidden />
+                    {t("flow.retry")}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Step 1 (config): source · amount · your share. Step 2 (lock, MOR only)
               tunes the optional power-factor multiplier — kept off the first screen. */}
-          {step === "config" ? (
+          {recovery?.flow ? (
+            <MorpheusStakeProgress
+              key={recovery.flow.id}
+              flow={recovery.flow}
+              busy={recovery.isBusy || recovery.loading || recovery.isChecking}
+              error={recovery.error}
+              onContinue={
+                recovery.flow.recoveryAvailable ? recovery.recoverReceiver : recovery.continueFlow
+              }
+              onCheck={recovery.checkStatus}
+              onAttachHash={recovery.attachHash}
+              onClose={() => onOpenChange(false)}
+              onComplete={() => {
+                recovery.clearCompleted();
+                setRefresh((n) => n + 1);
+                onOpenChange(false);
+              }}
+            />
+          ) : step === "config" ? (
             <div className="grid items-start gap-5 sm:grid-cols-3">
               {/* Yield source */}
               <div className="min-w-0">
@@ -465,7 +514,7 @@ export function StakeDialog({
                 >
                   <input
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                    onChange={(e) => setAmount(normalizeDecimalInput(e.target.value))}
                     inputMode="decimal"
                     className="min-w-0 flex-1 border-none bg-transparent text-2xl font-extrabold tracking-tight text-white outline-none"
                   />
@@ -588,7 +637,7 @@ export function StakeDialog({
           )}
 
           {/* Vault position management — only when a live position exists */}
-          {!isMor && position && position.shares > BigInt(0) && (
+          {!recovering && !isMor && position && position.shares > BigInt(0) && (
             <div
               className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-white/[0.07] px-4 py-3 text-xs"
               style={{ background: "rgba(255,255,255,.02)" }}
@@ -829,6 +878,7 @@ function LockStep({
                 key={years}
                 type="button"
                 onClick={() => setLockYears(years)}
+                disabled={busy}
                 aria-pressed={active}
                 className="flex cursor-pointer items-center gap-3 rounded-[13px] px-4 py-3 text-left transition"
                 style={{

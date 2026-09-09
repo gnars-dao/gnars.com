@@ -43,7 +43,12 @@ const MORPHEUS_APR: Record<"steth" | "usdc", number> = {
   steth: 16.78,
 };
 function morpheusYields(): MorpheusYields {
-  const mk = (apy: number): StakeYield => ({ apy, source: "Morpheus", detail: "MOR", estimate: true });
+  const mk = (apy: number): StakeYield => ({
+    apy,
+    source: "Morpheus",
+    detail: "MOR",
+    estimate: true,
+  });
   return { usdc: mk(MORPHEUS_APR.usdc), steth: mk(MORPHEUS_APR.steth) };
 }
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { waitForReceipt } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { getThirdwebClient } from "@/lib/thirdweb";
+import { waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 export type TxPhase = "idle" | "wallet_confirm" | "submitted" | "confirmed";
 
@@ -30,7 +30,7 @@ interface UseAuctionTransactionReturn {
  * provides a txFn that resolves to a transaction hash; this hook
  * drives the wallet_confirm -> submitted -> confirmed phases and
  * fires the matching callbacks. Confirmation is done via
- * thirdweb's imperative waitForReceipt so the whole flow is a
+ * thirdweb's imperative waitForSuccessfulReceipt so the whole flow is a
  * single sequential async, no effect-driven transitions.
  */
 export function useAuctionTransaction(
@@ -62,9 +62,8 @@ export function useAuctionTransaction(
       onSubmittedRef.current?.(hash);
 
       const client = getThirdwebClient();
-      if (client) {
-        await waitForReceipt({ client, chain: base, transactionHash: hash });
-      }
+      if (!client) throw new Error("Transaction confirmation client unavailable");
+      await waitForSuccessfulReceipt({ client, chain: base, transactionHash: hash });
 
       setPhase("confirmed");
       onConfirmedRef.current?.(hash);

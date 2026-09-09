@@ -7,14 +7,7 @@
 // USDC only: the vaults are Morpho V2 USDC vaults. The ETH option on /stake has
 // no vault behind it yet.
 import { useCallback, useRef, useState } from "react";
-import {
-  getContract,
-  prepareTransaction,
-  readContract,
-  sendTransaction,
-  waitForReceipt,
-  type ThirdwebClient,
-} from "thirdweb";
+import { getContract, readContract, sendTransaction, type ThirdwebClient } from "thirdweb";
 import { base } from "thirdweb/chains";
 import {
   createPublicClient,
@@ -27,11 +20,13 @@ import {
 } from "viem";
 import { base as viemBase } from "viem/chains";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareTransaction } from "@/lib/builder-code";
 import { CACHE_TAGS } from "@/lib/cache-tags";
 import { requestRevalidation } from "@/lib/request-revalidation";
 import { USDC } from "@/lib/sponsorship-vaults";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
+import { readVaultEarnings } from "@/lib/vault-accounting";
 
 // Our own multi-endpoint client — after the approve is mined, the wallet's RPC
 // can still be a block behind, so the deposit's gas estimation doesn't see the
@@ -209,7 +204,7 @@ export function useStakeDeposit() {
           });
           const approveHash = (await sendTransaction({ account, transaction: approveTx }))
             .transactionHash;
-          await waitForReceipt({ client, chain: base, transactionHash: approveHash });
+          await waitForSuccessfulReceipt({ client, chain: base, transactionHash: approveHash });
           // Don't send the deposit until the allowance is actually visible — this
           // is what makes a single click work instead of failing with a scary
           // "insufficient allowance" and needing a second try.
@@ -247,12 +242,12 @@ export function useStakeDeposit() {
           await sleep(4000);
           depositHash = await sendDeposit();
         }
-        await waitForReceipt({ client, chain: base, transactionHash: depositHash });
+        await waitForSuccessfulReceipt({ client, chain: base, transactionHash: depositHash });
 
         // Drop the server's `stake` cache so OTHER users see this deposit in the
         // orbit right away instead of waiting out the backstop TTL
         // (caching-standard.md Rule 3).
-        requestRevalidation([CACHE_TAGS.stake]);
+        requestRevalidation([CACHE_TAGS.stake], { transactionHash: depositHash, chainId: base.id });
         setPhase("done");
         return true;
       } catch (e) {
@@ -305,8 +300,8 @@ export function useStakeDeposit() {
         });
         const tx = prepareTransaction({ client, chain: base, to: vault, data });
         const hash = (await sendTransaction({ account, transaction: tx })).transactionHash;
-        await waitForReceipt({ client, chain: base, transactionHash: hash });
-        requestRevalidation([CACHE_TAGS.stake]);
+        await waitForSuccessfulReceipt({ client, chain: base, transactionHash: hash });
+        requestRevalidation([CACHE_TAGS.stake], { transactionHash: hash, chainId: base.id });
         setPhase("done");
         return true;
       } catch (e) {
@@ -351,6 +346,10 @@ export function useStakeDeposit() {
       try {
         await ensureOnChain(writer.wallet, base);
         setPhase("claim");
+        const available = await readVaultEarnings(rpc, vault, account.address as Address);
+        if (earnedRaw > available.earned) {
+          throw new Error("Claim amount exceeds verified earnings. Refresh your position.");
+        }
         const data = encodeFunctionData({
           abi: vaultAbi,
           functionName: "withdraw",
@@ -358,8 +357,8 @@ export function useStakeDeposit() {
         });
         const tx = prepareTransaction({ client, chain: base, to: vault, data });
         const hash = (await sendTransaction({ account, transaction: tx })).transactionHash;
-        await waitForReceipt({ client, chain: base, transactionHash: hash });
-        requestRevalidation([CACHE_TAGS.stake]);
+        await waitForSuccessfulReceipt({ client, chain: base, transactionHash: hash });
+        requestRevalidation([CACHE_TAGS.stake], { transactionHash: hash, chainId: base.id });
         setPhase("done");
         return true;
       } catch (e) {

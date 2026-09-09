@@ -1,3 +1,5 @@
+import { parseMigrationEnv } from "@/lib/migration-config";
+
 // Development mode flag - use NEXT_PUBLIC prefix so it's available in browser
 // This allows runtime checking instead of build-time replacement
 export const IS_DEV = process.env.NODE_ENV === "development";
@@ -5,6 +7,15 @@ export const IS_DEV = process.env.NODE_ENV === "development";
 export const CHAIN = {
   id: 8453,
   name: "base",
+} as const;
+
+export function getConfiguredGnarsMarketplaceAddress(): string | undefined {
+  return process.env.NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS;
+}
+
+export const MARKETPLACE_CONFIG = {
+  marketplaceFeeBasisPoints: 100,
+  communityFeeRecipient: "0x15e69fd67dcc17e061ceeb93dac791e0f5af0eae",
 } as const;
 
 // Core Builder DAO addresses — override via env vars to deploy for a different DAO
@@ -39,15 +50,6 @@ export const GNARS_ZORA_HANDLE = "gnars" as const;
 // and ZORA → $gnars is a supported creator-coin trade. Verified on-chain (symbol "ZORA").
 export const ZORA_TOKEN_BASE = "0x1111111111166b7FE7bd91427724B487980aFc69" as const;
 
-// Burn sink for the migration fee. Each migration skims a small % of the
-// output $gnars and sends it here (buy-and-burn) to tighten $gnars supply.
-// Standard EVM burn address — tokens sent here are unrecoverable.
-export const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD" as const;
-
-// Migration fee, in basis points, taken from the $gnars output and burned.
-// 100 bps = 1%. Keep modest so migrating stays worthwhile for users.
-export const MIGRATION_BURN_BPS = 100 as const;
-
 // Interim operational signer for the migration. During the migration the DAO
 // uses a temporary multisig (fast, no per-step governance proposal) to receive
 // migration proceeds, the Clanker founder-vault allocation, and collected fees.
@@ -59,6 +61,52 @@ export const MIGRATION_BURN_BPS = 100 as const;
 // beneficiary. Overridable via NEXT_PUBLIC_MIGRATION_MULTISIG.
 export const MIGRATION_MULTISIG = (process.env.NEXT_PUBLIC_MIGRATION_MULTISIG ||
   "0xBe6C3D651d2F6e9eFA562b5a7CDf411304cad076") as `0x${string}`;
+
+// --- UpgraderEth: deposit / withdraw / claim (operated by Onchain Inc / kompreni) ---
+// ETH is the ONLY eligible lane. Verified on-chain 2026-09-01 by simulating
+// deposit(): old $gnars, ZORA and USDC revert "Token not eligible"; address(0)
+// (native ETH) is the single entry in getTokens(0).
+//
+// These defaulted to EMPTY while the terminal waited on a go-ahead. Vlad gave it
+// on 2026-09-03, so the deposit terminal is on by default and no longer depends
+// on env vars being present on the host.
+//
+// The defaults were verified against Base 8453 the same day, before being
+// written here: the contract exists (10185 bytes of code), isHalted() is false,
+// getBuyToken(0) is the zero address (the launch has not run, so deposits and
+// withdrawals are open), and getTokens(0) is exactly [address(0)] — native ETH
+// as the only eligible asset, matching the ETH-only note above.
+//
+// Env still WINS over these, which is what keeps a kill switch that needs no
+// deploy: set NEXT_PUBLIC_UPGRADER_ADDRESS to an empty string and the terminal
+// goes back to "opens at launch". Emptying it has to disable the id as well —
+// an address without an id is a mismatched pair, and parseMigrationEnv rightly
+// renders that as a red misconfiguration rather than a clean off.
+const MIGRATION_DEFAULTS = {
+  upgraderAddress: "0x064fd3d95f322909489dc085bb0044a343191ad3",
+  upgradeId: "0",
+} as const;
+// `??` not `||`: an explicit "" is the operator turning this off, and must not
+// fall back to the default.
+const upgraderEnv = process.env.NEXT_PUBLIC_UPGRADER_ADDRESS ?? MIGRATION_DEFAULTS.upgraderAddress;
+const disabled = upgraderEnv.trim() === "";
+const migrationEnv = parseMigrationEnv({
+  upgraderAddress: upgraderEnv,
+  upgradeId: disabled
+    ? ""
+    : (process.env.NEXT_PUBLIC_MIGRATION_UPGRADE_ID ?? MIGRATION_DEFAULTS.upgradeId),
+});
+export const UPGRADER_ADDRESS = migrationEnv.upgraderAddress;
+export const MIGRATION_UPGRADE_ID = migrationEnv.upgradeId;
+export const MIGRATION_CONFIG_ERROR = migrationEnv.error;
+
+/** Deposit / withdraw / claim UI is live only with a contract AND an upgrade id. */
+export const isMigrationDepositLive = () =>
+  UPGRADER_ADDRESS !== null && MIGRATION_UPGRADE_ID !== null;
+
+// Uniswap Permit2 (canonical, same address on every chain). The smart-account
+// batch grants the router its allowance here onchain instead of signing a permit.
+export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const;
 
 // Trade referrer for the migration/buy swaps — earns a share of the Zora trade
 // fee, claimable in Zora by this account. Set to haxixe.eth (Vlad's personal
@@ -90,27 +138,63 @@ export const DROPOSAL_TARGET = {
 // Default mint limit per address for droposals (effectively unlimited)
 export const DROPOSAL_DEFAULT_MINT_LIMIT = 1000000 as const;
 
-// /swap (0x Swap API) — affiliate fee taken on the bought token when the
-// user keeps the "Support Gnars treasury" checkbox checked.
-// Recipient depends on chain: Base swaps land in the Gnars split contract;
-// other (multichain / EVM batch) swaps land in the SOPA × COINMASTERSGUILD
-// split contract, which divides the 0x fee between the two parties on-chain.
+// /swap — the affiliate fee taken on the bought token when the user keeps the
+// "Support Gnars treasury" checkbox checked. Quotes come from SwapsPro, which
+// adds this on top of its own 30 bps and pays it out through a 0xSplits
+// contract derived from the payout address below. See docs/integrations/swap.md.
 export const SWAP_FEE_BPS = 50 as const; // 0.5%
 
 export const SWAP_FEE_RECIPIENT_BASE =
   "0x15E69fD67DcC17E061Ceeb93DaC791e0f5aF0Eae" as `0x${string}`;
 
 /**
- * The SOPA × COINMASTERSGUILD split contract — receives the 0x affiliate
- * fee for every non-Base (EVM batch / multichain) swap and splits it between
- * the two parties on-chain. Replaces the old multichain custody wallet.
+ * The SOPA x COINMASTERSGUILD split. Kept as a named address because the
+ * treasury pages still attribute historical inflows to it; it is NOT a
+ * /swap payout address. It used to be the recipient for every non-Base swap,
+ * which meant a checkbox reading "Support Gnars treasury" funded somebody
+ * else on four chains out of five. See GNARS_SWAP_PAYOUT below.
  */
 export const SWAP_FEE_SPLIT_RECIPIENT =
   "0xa642b91ff941fb68919d1877e9937f3e369dfd68" as `0x${string}`;
 
-export function getSwapFeeRecipient(chainId: number): `0x${string}` {
-  return chainId === CHAIN.id ? SWAP_FEE_RECIPIENT_BASE : SWAP_FEE_SPLIT_RECIPIENT;
+/**
+ * Where the treasury's cut is paid, per chain — and nowhere else.
+ *
+ * SwapsPro derives a 0xSplits contract from (payout address, bps) and pays the
+ * whole affiliate fee into it, which then divides on-chain between SwapsPro and
+ * us. The derivation is deterministic, so both sides compute the same address
+ * without registering anything — but the SPLIT and the PAYOUT ADDRESS both
+ * have to exist as code on the chain the swap settles on.
+ *
+ * Measured on 2026-09-03 with eth_getCode: 0x15E69f... holds 89 bytes on Base
+ * and ZERO on Ethereum, Arbitrum, BNB Chain, Avalanche and Robinhood Chain.
+ * Paying it on those chains would park the money at an address with nothing
+ * behind it, so this map has one entry and a chain that is missing from it
+ * asks for NO partner fee at all — the user then pays SwapsPro's 30 bps and
+ * nothing else, instead of 80 bps of which ours goes nowhere.
+ *
+ * TO ADD A CHAIN: deploy the same split (same recipients, same shares, same
+ * immutable owner) at the same address on that chain — 0xSplits is
+ * deterministic, so the address carries over — then add the id here. Robinhood
+ * Chain (4663) is the exception: 0xSplits has no factory there yet, so an EOA
+ * or a Safe is the only option.
+ */
+export const GNARS_SWAP_PAYOUT: Readonly<Record<number, `0x${string}`>> = {
+  8453: SWAP_FEE_RECIPIENT_BASE,
+};
+
+/**
+ * The payout address for a chain, or null when the treasury cannot be paid
+ * there. Null is a real answer and the caller must not substitute one: an
+ * address the treasury does not control is worse than no fee.
+ */
+export function getSwapFeeRecipient(chainId: number): `0x${string}` | null {
+  return GNARS_SWAP_PAYOUT[chainId] ?? null;
 }
+
+/** Can the treasury actually be paid on this chain? Drives the fee checkbox. */
+export const chainPaysTreasury = (chainId: number): boolean =>
+  getSwapFeeRecipient(chainId) !== null;
 
 export const SUBGRAPH = {
   // Official Nouns Builder Subgraph URL for Gnars on Base (Goldsky public)
@@ -163,3 +247,24 @@ export const STORE_CHECKOUT = {
 export const KEEPKEY_DROPSHIP_MODE: "test" | "live" = "live";
 
 export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.gnars.com";
+
+/**
+ * Base Builder Code — ERC-8021 transaction attribution.
+ *
+ * `BUILDER_CODE_SUFFIX` is the exact suffix issued by dashboard.base.org for
+ * `bc_r8lhotn0`. It is appended to the END of a transaction's calldata, where
+ * contracts ignore it (Solidity discards trailing bytes when ABI-decoding), so
+ * no contract change is needed on either side. Cost is 16 gas per non-zero byte.
+ *
+ * The 29 bytes read backwards from the end of the calldata:
+ *   8021 x 8   marker
+ *   00         version
+ *   0b         length of the code (11)
+ *   62..30     ASCII "bc_r8lhotn0"
+ *
+ * Copy the hex verbatim from the dashboard. Never re-derive it from the code
+ * string — the framing bytes are theirs to define, not ours to guess.
+ */
+export const BUILDER_CODE = "bc_r8lhotn0" as const;
+export const BUILDER_CODE_SUFFIX =
+  "0x62635f72386c686f746e300b0080218021802180218021802180218021" as const;

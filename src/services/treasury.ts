@@ -40,7 +40,11 @@ async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
       "Content-Type": "application/json",
       ...(init.headers || {}),
     },
-    next: { revalidate: 60 },
+    // 60s used to be the tightest TTL in the render path, and because Next
+    // takes the MINIMUM of the segment config and every fetch TTL, it silently
+    // dragged /, /base and /treasury down to a 60s revalidate regardless of
+    // what those pages declared. 300 matches what they actually ask for.
+    next: { revalidate: 300 },
   });
 
   if (!response.ok) {

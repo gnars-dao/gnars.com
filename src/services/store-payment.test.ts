@@ -48,19 +48,32 @@ describe("verifyUsdcPayment", () => {
 
   it("accepts an exact-amount USDC transfer to the checkout wallet", async () => {
     waitForTransactionReceipt.mockResolvedValue(receipt([transferLog(RECIPIENT, "59.95")]));
-    const res = await verifyUsdcPayment(TX, 59.95);
+    const res = await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.amount).toBe(parseUnits("59.95", 6));
   });
 
   it("accepts an overpayment", async () => {
     waitForTransactionReceipt.mockResolvedValue(receipt([transferLog(RECIPIENT, "60")]));
-    expect((await verifyUsdcPayment(TX, 59.95)).ok).toBe(true);
+    expect((await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`)).ok).toBe(true);
+  });
+
+  it("rejects another payer's public payment hash", async () => {
+    waitForTransactionReceipt.mockResolvedValue(receipt([transferLog(RECIPIENT, "59.95")]));
+    expect((await verifyUsdcPayment(TX, 59.95, OTHER as `0x${string}`)).ok).toBe(false);
+    expect((await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`)).ok).toBe(true);
+  });
+
+  it("normalizes equivalent mixed-case transaction hashes", async () => {
+    waitForTransactionReceipt.mockResolvedValue(receipt([transferLog(RECIPIENT, "59.95")]));
+    const result = await verifyUsdcPayment(`0x${"A".repeat(64)}`, 59.95, FROM as `0x${string}`);
+    expect(waitForTransactionReceipt).toHaveBeenCalledWith(expect.objectContaining({ hash: TX }));
+    expect(result).toMatchObject({ ok: true, txHash: TX });
   });
 
   it("rejects an underpayment", async () => {
     waitForTransactionReceipt.mockResolvedValue(receipt([transferLog(RECIPIENT, "59.94")]));
-    expect(await verifyUsdcPayment(TX, 59.95)).toMatchObject({
+    expect(await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`)).toMatchObject({
       ok: false,
       code: "no_matching_transfer",
     });
@@ -68,22 +81,28 @@ describe("verifyUsdcPayment", () => {
 
   it("rejects a transfer to a different address", async () => {
     waitForTransactionReceipt.mockResolvedValue(receipt([transferLog(OTHER, "59.95")]));
-    expect((await verifyUsdcPayment(TX, 59.95)).ok).toBe(false);
+    expect((await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`)).ok).toBe(false);
   });
 
   it("rejects the right amount in the wrong token", async () => {
     waitForTransactionReceipt.mockResolvedValue(receipt([transferLog(RECIPIENT, "59.95", OTHER)]));
-    expect((await verifyUsdcPayment(TX, 59.95)).ok).toBe(false);
+    expect((await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`)).ok).toBe(false);
   });
 
   it("rejects a reverted transaction", async () => {
     waitForTransactionReceipt.mockResolvedValue(receipt([], "reverted"));
-    expect(await verifyUsdcPayment(TX, 59.95)).toMatchObject({ ok: false, code: "reverted" });
+    expect(await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`)).toMatchObject({
+      ok: false,
+      code: "reverted",
+    });
   });
 
   it("rejects a tx that never appears/confirms within the timeout", async () => {
     // viem's waitForTransactionReceipt throws on timeout / not found.
     waitForTransactionReceipt.mockImplementationOnce(() => Promise.reject(new Error("timeout")));
-    expect(await verifyUsdcPayment(TX, 59.95)).toMatchObject({ ok: false, code: "not_found" });
+    expect(await verifyUsdcPayment(TX, 59.95, FROM as `0x${string}`)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
   });
 });

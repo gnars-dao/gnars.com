@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { Coins, ExternalLink, Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { FaEthereum } from "react-icons/fa";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import {
   Dialog,
   DialogContent,

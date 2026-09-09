@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { arbitrum, base, type Chain } from "thirdweb/chains";
 import { parseEther } from "viem";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount, type WriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { POIDH_ABI } from "@/lib/poidh/abi";
 import { POIDH_CONTRACTS } from "@/lib/poidh/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 function resolveThirdwebChain(chainId: number): Chain | undefined {
   if (chainId === base.id) return base;
@@ -169,7 +170,7 @@ async function sendAndConfirm(
     });
     const txHash = result.transactionHash as `0x${string}`;
     state.setHash(txHash);
-    await waitForReceipt({
+    await waitForSuccessfulReceipt({
       client,
       chain: twChain,
       transactionHash: txHash,

@@ -1,6 +1,5 @@
 import { cache } from "react";
-import { headers } from "next/headers";
-import { TREASURY_TOKEN_ADDRESSES } from "@/lib/config";
+import { BASE_URL, TREASURY_TOKEN_ADDRESSES } from "@/lib/config";
 import { getBrlRateForRequest } from "@/services/exchange-rate";
 import { getTokenPricesUsd } from "@/services/prices";
 import { EnrichedToken, TokenHoldingsClient } from "./TokenHoldingsClient";
@@ -27,7 +26,7 @@ interface TokenMetadataResponse {
 
 export const loadTokenHoldings = cache(
   async (treasuryAddress: string): Promise<EnrichedToken[]> => {
-    const baseUrl = await getBaseUrl();
+    const baseUrl = getBaseUrl();
 
     const balancesResponse = await fetchJson<TokenBalancesResponse>(`${baseUrl}/api/alchemy`, {
       method: "POST",
@@ -118,14 +117,23 @@ export const loadTokenHoldings = cache(
   },
 );
 
-async function getBaseUrl() {
-  const h = await headers();
-  const protocol = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  if (!host) {
-    throw new Error("Unable to determine request host");
-  }
-  return `${protocol}://${host}`;
+/**
+ * `BASE_URL` from config, NOT `headers()`.
+ *
+ * Reading `headers()` during render is a dynamic API: it opted /treasury out of
+ * caching entirely, so the page rendered from scratch on every single request
+ * (`x-vercel-cache: MISS`, ~750 ms) despite the segment declaring
+ * `revalidate = 300`. services/treasury.ts already resolves its own base URL
+ * from config for the same self-`/api/alchemy` calls, so this is the two paths
+ * agreeing rather than a new convention.
+ *
+ * The trade is deliberate: previews now call the canonical site's API route
+ * instead of their own deployment's. That only matters if a preview changes
+ * /api/alchemy itself, and `NEXT_PUBLIC_SITE_URL` overrides it per environment
+ * when it does.
+ */
+function getBaseUrl() {
+  return BASE_URL;
 }
 
 async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
@@ -135,7 +143,10 @@ async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
       "Content-Type": "application/json",
       ...(init.headers || {}),
     },
-    cache: "no-store",
+    // Matches the segment's own `revalidate = 300`. A request-scoped
+    // `no-store` here would force the route dynamic again on its own, which is
+    // half of what kept /treasury uncached.
+    next: { revalidate: 300 },
   });
 
   if (!response.ok) {

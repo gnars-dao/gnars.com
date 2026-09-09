@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ipfsToHttp } from "@/lib/ipfs";
 import { useTranslations } from "next-intl";
 import { useDaoAuction } from "@buildeross/hooks";
 import { formatEther } from "viem";
@@ -12,8 +11,10 @@ import { GnarImageTile } from "@/components/auctions/GnarImageTile";
 import { useAuctionBids } from "@/hooks/use-auction-bids";
 import { useAuctionLive } from "@/hooks/use-auction-live";
 import { useBidComments } from "@/hooks/use-bid-comments";
+import { useInViewport } from "@/hooks/use-in-viewport";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { CHAIN, DAO_ADDRESSES } from "@/lib/config";
+import { ipfsToHttp } from "@/lib/ipfs";
 import { cn } from "@/lib/utils";
 import auctionAbi from "@/utils/abis/auctionAbi";
 import { avatarGradient, GOLD, truncateAddress } from "./gov-ui";
@@ -59,6 +60,7 @@ function useCountdown(endTimeSec: number | undefined) {
  * risky part.
  */
 export function AuctionPanel() {
+  const { ref, visible } = useInViewport<HTMLDivElement>();
   const t = useTranslations("newhome.gov");
   const { address } = useUserAddress();
 
@@ -73,7 +75,7 @@ export function AuctionPanel() {
   const displayBidder = auctionLive.polledHighestBidder ?? highestBidder;
   const displayEndTime = auctionLive.polledEndTime ?? endTime;
 
-  const { bids } = useAuctionBids(tokenId?.toString(), true, 15_000);
+  const { bids } = useAuctionBids(tokenId?.toString(), visible, 15_000);
   const leadingTx = bids.length > 0 ? bids[0].transactionHash : undefined;
   const txHashes = useMemo(() => (leadingTx ? [leadingTx] : []), [leadingTx]);
   const { comments } = useBidComments(txHashes);
@@ -124,7 +126,10 @@ export function AuctionPanel() {
     // the accent that tells the two apart. It used to paint a literal near-black
     // gradient with a 50px black drop shadow, so on a light page the auction
     // stayed a dark slab while everything around it inverted.
-    <div className="flex h-full flex-col gap-4 rounded-2xl border border-[#f7c948]/25 bg-card p-5">
+    <div
+      ref={ref}
+      className="flex h-full flex-col gap-4 rounded-2xl border border-[#f7c948]/25 bg-card p-5"
+    >
       {/* Badge + countdown */}
       <div className="flex items-center justify-between gap-3">
         {/* The badge tracks the clock. Between an auction ending and someone

@@ -173,6 +173,8 @@
     "feedVoted": "votou",
     "feedOn": "em",
     "feedEmpty": "Nada onchain nos últimos 30 dias.",
-    "awaitingSettlement": "Aguardando settle"
-  }
+    "awaitingSettlement": "Aguardando settle",
+    "loadFailed": "Não foi possível carregar os dados. Tente novamente mais tarde."
+  },
+  "dataUnavailable": "Indisponível"
 }

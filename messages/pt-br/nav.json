@@ -33,6 +33,7 @@
     },
     "money": {
       "label": "Dinheiro",
+      "marketplace": { "title": "Marketplace", "description": "Colecione e negocie Gnars na Base" },
       "treasury": {
         "title": "Tesouro",
         "description": "ETH, ERC-20s, NFTs e analytics onchain do tesouro da DAO"
@@ -63,7 +64,7 @@
       },
       "migrate": {
         "title": "Migração",
-        "description": "Troque suas coins da Zora por $gnars — consolide a liquidez em um só token"
+        "description": "Venda coins da Zora por ETH e entre na migração do novo $gnars"
       }
     },
     "community": {

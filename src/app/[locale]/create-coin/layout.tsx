@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { RouteMessages } from "@/i18n/RouteMessages";
 
 export async function generateMetadata({
   params,
@@ -37,5 +38,5 @@ export async function generateMetadata({
 }
 
 export default function CreateCoinLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return <RouteMessages route="create-coin">{<>{children}</>}</RouteMessages>;
 }

@@ -109,6 +109,16 @@ function isIpfsCid(url: string | undefined): boolean {
   return false;
 }
 
+/** Remove a URL from markdown text along with the `![alt](url)` / `[text](url)` wrapper
+ *  around it — stripping the bare URL would leave `![alt]()`, which renders as a broken
+ *  image. Used to avoid showing the same media twice (once embedded, once in the text). */
+function stripUrlFromMarkdown(text: string, url: string): string {
+  const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text
+    .replace(new RegExp(`!?\\[[^\\]]*\\]\\(\\s*<?${escaped}>?[^)]*\\)`, "g"), "")
+    .replaceAll(url, "");
+}
+
 /** YouTube / Vimeo URL → embeddable iframe src. Returns null for other hosts.
  *  The output host is always youtube.com/vimeo, so it's safe to drop into an iframe. */
 function getVideoEmbedUrl(raw: string | undefined | null): string | null {
@@ -468,6 +478,7 @@ export function BountyDetailView({ initialBounty, chainId, bountyId }: BountyDet
                   components={{
                     img: ({ src, alt }) => {
                       const url = typeof src === "string" ? src : "";
+                      if (!url) return null;
                       if (isEmbeddableVideo(url)) {
                         return (
                           <video
@@ -482,17 +493,7 @@ export function BountyDetailView({ initialBounty, chainId, bountyId }: BountyDet
                         );
                       }
                       if (isIpfsCid(url)) {
-                        return (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline flex items-center gap-1 my-2"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            {t("detail.viewMedia")}
-                          </a>
-                        );
+                        return <MediaEmbed url={url} alt={alt || ""} className="my-2" />;
                       }
                       return (
                         <Dialog>
@@ -643,7 +644,7 @@ export function BountyDetailView({ initialBounty, chainId, bountyId }: BountyDet
                         : null;
                       let desc = claim.description;
                       for (const m of [claim.url, videoSourceUrl, fallbackMedia]) {
-                        if (m) desc = desc.replaceAll(m, "");
+                        if (m) desc = stripUrlFromMarkdown(desc, m);
                       }
                       desc = desc.trim();
                       if (!desc) return null;
@@ -655,6 +656,7 @@ export function BountyDetailView({ initialBounty, chainId, bountyId }: BountyDet
                             components={{
                               img: ({ src, alt }) => {
                                 const url = typeof src === "string" ? src : "";
+                                if (!url) return null;
                                 if (isEmbeddableVideo(url)) {
                                   return (
                                     <video
@@ -669,17 +671,7 @@ export function BountyDetailView({ initialBounty, chainId, bountyId }: BountyDet
                                   );
                                 }
                                 if (isIpfsCid(url)) {
-                                  return (
-                                    <a
-                                      href={url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-primary hover:underline flex items-center gap-1 my-1"
-                                    >
-                                      <ExternalLink className="w-3 h-3" />
-                                      {t("detail.viewMedia")}
-                                    </a>
-                                  );
+                                  return <MediaEmbed url={url} alt={alt || ""} className="my-2" />;
                                 }
                                 return (
                                   <Dialog>

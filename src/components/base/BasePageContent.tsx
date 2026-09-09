@@ -96,6 +96,30 @@ export function BasePageContent() {
   );
 }
 
+/**
+ * Interstitial strip between the live embeds: names the concrete Base plumbing
+ * the section above/below runs on. `k` picks the copy from `base.how.*`.
+ */
+export function BaseHowStrip({ k }: { k: "gov" | "droposals" | "swap" | "staking" }) {
+  const t = useTranslations("base");
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-4 sm:px-6">
+      <div className="border-l-4 py-1 pl-4" style={{ borderColor: BASE_BLUE }}>
+        <div
+          className="text-[11px] font-bold uppercase tracking-wider"
+          style={{ color: BASE_BLUE }}
+        >
+          {t("how.label")}
+        </div>
+        <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+          {t(`how.${k}`)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** The plumbing + culture pitch, rendered by the page AFTER the live embeds. */
 export function BaseUnderHood() {
   const t = useTranslations("base");

@@ -11,10 +11,7 @@ export const alt = "Back this rider — Gnars sponsorship vault";
 export const size = MINIAPP_SIZE; // 1200 x 800 (3:2, Farcaster embed spec)
 export const contentType = "image/png";
 
-const CHARACTERS = stakeMessages.characters as Record<
-  string,
-  { name: string; tagline: string }
->;
+const CHARACTERS = stakeMessages.characters as Record<string, { name: string; tagline: string }>;
 
 const GOLD = "#f7c948";
 

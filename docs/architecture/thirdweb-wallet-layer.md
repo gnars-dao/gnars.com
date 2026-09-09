@@ -77,9 +77,18 @@ Write hooks that gate on voting power (`useCastVote`, `ProposalPreview` propose)
 
 Continue using wagmi hooks. No change from pre-migration patterns, except **always source the user address from `useUserAddress()` rather than `useAccount()`** — wagmi's connector list is empty, so `useAccount()` is disconnected from the real session.
 
+## Builder Attribution
+
+- Direct transactions import `prepareContractCall` / `prepareTransaction` from `@/lib/builder-code`, enforced by ESLint. The resulting calldata ends with Gnars code `bc_r8lhotn0` in ERC-8021 format.
+- SDK wallet clients import `viemAdapter` from `@/lib/builder-code-viem`. This tags both gas estimates and broadcasts, including SDK-generated approvals. It covers `/migrate` sequential Zora trades, creator-coin purchases, TV purchases, and split creation. A source-level regression test rejects untagged SDK wallet adapters; read-only public clients can still use thirdweb directly.
+- `THIRDWEB_AA_CONFIG` tags the outer `execute` / `executeBatch` payload too, placing the suffix at the end of `userOp.callData`, as required by the [Base wallet integration guide](https://docs.base.org/specifications/builder-codes/for-wallet-developers). A suffix buried inside ABI-encoded inner calls is not a substitute. The pinned factory, entrypoint, addresses, and call arguments are unchanged.
+- `/migrate` batch approvals, swaps, and optional deposit retain per-call tags and have one outer userop tag. A batch is not evidence that every inner call increments the leaderboard separately.
+- Tags on Ethereum or Arbitrum do not turn those operations into Base transactions. Attribution encoding is verified locally; leaderboard ingestion and counts must be checked separately in Base.dev after real confirmed Base activity. No reward or ranking is guaranteed by the suffix alone.
+- The developer-only `/debug/builder-code` comparison bench intentionally permits an untagged control transaction.
+
 ## Known Escape Hatches
 
-- `src/components/tv/GnarsTVFeed.tsx:handleBuyCoin` — Zora's `tradeCoin` SDK requires a viem `WalletClient` and signs from whatever thirdweb considers the active account. This bypasses `useWriteAccount`, so view-mode toggles do not apply to Zora buys. Revisit if Zora exposes a lower-level call builder.
+- `src/components/tv/GnarsTVFeed.tsx:handleBuyCoin` — Zora's `tradeCoin` SDK requires a viem `WalletClient`; the attributed adapter bridges `useWriteAccount().wallet`, preserving view-mode selection.
 - `src/app/members/[address]/page.tsx` — `resolveSmartAccountOwner` reads the chain on every profile request to detect whether the URL address is a thirdweb SA. Cached; see the `unstable_cache` wrapper in that file.
 
 ## Why Not Full Thirdweb or Full Wagmi?

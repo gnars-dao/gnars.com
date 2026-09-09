@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ipfsToHttp } from "@/lib/ipfs";
 import { useTranslations } from "next-intl";
 import { useDaoAuction } from "@buildeross/hooks";
 import { toast } from "sonner";
@@ -16,11 +15,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useAuctionBids } from "@/hooks/use-auction-bids";
 import { useAuctionLive } from "@/hooks/use-auction-live";
 import { useBidComments } from "@/hooks/use-bid-comments";
+import { useInViewport } from "@/hooks/use-in-viewport";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { CHAIN, DAO_ADDRESSES } from "@/lib/config";
+import { ipfsToHttp } from "@/lib/ipfs";
 import auctionAbi from "@/utils/abis/auctionAbi";
 
 export function AuctionSpotlight() {
+  const { ref, visible } = useInViewport<HTMLDivElement>();
   const t = useTranslations("home");
   const { address } = useUserAddress();
   const [isBidHistoryOpen, setIsBidHistoryOpen] = useState(false);
@@ -47,8 +49,7 @@ export function AuctionSpotlight() {
   const displayBidder = auctionLive.polledHighestBidder ?? highestBidder;
   const displayEndTime = auctionLive.polledEndTime ?? endTime;
 
-  // Fetch bids for this auction (always enabled — lightweight subgraph query)
-  const { bids } = useAuctionBids(tokenId?.toString(), true, 15_000);
+  const { bids } = useAuctionBids(tokenId?.toString(), visible, 15_000);
 
   // Clear optimistic state once subgraph has indexed the new bid
   useEffect(() => {
@@ -136,7 +137,7 @@ export function AuctionSpotlight() {
   );
 
   return (
-    <Card className="w-full bg-card">
+    <Card ref={ref} className="w-full bg-card">
       <CardContent className="py-2">
         <div className="space-y-4">
           <div className="text-xl font-semibold">

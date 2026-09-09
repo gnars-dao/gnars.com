@@ -18,5 +18,13 @@ import { usePathname } from "@/i18n/navigation";
 export function GlobalRewardsLootbox() {
   const pathname = usePathname();
   if (pathname === "/stake" || pathname.startsWith("/stake/")) return null;
+  // Keep floating rewards off transaction surfaces and their mobile checkout bars.
+  if (
+    pathname === "/migrate" ||
+    pathname.startsWith("/migrate/") ||
+    pathname === "/marketplace" ||
+    pathname.startsWith("/marketplace/")
+  )
+    return null;
   return <MorLootbox showEnablePrompt />;
 }

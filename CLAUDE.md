@@ -122,7 +122,7 @@ NEXT_PUBLIC_ZORA_API_KEY
 COINGECKO_API_KEY
 PINATA_JWT
 NEYNAR_API_KEY
-ZEROX_API_KEY        # 0x Swap API (server-only)
+# (ZEROX_API_KEY retired: /swap quotes through SwapsPro, keyless — docs/integrations/swap.md)
 
 # Optional
 USDC_BASE
@@ -139,7 +139,7 @@ Secrets never go in client code. `NEXT_PUBLIC_*` is public by definition.
 - Maps: `leaflet`, `react-leaflet`, `leaflet-draw`, `leaflet.markercluster`
 - Forms: `react-hook-form`, `zod`
 - Data/UX: `@tanstack/react-query`, `next-intl`, `sonner` (toasts), `framer-motion`, `minisearch`, `pg` (rounds)
-- `@rainbow-me/rainbowkit` is in `package.json` but unused in `src/` — slated for removal.
+- Content images use `@/components/ui/content-image`: known gateways are optimized; other NFT media loads directly.
 
 ## Important Notes
 

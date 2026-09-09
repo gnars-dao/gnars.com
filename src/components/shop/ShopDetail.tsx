@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { ArrowLeft, ExternalLink, Mail } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";

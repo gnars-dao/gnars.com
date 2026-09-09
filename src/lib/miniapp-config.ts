@@ -342,7 +342,10 @@ export const MIGRATE_MINIAPP_EMBED_CONFIG = {
  */
 export const STAKE_MINIAPP_EMBED_CONFIG = {
   version: "1",
-  imageUrl: `${BASE_URL}/miniapp-image`,
+  // Its own card, not the generic site one: /stake is the campaign's main call
+  // to action, and the feed was showing the Gnars logo next to a "Stake or Die"
+  // button.
+  imageUrl: `${BASE_URL}/stake/miniapp-image`,
   button: {
     title: "Stake or Die",
     action: {
@@ -374,6 +377,49 @@ export const BLOGS_MINIAPP_EMBED_CONFIG = {
 };
 
 /**
+ * Base Mini App Configuration
+ *
+ * /base is the pitch page shared with Base ecosystem programs. It had no embed
+ * of its own, so a cast fell back to the root default — generic card, and a
+ * button that launched the home mini app instead of the pitch.
+ */
+export const BASE_MINIAPP_EMBED_CONFIG = {
+  version: "1",
+  imageUrl: `${BASE_URL}/base/miniapp-image`,
+  button: {
+    title: "See Gnars on Base",
+    action: {
+      type: "launch_miniapp" as const,
+      name: "Gnars on Base",
+      url: `${BASE_URL}/base`,
+      splashImageUrl: `${BASE_URL}/gnars-splash-200.png`,
+      splashBackgroundColor: "#000000",
+    },
+  },
+};
+
+/**
+ * Morpheus Mini App Configuration
+ *
+ * /morpheus is the campaign landing the Morpheus subnet bio points at, so it
+ * gets its own embed image (the live stake card) instead of the generic one.
+ */
+export const MORPHEUS_MINIAPP_EMBED_CONFIG = {
+  version: "1",
+  imageUrl: `${BASE_URL}/morpheus/miniapp-image`,
+  button: {
+    title: "Stake or Die",
+    action: {
+      type: "launch_miniapp" as const,
+      name: "Gnars × Morpheus",
+      url: `${BASE_URL}/morpheus`,
+      splashImageUrl: `${BASE_URL}/gnars-splash-200.png`,
+      splashBackgroundColor: "#000000",
+    },
+  },
+};
+
+/**
  * Generic launch embed for routes that just need to open at their own URL
  * instead of inheriting the root default (which launches the home mini app).
  */
@@ -394,12 +440,40 @@ export function launchMiniappEmbed(path: string, name: string, title: string) {
   };
 }
 
-export const AUCTIONS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/auctions", "Gnars Auctions", "View auction");
-export const TREASURY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/treasury", "Gnars Treasury", "View treasury");
-export const COMMUNITY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/community", "Gnars Community", "Explore community");
+export const AUCTIONS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/auctions",
+  "Gnars Auctions",
+  "View auction",
+);
+export const TREASURY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/treasury",
+  "Gnars Treasury",
+  "View treasury",
+);
+export const COMMUNITY_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/community",
+  "Gnars Community",
+  "Explore community",
+);
 export const STORE_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/store", "Gnars Store", "Shop Gnars");
 export const FEED_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/feed", "Gnars Feed", "Open the feed");
-export const PROPOSE_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/propose", "Gnars Propose", "Create a proposal");
-export const ROUNDS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/rounds", "Gnars Rounds", "View rounds");
-export const ABOUT_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/about", "About Gnars", "About Gnars");
-export const PROPDATES_MINIAPP_EMBED_CONFIG = launchMiniappEmbed("/propdates", "Gnars Propdates", "View propdates");
+export const PROPOSE_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/propose",
+  "Gnars Propose",
+  "Create a proposal",
+);
+export const ROUNDS_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/rounds",
+  "Gnars Rounds",
+  "View rounds",
+);
+export const ABOUT_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/about",
+  "About Gnars",
+  "About Gnars",
+);
+export const PROPDATES_MINIAPP_EMBED_CONFIG = launchMiniappEmbed(
+  "/propdates",
+  "Gnars Propdates",
+  "View propdates",
+);

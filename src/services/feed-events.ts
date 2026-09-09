@@ -7,10 +7,11 @@
  */
 
 import { unstable_cache } from "next/cache";
-import { ipfsToHttp } from "@/lib/ipfs";
 import { SubgraphSDK } from "@buildeross/sdk";
 import { CHAIN, DAO_ADDRESSES } from "@/lib/config";
+import { ipfsToHttp } from "@/lib/ipfs";
 import { subgraphQuery } from "@/lib/subgraph";
+import { run as withSubgraphGate } from "@/lib/subgraph-gate";
 import type { FeedEvent } from "@/lib/types/feed-events";
 
 // Backstop TTL only — freshness comes from revalidateTag("feed") via
@@ -580,7 +581,7 @@ async function fetchFeedEventsUncached(_hoursBack: number = 24): Promise<FeedEve
     return events.sort((a, b) => b.timestamp - a.timestamp);
   } catch (error) {
     console.error("[feed-events] feedEvents query error:", error);
-    return [];
+    throw error;
   }
 }
 
@@ -604,12 +605,17 @@ async function generateComputedEvents(): Promise<FeedEvent[]> {
 
   try {
     const sdk = SubgraphSDK.connect(CHAIN.id);
-    const { proposals } = await sdk.proposals({
-      where: {
-        dao: DAO_ADDRESSES.token.toLowerCase(),
-      },
-      first: 20,
-    });
+    // The SDK owns its own fetch, so it joins the shared limit at the call site.
+    const { proposals } = await withSubgraphGate(
+      () =>
+        sdk.proposals({
+          where: {
+            dao: DAO_ADDRESSES.token.toLowerCase(),
+          },
+          first: 20,
+        }),
+      "generateComputedEvents",
+    );
 
     for (const p of proposals || []) {
       const voteStart = Number(p.voteStart || 0);

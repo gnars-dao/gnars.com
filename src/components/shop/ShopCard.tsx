@@ -1,6 +1,6 @@
-import Image from "next/image";
 import { ArrowUpRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";

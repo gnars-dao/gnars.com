@@ -30,12 +30,18 @@ export function lockMultiplier(startSec: number, endSec: number): number {
 }
 
 /** The `claimLockEnd` timestamp (unix seconds) for locking `years` from `nowSec`; 0 = no lock. */
-export function claimLockEndFor(years: number, nowSec: number = Math.floor(Date.now() / 1000)): number {
+export function claimLockEndFor(
+  years: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): number {
   return years <= 0 ? 0 : Math.round(nowSec + years * YEAR);
 }
 
 /** The multiplier you'd get by locking `years` from `nowSec` (1 = no boost). */
-export function multiplierForYears(years: number, nowSec: number = Math.floor(Date.now() / 1000)): number {
+export function multiplierForYears(
+  years: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): number {
   if (years <= 0) return 1;
   return lockMultiplier(nowSec, nowSec + years * YEAR);
 }

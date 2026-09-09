@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { Vote } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
 import { DAO_DESCRIPTION } from "@/lib/config";
 import { cn } from "@/lib/utils";

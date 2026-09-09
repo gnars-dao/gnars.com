@@ -34,6 +34,7 @@
       "title": "Farcaster",
       "loading": "Loading Farcaster...",
       "notLinked": "Farcaster: Not linked",
+      "unavailable": "Farcaster: couldn’t load",
       "followersFollowing": "{followers} followers / {following} following"
     },
     "zora": {

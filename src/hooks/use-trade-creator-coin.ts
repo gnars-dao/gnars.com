@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { setApiKey, tradeCoin, type TradeParameters } from "@zoralabs/coins-sdk";
 import { toast } from "sonner";
-import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
 import { parseEther, type PublicClient, type WalletClient } from "viem";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { viemAdapter } from "@/lib/builder-code-viem";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { normalizeTxError } from "@/lib/thirdweb-tx";
+import { assertSuccessfulReceipt, ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
 
 let isApiKeyConfigured = false;
 
@@ -60,6 +60,7 @@ export function useTradeCreatorCoin() {
     setIsTrading(true);
 
     try {
+      await ensureOnChain(wallet, base);
       // viemAdapter returns clients typed against thirdweb's bundled viem;
       // cast via unknown so the Zora SDK (which consumes the project's viem
       // types) accepts them. Structurally compatible at runtime.
@@ -84,12 +85,13 @@ export function useTradeCreatorCoin() {
         sender: account.address as `0x${string}`,
       };
 
-      await tradeCoin({
+      const receipt = await tradeCoin({
         tradeParameters,
         walletClient,
         account: walletClient.account!,
         publicClient,
       });
+      assertSuccessfulReceipt(receipt);
 
       toast.success("Successfully bought creator token!", { id: toastId });
       return true;

@@ -1,0 +1,12 @@
+{
+  "//": "Build-only tsconfig for the Claude Design bundle. cfg.tsconfig points here so the converter's esbuild path plugin resolves the app's @/ alias AND swaps two Next.js-runtime-dependent modules for browser-safe shims. The app's own tsconfig.json is untouched.",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["../src/*"],
+      "next/image": ["./shims/next-image.tsx"],
+      "next-themes": ["./shims/next-themes.tsx"]
+    }
+  }
+}

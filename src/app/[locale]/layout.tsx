@@ -17,6 +17,7 @@ import { MiniTV } from "@/components/tv/MiniTV";
 import { MiniTVVisibilityProvider } from "@/components/tv/MiniTVVisibilityContext";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ROOT_NAMESPACES, selectMessages } from "@/i18n/client-messages";
 import { routing } from "@/i18n/routing";
 import { MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 import "../globals.css";
@@ -78,7 +79,7 @@ export async function generateMetadata({
     // Farcaster mini app embed metadata
     other: {
       "fc:miniapp": JSON.stringify(MINIAPP_EMBED_CONFIG),
-      "base:app_id": "6920c9d87fdd1c48120364b3",
+      "base:app_id": "6a92ed52cfa2c998e36b554d",
     },
   };
 }
@@ -104,7 +105,10 @@ export default async function LocaleLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${oswald.variable} antialiased`}
       >
-        <NextIntlClientProvider messages={messages}>
+        <NextIntlClientProvider
+          locale={locale}
+          messages={selectMessages(messages, ROOT_NAMESPACES)}
+        >
           <GoogleAnalytics />
           <ThemeProvider
             attribute="class"

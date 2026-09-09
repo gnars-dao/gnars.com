@@ -1,4 +1,4 @@
-import Image from "next/image";
+import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
 import { getGnarsSubnetTotalStaked } from "@/lib/morpheus-builder";
 import { SUBNET_GOAL_MOR } from "@/lib/stake-milestones";
@@ -35,14 +35,16 @@ export async function PoweredByMorpheus() {
           />
           <div>
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-              <span className="text-sm font-black tracking-tight sm:text-base">Powered by Morpheus</span>
+              <span className="text-sm font-black tracking-tight sm:text-base">
+                Powered by Morpheus
+              </span>
               <span className="rounded-full border border-emerald-500/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                 community × community
               </span>
             </div>
             <p className="mt-1 max-w-xl text-xs text-muted-foreground sm:text-sm">
-              Gnars is a Morpheus Builder — a community-to-community deal. Back the subnet with MOR and help
-              carry decentralized AI into culture.
+              Gnars is a Morpheus Builder — a community-to-community deal. Back the subnet with MOR
+              and help carry decentralized AI into culture.
             </p>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { RouteMessages } from "@/i18n/RouteMessages";
 import { AUCTIONS_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 
 export async function generateMetadata({
@@ -41,5 +42,5 @@ export async function generateMetadata({
 }
 
 export default function AuctionsLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <RouteMessages route="auctions">{children}</RouteMessages>;
 }

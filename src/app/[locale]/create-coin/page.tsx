@@ -2,12 +2,12 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { Coins, ImageIcon, Info, Loader2, Upload, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";

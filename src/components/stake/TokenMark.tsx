@@ -9,7 +9,7 @@
 //
 // Geometry is the standard rendition of each brand's mark: Ethereum's faceted
 // diamond on #627EEA, USDC's dollar glyph and ring on #2775CA.
-import Image from "next/image";
+import Image from "@/components/ui/content-image";
 import { cn } from "@/lib/utils";
 
 /** Asset the rate is quoted in. stETH shows the Ethereum mark — it is the asset

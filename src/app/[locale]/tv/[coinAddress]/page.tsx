@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import { ipfsToHttp } from "@/lib/ipfs";
 import { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getCoin, setApiKey } from "@zoralabs/coins-sdk";
 import { GnarsTVFeed } from "@/components/tv/GnarsTVFeed";
 import { BASE_URL } from "@/lib/config";
+import { ipfsToHttp } from "@/lib/ipfs";
 import { TV_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 
 export const revalidate = 300;

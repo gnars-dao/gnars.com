@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { getContract, prepareContractCall, sendTransaction, waitForReceipt } from "thirdweb";
+import { getContract, sendTransaction } from "thirdweb";
 import { base } from "thirdweb/chains";
 import { useSimulateContract } from "wagmi";
 import {
@@ -20,9 +20,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareContractCall } from "@/lib/builder-code";
 import { CHAIN, DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import { ensureOnChain, normalizeTxError, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 import { gnarsGovernorAbi } from "@/utils/abis/gnarsGovernorAbi";
 
 export interface ExecuteProposalButtonProps {
@@ -105,7 +106,7 @@ export function ExecuteProposalButton({
       const txHash = result.transactionHash as `0x${string}`;
 
       toast.loading(t("execute.waitingConfirmation"), { id: proposalId });
-      await waitForReceipt({ client, chain: base, transactionHash: txHash });
+      await waitForSuccessfulReceipt({ client, chain: base, transactionHash: txHash });
 
       toast.success(t("execute.success"), { id: proposalId });
       setIsPending(false);

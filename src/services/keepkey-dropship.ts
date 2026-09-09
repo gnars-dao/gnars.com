@@ -75,6 +75,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
   });
 
   const text = await res.text();

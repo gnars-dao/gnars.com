@@ -4,17 +4,20 @@
 // Capital stakes (stETH + USDC) and shows, per asset: deposit, MOR earned, when
 // the MOR claim-lock lifts (the power lock chosen at deposit) and when the 7-day
 // principal lock lifts. Read-only; the actual claim happens in the reward box.
-
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { cn } from "@/lib/utils";
-import { useUserAddress } from "@/hooks/use-user-address";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMorpheusPosition, type MorpheusPoolPosition } from "@/hooks/use-morpheus-position";
+import { useUserAddress } from "@/hooks/use-user-address";
+import { cn } from "@/lib/utils";
 
 const fmt = (n: number, d = 4) => n.toLocaleString(undefined, { maximumFractionDigits: d });
 const fmtDate = (ts: number) =>
-  new Date(ts * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  new Date(ts * 1000).toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 
 type T = ReturnType<typeof useTranslations>;
 
@@ -36,7 +39,9 @@ function Badge({ tone, children }: { tone: "ok" | "warn"; children: React.ReactN
 function Metric({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
       <span className="text-sm tabular-nums">{children}</span>
     </div>
   );
@@ -49,11 +54,17 @@ function PositionRow({ p, now, t }: { p: MorpheusPoolPosition; now: number; t: T
     <div className="rounded-xl border p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 font-semibold">
-          <span className={cn("size-2 shrink-0 rounded-full", p.asset === "usdc" ? "bg-sky-500" : "bg-emerald-500")} />
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              p.asset === "usdc" ? "bg-sky-500" : "bg-emerald-500",
+            )}
+          />
           {p.symbol}
         </span>
         <span className="font-mono text-sm tabular-nums">
-          {fmt(p.staked)} <span className="text-xs font-normal text-muted-foreground">{p.symbol}</span>
+          {fmt(p.staked)}{" "}
+          <span className="text-xs font-normal text-muted-foreground">{p.symbol}</span>
         </span>
       </div>
 
@@ -109,7 +120,9 @@ export function StakePositions() {
           <PositionRow key={p.asset} p={p} now={now} t={t} />
         ))}
         <p className="pt-1 text-xs leading-relaxed text-muted-foreground">{t("claimHint")}</p>
-        {anyLocked && <p className="text-xs leading-relaxed text-muted-foreground">{t("powerLockNote")}</p>}
+        {anyLocked && (
+          <p className="text-xs leading-relaxed text-muted-foreground">{t("powerLockNote")}</p>
+        )}
       </div>
     );
 

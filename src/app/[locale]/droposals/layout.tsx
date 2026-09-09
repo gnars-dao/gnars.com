@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RouteMessages } from "@/i18n/RouteMessages";
 import { BASE_URL } from "@/lib/config";
 import { DROPOSALS_MINIAPP_CONFIG, DROPOSALS_MINIAPP_EMBED_CONFIG } from "@/lib/miniapp-config";
 
@@ -20,5 +21,5 @@ export const metadata: Metadata = {
 };
 
 export default function DroposalsLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return <RouteMessages route="droposals">{<>{children}</>}</RouteMessages>;
 }

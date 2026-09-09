@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import { createTradeCall, type TradeParameters } from "@zoralabs/coins-sdk";
-import { prepareTransaction, sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction } from "thirdweb";
 import { viemAdapter } from "thirdweb/adapters/viem";
 import { base } from "thirdweb/chains";
 import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
+import { prepareTransaction } from "@/lib/builder-code";
 import { getThirdwebClient } from "@/lib/thirdweb";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 
 const MULTICALL3: Address = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
@@ -125,8 +127,7 @@ export function useBatchCoinPurchase({
         const quoteResp = await createTradeCall(tradeParams);
 
         if (!quoteResp.success) {
-          console.warn(`Quote failed for ${coin.address}, skipping`);
-          continue;
+          throw new Error(`Unable to quote ${coin.address}. No purchases were submitted.`);
         }
 
         calls.push({
@@ -183,6 +184,7 @@ export function useBatchCoinPurchase({
         client,
       });
 
+      await ensureOnChain(writer.wallet, base);
       const result = await sendTransaction({
         account: writer.account,
         transaction: tx,
@@ -191,11 +193,7 @@ export function useBatchCoinPurchase({
 
       setTxHash(hash);
 
-      const receipt = await waitForReceipt({ client, chain: base, transactionHash: hash });
-
-      if (receipt.status === "reverted") {
-        throw new Error("Transaction reverted");
-      }
+      await waitForSuccessfulReceipt({ client, chain: base, transactionHash: hash });
 
       setIsConfirmed(true);
       setIsPending(false);

@@ -152,9 +152,9 @@ export const loadTreasuryDefi = cache(async (): Promise<TreasuryDefi> => {
   // splits — REUSED from the stake graph (`gnarsAccrued`), the same figure the
   // Sponsorship card prints. Reading it again here would be a second truth.
   try {
-    const { graph, degraded } = await loadStakeGraph();
+    const { graph } = await loadStakeGraph();
     positions.push(
-      degraded
+      !graph.backersResolved
         ? { labelKey: "feeInSplits", liquidity: { kind: "instant" }, ok: false }
         : {
             labelKey: "feeInSplits",

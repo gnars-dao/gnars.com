@@ -1,88 +1,79 @@
-import { revalidateTag } from "next/cache";
-import { after, NextResponse } from "next/server";
+import { revalidateTag, unstable_cache } from "next/cache";
+import { NextResponse } from "next/server";
+import { createPublicClient, http, type Hex } from "viem";
+import { mainnet } from "viem/chains";
 import { z } from "zod";
-import { isAllowedRevalidateTag } from "@/lib/cache-tags";
+import { allowedReceiptTags, filterReceiptTags } from "@/lib/revalidation-policy";
+import { serverPublicClient } from "@/lib/rpc";
+import {
+  enforceRateLimit,
+  readJsonBody,
+  RequestSecurityError,
+  requestSecurityResponse,
+} from "@/lib/server/request-security";
 
 export const dynamic = "force-dynamic";
 
-// Reject oversized bodies before we even attempt to parse them — this is a
-// cheap, unauthenticated route (see rationale below), so a hard size cap is
-// the only guardrail against abuse.
-const MAX_BODY_BYTES = 1024;
-const MAX_TAGS = 5;
-
-const bodySchema = z.object({
-  tags: z.array(z.string()).min(1).max(MAX_TAGS),
+const schema = z.object({
+  tags: z.array(z.string().max(64)).min(1).max(5),
+  transactionHash: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{64}$/)
+    .transform((hash) => hash.toLowerCase() as Hex),
+  chainId: z.union([z.literal(8453), z.literal(1)]).default(8453),
+});
+const ethereum = createPublicClient({
+  chain: mainnet,
+  transport: http("https://ethereum-rpc.publicnode.com", { timeout: 8000, retryCount: 0 }),
 });
 
-/**
- * Event-driven cache invalidation (docs/architecture/caching-standard.md
- * Rule 3 / P1). Mutation hooks (useCastVote, propose wizard, bid/settle,
- * propdate post, delegate, round vote/submit) call this after confirming a
- * receipt so OTHER users' server caches drop immediately instead of waiting
- * out the TTL.
- *
- * No auth: invalidation is idempotent and cheap — an on-demand
- * `revalidateTag` call that regenerates identical bytes bills 0 ISR write
- * units (see vercel-quota-strategy.md), so there's no meaningful abuse
- * surface beyond wasted compute, which the tag allowlist + size/count caps
- * bound.
- */
+const receiptEvidence = unstable_cache(
+  async (chainId: number, hash: Hex) => {
+    const client = chainId === 8453 ? serverPublicClient : ethereum;
+    const receipt = await client.getTransactionReceipt({ hash });
+    if (receipt.status !== "success") throw new RequestSecurityError(400, "Transaction reverted");
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    return {
+      timestamp: Number(block.timestamp),
+      addresses: receipt.logs.map((log) => log.address),
+    };
+  },
+  ["revalidation-receipt-v1"],
+  { revalidate: 600 },
+);
+
 export async function POST(request: Request) {
-  const contentLength = request.headers.get("content-length");
-  if (contentLength && Number(contentLength) > MAX_BODY_BYTES) {
-    return NextResponse.json({ error: "Request body too large" }, { status: 413 });
-  }
-
-  let rawBody: unknown;
   try {
-    const text = await request.text();
-    if (text.length > MAX_BODY_BYTES) {
-      return NextResponse.json({ error: "Request body too large" }, { status: 413 });
-    }
-    rawBody = JSON.parse(text);
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const parsed = bodySchema.safeParse(rawBody);
-  if (!parsed.success) {
+    await enforceRateLimit(request, { scope: "revalidate", limit: 20, windowSeconds: 60 });
+    const parsed = schema.safeParse(await readJsonBody(request, 2048));
+    if (!parsed.success) throw new RequestSecurityError(400, "A confirmed transaction is required");
+    const { tags, chainId, transactionHash } = parsed.data;
+    const evidence = await receiptEvidence(chainId, transactionHash);
+    const age = Date.now() / 1000 - evidence.timestamp;
+    if (age < -30 || age > 600)
+      throw new RequestSecurityError(400, "Transaction is outside the refresh window");
+    const accepted = filterReceiptTags(tags, allowedReceiptTags(chainId, evidence.addresses));
+    if (!accepted.length)
+      throw new RequestSecurityError(403, "Transaction does not affect these datasets");
+    await enforceRateLimit(request, {
+      scope: "revalidate-tx",
+      subject: chainId + ":" + transactionHash,
+      limit: 2,
+      windowSeconds: 600,
+    });
+    for (const tag of accepted) revalidateTag(tag, "max");
     return NextResponse.json(
-      { error: "Invalid body", details: parsed.error.flatten() },
-      { status: 400 },
+      { revalidated: accepted },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    if (error instanceof RequestSecurityError) return requestSecurityResponse(error);
+    return NextResponse.json(
+      { error: "Unable to verify transaction" },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store" },
+      },
     );
   }
-
-  const invalidTags = parsed.data.tags.filter((tag) => !isAllowedRevalidateTag(tag));
-  if (invalidTags.length > 0) {
-    return NextResponse.json(
-      { error: "Tag not allowed", details: { invalidTags } },
-      { status: 400 },
-    );
-  }
-
-  // Next 16.2 requires a second "profile" arg on revalidateTag (the old
-  // single-arg call is deprecated in favor of `updateTag`, which doesn't
-  // apply here since we're outside a Server Action). "max" is the profile
-  // Next's own deprecation warning recommends as the drop-in replacement
-  // for the previous unconditional-invalidation behavior.
-  const tags = parsed.data.tags;
-  for (const tag of tags) {
-    revalidateTag(tag, "max");
-  }
-
-  // Goldsky subgraph indexing lag (seconds–~1min, see
-  // caching-standard.md) means the first revalidateTag pass above can
-  // regenerate pages BEFORE the subgraph has indexed the mutation that
-  // triggered this call — the regenerated page would cache the still-stale
-  // read. Schedule a second pass ~45s later, after the response has been
-  // sent, as a cheap fallback that doesn't block the caller.
-  after(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 45_000));
-    for (const tag of tags) {
-      revalidateTag(tag, "max");
-    }
-  });
-
-  return NextResponse.json({ revalidated: tags });
 }

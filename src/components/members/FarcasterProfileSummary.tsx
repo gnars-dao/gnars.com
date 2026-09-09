@@ -4,10 +4,16 @@ import { useLocale, useTranslations } from "next-intl";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toIntlLocale } from "@/lib/i18n/format";
 import { cn } from "@/lib/utils";
-import type { FarcasterProfile } from "@/services/farcaster";
+import type { FarcasterLookupStatus, FarcasterProfile } from "@/services/farcaster";
 
 interface FarcasterProfileSummaryProps {
   profile?: FarcasterProfile | null;
+  /**
+   * Why there is no profile. "absent" = asked, no account. "unavailable" =
+   * could not ask. Defaults to "absent" so existing callers that genuinely
+   * know the answer keep their copy; the members path passes the real value.
+   */
+  status?: FarcasterLookupStatus;
   size?: "sm" | "md";
   bioLines?: 1 | 2 | 3;
   loading?: boolean;
@@ -29,6 +35,7 @@ const sizeStyles = {
 
 export function FarcasterProfileSummary({
   profile,
+  status = "absent",
   size = "sm",
   bioLines = 2,
   loading = false,
@@ -48,9 +55,14 @@ export function FarcasterProfileSummary({
   }
 
   if (!profile) {
+    // Deliberately the SAME muted, one-line treatment as "not linked": the
+    // field becomes honest without the page looking broken. A read failure
+    // repeated down a 1050-row list must not read as an alarm — trading a
+    // calm lie for a false panic would be the worse outcome.
+    const key = status === "unavailable" ? "unavailable" : "notLinked";
     return (
       <div className={cn("text-xs text-muted-foreground", className)}>
-        {t("detail.farcaster.notLinked")}
+        {t(`detail.farcaster.${key}`)}
       </div>
     );
   }

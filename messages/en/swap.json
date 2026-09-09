@@ -15,6 +15,30 @@
     "dialogDescription": "Search by symbol, name, or paste a token contract address.",
     "searchPlaceholder": "Search name or paste address",
     "popular": "Popular",
+    "close": "Close token selector",
+    "clearSearch": "Clear search",
+    "categories": "Token categories",
+    "tabs": { "wallet": "Wallet", "creator": "Creators", "stock": "Stocks" },
+    "columns": {
+      "wallet": "Wallet & crypto",
+      "creator": "Zora & Clanker",
+      "stock": "Tokenized stocks"
+    },
+    "walletFilter": "Wallet token filter",
+    "creatorFilter": "Creator token source",
+    "balances": "Balances",
+    "crypto": "Crypto",
+    "all": "All",
+    "balancesUnavailable": "Balances unavailable",
+    "catalogueUnavailable": "Some catalogue sources are unavailable",
+    "lookupUnavailable": "Token lookup unavailable. Try again shortly.",
+    "baseOnly": "Available on Base",
+    "connectForBalances": "Wallet not connected",
+    "noBalances": "No token balances found",
+    "showMore": "Load more",
+    "loading": "Loading tokens...",
+    "loadingOwned": "Loading tokens in your wallet...",
+    "retry": "Retry loading tokens",
     "nativeAsset": "Native asset",
     "resolvingToken": "Resolving token…",
     "noErc20Found": "No ERC-20 token found at this address",
@@ -37,7 +61,9 @@
     "insufficientBalance": "Insufficient {symbol} balance",
     "noLiquidity": "No liquidity for this pair",
     "networkFee": "~{amount} ETH network fee",
-    "enterAmount": "Enter an amount above"
+    "enterAmount": "Enter an amount above",
+    "quoteFailed": "Quote unavailable — try again in a moment",
+    "oldGnars": "Heads up: this is the OLD $gnars. It is being migrated to a new token and the migration only accepts ETH — old $gnars bought here will have to be sold again to enter. <link>See the migration</link>."
   },
   "buttons": {
     "connectToSwap": "Connect wallet to swap",
@@ -69,5 +95,16 @@
     "quoteUnavailableFallback": "0x returned no transaction",
     "swapCancelled": "Swap cancelled",
     "swapFailed": "Swap failed"
+  },
+  "coinCard": {
+    "zoraCoin": "Zora coin",
+    "viewOnZora": "View on Zora",
+    "youSell": "You sell",
+    "youBuy": "You buy",
+    "marketCap": "Market cap",
+    "volume24h": "24h volume",
+    "holders": "Holders",
+    "tradingFor": "You are trading {coin} for {other}.",
+    "buyingWith": "You are buying {coin} with {other}."
   }
 }

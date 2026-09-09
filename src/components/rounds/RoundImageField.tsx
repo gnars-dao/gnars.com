@@ -1,9 +1,9 @@
 "use client";
 
 import { useId, useRef, useState, type ChangeEvent } from "react";
-import Image from "next/image";
 import { ImageIcon, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Image from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
 
 const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;

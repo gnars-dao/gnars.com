@@ -2,70 +2,29 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { useQuery } from "@tanstack/react-query";
-import { getCoin, setApiKey } from "@zoralabs/coins-sdk";
-import { ArrowRight, Check, ChevronDown, Info, Loader2, Search } from "lucide-react";
+import { ArrowRight, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { prepareContractCall, prepareTransaction, sendTransaction, waitForReceipt } from "thirdweb";
+import { sendTransaction } from "thirdweb";
 import { useActiveWallet, useActiveWalletChain } from "thirdweb/react";
-import { formatUnits, isAddress, maxUint256, parseUnits, type Address, type Hex } from "viem";
+import { formatUnits, maxUint256, parseUnits, type Address, type Hex } from "viem";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useWriteAccount } from "@/hooks/use-write-account";
-import { ipfsToHttp } from "@/lib/ipfs";
+import { Link } from "@/i18n/navigation";
+import { prepareContractCall, prepareTransaction } from "@/lib/builder-code";
+import { chainPaysTreasury, DAO_ADDRESSES } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError } from "@/lib/thirdweb-tx";
+import { ensureOnChain, normalizeTxError, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 import { cn } from "@/lib/utils";
 import { getDefaultPair, NATIVE_TOKEN, type SwapToken } from "./chains";
-import type { SwapChain } from "./chains";
 import { useSwapChain } from "./SwapChainContext";
-import {
-  formatBalanceDisplay,
-  useAllTokenBalances,
-  useTokenBalance,
-  type TokenBalance,
-} from "./useTokenBalance";
-import { useTokenLookup, useWalletTokens } from "./useWalletTokens";
-
-// Lazily fetches a Zora creator coin's image when no standard logo is available.
-// Only runs on Base (chain 8453) since creator coins are Base-only.
-// Results are cached for 24 h — logos don't change.
-function useZoraLogo(address: string, chainId: number, skip: boolean): string | null {
-  return (
-    useQuery({
-      queryKey: ["zora-logo", address],
-      enabled: !skip && chainId === 8453 && address !== NATIVE_TOKEN,
-      staleTime: 24 * 60 * 60 * 1000,
-      retry: false,
-      queryFn: async () => {
-        const key = process.env.NEXT_PUBLIC_ZORA_API_KEY;
-        if (key) setApiKey(key);
-        const res = await getCoin({ address, chain: 8453 });
-        const coin = res?.data?.zora20Token;
-        const preview = coin?.mediaContent?.previewImage;
-        const raw =
-          typeof preview === "object"
-            ? ((preview as Record<string, string>)?.medium ??
-              (preview as Record<string, string>)?.small)
-            : (preview as string | undefined);
-        if (!raw) return null;
-        // Convert IPFS URIs to an HTTP gateway URL.
-        return ipfsToHttp(raw);
-      },
-    }).data ?? null
-  );
-}
+import TokenPicker from "./TokenPicker";
+import { formatBalanceDisplay, useTokenBalance } from "./useTokenBalance";
+import { useWalletTokens } from "./useWalletTokens";
+import ZoraCoinCard, { useZoraCoin } from "./ZoraCoinCard";
 
 const erc20ApproveAbi = [
   {
@@ -117,281 +76,6 @@ function formatTokenAmount(raw: string | undefined, decimals: number): string {
   }
 }
 
-function TokenLogo({
-  token,
-  size = 24,
-  chainId = 8453,
-}: {
-  token: SwapToken;
-  size?: number;
-  chainId?: number;
-}) {
-  const [logoError, setLogoError] = React.useState(false);
-  React.useEffect(() => setLogoError(false), [token.logo]);
-
-  const needsFallback = !token.logo || logoError;
-  const zoraLogo = useZoraLogo(token.address, chainId, !needsFallback);
-  const effectiveLogo = needsFallback ? (zoraLogo ?? undefined) : token.logo;
-
-  const dim = `${size}px`;
-  if (effectiveLogo) {
-    return (
-      <span
-        className="relative inline-flex shrink-0 items-center justify-center"
-        style={{ width: dim, height: dim }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={effectiveLogo}
-          alt=""
-          width={size}
-          height={size}
-          className="h-full w-full object-contain"
-          onError={() => setLogoError(true)}
-        />
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground"
-      style={{ width: dim, height: dim }}
-    >
-      {token.symbol[0]}
-    </span>
-  );
-}
-
-interface TokenPickerProps {
-  value: SwapToken;
-  tokens: readonly SwapToken[];
-  exclude?: `0x${string}` | typeof NATIVE_TOKEN;
-  onSelect: (token: SwapToken) => void;
-  label: string;
-  chain: SwapChain;
-  userAddress: Address | undefined;
-  isConnected: boolean;
-  usdValues?: Map<string, number>;
-}
-
-function TokenPicker({
-  value,
-  tokens,
-  exclude,
-  onSelect,
-  label,
-  chain,
-  userAddress,
-  isConnected,
-  usdValues,
-}: TokenPickerProps) {
-  const t = useTranslations("swap");
-  const [open, setOpen] = React.useState(false);
-  const [query, setQuery] = React.useState("");
-
-  const balances = useAllTokenBalances({
-    chain,
-    userAddress: isConnected ? userAddress : undefined,
-    tokens,
-  });
-
-  // When the query looks like a contract address and nothing in the list
-  // matches, resolve it via Alchemy metadata + Zora (on Base).
-  const queryTrimmed = query.trim();
-  const lookup = useTokenLookup({ address: queryTrimmed, chainId: chain.id });
-
-  // Show the first 4 tokens of the chain as the "popular" row — chain
-  // registries are ordered to put the staples first.
-  const popular = React.useMemo(() => tokens.slice(0, 4), [tokens]);
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const base = !q
-      ? tokens
-      : tokens.filter(
-          (t) =>
-            t.symbol.toLowerCase().includes(q) ||
-            t.name.toLowerCase().includes(q) ||
-            t.address.toLowerCase().includes(q),
-        );
-
-    // When not searching, sort by USD value so the user's most valuable
-    // holdings float to the top. Fall back to normalised token amount for
-    // tokens without a CoinGecko price.
-    if (!q && isConnected) {
-      return [...base].sort((a, b) => {
-        const usdA = usdValues?.get(a.address.toLowerCase()) ?? null;
-        const usdB = usdValues?.get(b.address.toLowerCase()) ?? null;
-        if (usdA !== null && usdB !== null) return usdB - usdA;
-        if (usdA !== null) return -1;
-        if (usdB !== null) return 1;
-        const ba = balances.get(a.address);
-        const bb = balances.get(b.address);
-        const numA = ba ? parseFloat(formatUnits(ba.value, ba.decimals)) : 0;
-        const numB = bb ? parseFloat(formatUnits(bb.value, bb.decimals)) : 0;
-        return numB - numA;
-      });
-    }
-    return base;
-  }, [query, tokens, isConnected, balances, usdValues]);
-
-  const choose = (token: SwapToken) => {
-    if (token.address === exclude) return;
-    onSelect(token);
-    setQuery("");
-    setOpen(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          className="group inline-flex items-center gap-2 bg-transparent text-left transition-colors"
-        >
-          <TokenLogo token={value} size={16} chainId={chain.id} />
-          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground transition-colors group-hover:text-foreground">
-            {value.name}
-          </span>
-          <ChevronDown className="h-3 w-3 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
-        </button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t("tokenPicker.dialogTitle")}</DialogTitle>
-          <DialogDescription className="sr-only">
-            {t("tokenPicker.dialogDescription")}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("tokenPicker.searchPlaceholder")}
-              className="pl-9"
-            />
-          </div>
-
-          {!query && popular.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
-                {t("tokenPicker.popular")}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {popular.map((tok) => {
-                  const isSelected = tok.address === value.address;
-                  const isExcluded = tok.address === exclude;
-                  return (
-                    <Button
-                      key={tok.address}
-                      type="button"
-                      variant={isSelected ? "default" : "outline"}
-                      size="sm"
-                      className={cn("h-8 gap-1.5 rounded-full px-3", isExcluded && "opacity-40")}
-                      onClick={() => choose(tok)}
-                      disabled={isExcluded}
-                    >
-                      <TokenLogo token={tok} size={16} chainId={chain.id} />
-                      <span className="text-xs">{tok.symbol}</span>
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="-mx-6 max-h-80 overflow-y-auto border-t">
-            {filtered.length > 0 ? (
-              filtered.map((tok) => {
-                const isSelected = tok.address === value.address;
-                const isExcluded = tok.address === exclude;
-                const bal: TokenBalance | null = balances.get(tok.address) ?? null;
-                return (
-                  <button
-                    key={tok.address}
-                    type="button"
-                    disabled={isExcluded}
-                    onClick={() => choose(tok)}
-                    className={cn(
-                      "flex w-full items-center gap-3 px-6 py-2.5 text-left transition-colors",
-                      isExcluded ? "cursor-not-allowed opacity-40" : "hover:bg-accent",
-                      isSelected && "bg-accent/60",
-                    )}
-                  >
-                    <TokenLogo token={tok} size={32} chainId={chain.id} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-sm font-semibold">{tok.symbol}</span>
-                        <span className="truncate text-xs text-muted-foreground">{tok.name}</span>
-                      </div>
-                      <p className="truncate font-mono text-[10px] text-muted-foreground">
-                        {tok.address === NATIVE_TOKEN
-                          ? t("tokenPicker.nativeAsset")
-                          : `${tok.address.slice(0, 6)}…${tok.address.slice(-4)}`}
-                      </p>
-                    </div>
-                    {isConnected && (
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                        {bal ? formatBalanceDisplay(bal.displayValue) : "…"}
-                      </span>
-                    )}
-                    {isSelected && <Check className="h-4 w-4 text-primary" />}
-                  </button>
-                );
-              })
-            ) : isAddress(queryTrimmed) ? (
-              // Address pasted but not in token list — resolve it on-the-fly.
-              lookup.isLoading ? (
-                <p className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t("tokenPicker.resolvingToken")}
-                </p>
-              ) : lookup.data ? (
-                <button
-                  type="button"
-                  disabled={lookup.data.address === exclude}
-                  onClick={() => choose(lookup.data!)}
-                  className={cn(
-                    "flex w-full items-center gap-3 px-6 py-2.5 text-left transition-colors",
-                    lookup.data.address === exclude
-                      ? "cursor-not-allowed opacity-40"
-                      : "hover:bg-accent",
-                  )}
-                >
-                  <TokenLogo token={lookup.data} size={32} chainId={chain.id} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-semibold">{lookup.data.symbol}</span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {lookup.data.name}
-                      </span>
-                    </div>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
-                      {`${lookup.data.address.slice(0, 6)}…${lookup.data.address.slice(-4)}`}
-                    </p>
-                  </div>
-                </button>
-              ) : (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  {t("tokenPicker.noErc20Found")}
-                </p>
-              )
-            ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                {t("tokenPicker.noTokensFound")}
-              </p>
-            )}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function SwapWidget() {
   const t = useTranslations("swap");
   const { chain } = useSwapChain();
@@ -408,8 +92,21 @@ export function SwapWidget() {
   const [buyToken, setBuyToken] = React.useState<SwapToken>(initialPair.buy);
   const [sellAmount, setSellAmount] = React.useState("");
   const [supportFee, setSupportFee] = React.useState(true);
+  // The treasury can only be paid where it has an address that can receive.
+  // On any other chain the checkbox would collect 0.5% and send it nowhere,
+  // so it is not shown and no fee is requested. See GNARS_SWAP_PAYOUT.
+  const canPayTreasury = chainPaysTreasury(chain.id);
+  const feeRequested = supportFee && canPayTreasury;
 
   const [price, setPrice] = React.useState<ZeroExPriceResponse | null>(null);
+  // Whether either side is a Zora coin, so the card row exists only when it
+  // has something to show — an empty row still costs its gaps.
+  const sellCoin = useZoraCoin(sellToken.address, chain.id);
+  const buyCoin = useZoraCoin(buyToken.address, chain.id);
+  const anyCoin = Boolean(sellCoin.data || buyCoin.data);
+  // Distinct from `price === null`, which also means "nothing typed yet". Without
+  // this the widget reported a dead quote endpoint as "Enter an amount above".
+  const [priceError, setPriceError] = React.useState<string | null>(null);
   const [isFetching, setIsFetching] = React.useState(false);
   const [needsApproval, setNeedsApproval] = React.useState(false);
   const [approvalTarget, setApprovalTarget] = React.useState<Address | null>(null);
@@ -420,7 +117,14 @@ export function SwapWidget() {
 
   // Discover all ERC-20 tokens the user holds on this chain, merged with the
   // curated hardcoded list. Falls back to the hardcoded list when disconnected.
-  const { tokens: availableTokens, usdValues } = useWalletTokens({
+  const {
+    tokens: availableTokens,
+    usdValues,
+    walletTokens,
+    isLoading: walletLoading,
+    isError: walletError,
+    refetch: refetchWallet,
+  } = useWalletTokens({
     chain,
     userAddress: isConnected ? (address as Address | undefined) : undefined,
   });
@@ -465,6 +169,8 @@ export function SwapWidget() {
   // quote — the issues.allowance / issues.balance fields will be meaningless
   // until they connect, and the effect re-runs once `address` populates.
   React.useEffect(() => {
+    setPriceError(null);
+
     const numeric = Number(sellAmount);
     if (!sellAmount || Number.isNaN(numeric) || numeric <= 0) {
       setPrice(null);
@@ -491,12 +197,27 @@ export function SwapWidget() {
           buyToken: buyToken.address,
           sellAmount: rawAmount,
           taker,
+          // SwapsPro quotes in human decimals; the proxy converts both ways.
+          sellDecimals: String(sellToken.decimals),
+          buyDecimals: String(buyToken.decimals),
         });
-        if (supportFee) params.set("fee", "1");
+        if (feeRequested) params.set("fee", "1");
 
         const res = await fetch(`/api/0x/price?${params.toString()}`);
-        const data: ZeroExPriceResponse = await res.json();
+        const data: ZeroExPriceResponse & { error?: string } = await res.json();
         if (cancelled) return;
+
+        // `fetch` only rejects on network failure, so a 4xx/5xx lands here with
+        // an error body. Storing it as a price made every server-side failure —
+        // a missing API key included — look like the user hadn't typed anything.
+        if (!res.ok) {
+          console.error("[swap] price fetch failed", res.status, data?.error);
+          setPrice(null);
+          setPriceError(data?.error ?? `HTTP ${res.status}`);
+          setNeedsApproval(false);
+          setApprovalTarget(null);
+          return;
+        }
 
         setPrice(data);
         // Only trust allowance/balance signals when we have the real taker.
@@ -512,6 +233,7 @@ export function SwapWidget() {
         if (cancelled) return;
         console.error("[swap] price fetch failed", err);
         setPrice(null);
+        setPriceError(normalizeTxError(err).message);
       } finally {
         if (!cancelled) setIsFetching(false);
       }
@@ -521,7 +243,7 @@ export function SwapWidget() {
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [sellAmount, sellToken, buyToken, address, supportFee, chain.id]);
+  }, [sellAmount, sellToken, buyToken, address, feeRequested, chain.id]);
 
   const flip = () => {
     setSellToken(buyToken);
@@ -573,7 +295,11 @@ export function SwapWidget() {
       toast.success(t("toasts.approvalSubmitted"), {
         description: `${txHash.slice(0, 10)}…${txHash.slice(-4)}`,
       });
-      await waitForReceipt({ client, chain: chain.thirdwebChain, transactionHash: txHash });
+      await waitForSuccessfulReceipt({
+        client,
+        chain: chain.thirdwebChain,
+        transactionHash: txHash,
+      });
       setNeedsApproval(false);
       setApprovalTarget(null);
       toast.success(t("toasts.tokenApproved", { symbol: sellToken.symbol }));
@@ -611,8 +337,10 @@ export function SwapWidget() {
         buyToken: buyToken.address,
         sellAmount: rawAmount,
         taker: address,
+        sellDecimals: String(sellToken.decimals),
+        buyDecimals: String(buyToken.decimals),
       });
-      if (supportFee) params.set("fee", "1");
+      if (feeRequested) params.set("fee", "1");
 
       const res = await fetch(`/api/0x/quote?${params.toString()}`);
       const quote: ZeroExQuoteResponse = await res.json();
@@ -639,7 +367,11 @@ export function SwapWidget() {
         description: `${txHash.slice(0, 10)}…${txHash.slice(-4)}`,
       });
 
-      await waitForReceipt({ client, chain: chain.thirdwebChain, transactionHash: txHash });
+      await waitForSuccessfulReceipt({
+        client,
+        chain: chain.thirdwebChain,
+        transactionHash: txHash,
+      });
       toast.success(t("toasts.swapConfirmed"), {
         description: t("toasts.swapConfirmedDesc", {
           amount: formatTokenAmount(quote.buyAmount, buyToken.decimals),
@@ -707,13 +439,24 @@ export function SwapWidget() {
   }, [price, sellToken, buyToken]);
 
   // Sell-side caption: prefer error states, otherwise show the network fee.
-  const sellCaption = insufficientBalance
-    ? t("captions.insufficientBalance", { symbol: sellToken.symbol })
-    : price?.liquidityAvailable === false
-      ? t("captions.noLiquidity")
-      : networkFeeEth && price?.liquidityAvailable
-        ? t("captions.networkFee", { amount: networkFeeEth })
-        : t("captions.enterAmount");
+  // A failed quote outranks everything — it is the only state the user can't
+  // fix by typing, so saying "enter an amount" here would send them in circles.
+  // Old $gnars is on its way out: the UpgraderEth migration rejects it, so a
+  // swap into it today is a swap into a token that cannot enter. Say so, and
+  // point at /migrate, rather than silently dropping it from the list.
+  const OLD_GNARS = DAO_ADDRESSES.gnarsErc20.toLowerCase();
+  const involvesOldGnars =
+    sellToken.address.toLowerCase() === OLD_GNARS || buyToken.address.toLowerCase() === OLD_GNARS;
+
+  const sellCaption = priceError
+    ? t("captions.quoteFailed")
+    : insufficientBalance
+      ? t("captions.insufficientBalance", { symbol: sellToken.symbol })
+      : price?.liquidityAvailable === false
+        ? t("captions.noLiquidity")
+        : networkFeeEth && price?.liquidityAvailable
+          ? t("captions.networkFee", { amount: networkFeeEth })
+          : t("captions.enterAmount");
 
   return (
     // `@container` makes the breakpoints below relative to this box rather
@@ -726,8 +469,8 @@ export function SwapWidget() {
         {/* Editorial strip: FROM | arrow | TO */}
         <div className="grid grid-cols-1 items-end gap-y-7 @2xl:grid-cols-[1fr_auto_1fr] @2xl:gap-y-0">
           {/* FROM */}
-          <div className="@2xl:border-r @2xl:border-border @2xl:pr-7">
-            <div className="mb-2.5 flex items-center justify-between gap-2">
+          <div className="min-w-0 @2xl:border-r @2xl:border-border @2xl:pr-7">
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
               <TokenPicker
                 value={sellToken}
                 tokens={availableTokens}
@@ -742,6 +485,10 @@ export function SwapWidget() {
                 userAddress={address as Address | undefined}
                 isConnected={isConnected}
                 usdValues={usdValues}
+                walletTokens={walletTokens}
+                walletLoading={walletLoading}
+                walletError={walletError}
+                onRetryWallet={() => void refetchWallet()}
               />
               {isConnected && (
                 <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -782,13 +529,16 @@ export function SwapWidget() {
                 // at 14px on desktop next to the buy amount's 44px, matching
                 // only on phones. Restating it under `md:` is what actually
                 // evicts it.
-                className="h-auto flex-1 border-0 bg-transparent p-0 text-[44px] font-thin leading-none tracking-[-2px] text-foreground shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/30 md:text-[44px] @2xl:text-[56px] @2xl:tracking-[-3px] dark:bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none"
+                className="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-[44px] font-thin leading-none tracking-normal text-foreground shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/30 md:text-[44px] @2xl:text-[56px] dark:bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none"
               />
-              <span className="shrink-0 text-xl font-light tracking-tight text-muted-foreground/60 @2xl:text-2xl">
+              <span
+                title={sellToken.symbol}
+                className="max-w-[40%] shrink-0 truncate text-xl font-light text-muted-foreground/60 @2xl:text-2xl"
+              >
                 {sellToken.symbol}
               </span>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground/70">
+            <p className="mt-2 text-[11px] text-muted-foreground/70 [overflow-wrap:anywhere]">
               {isFetching ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Loader2 className="h-3 w-3 animate-spin" /> {t("from.fetchingPrice")}
@@ -797,6 +547,17 @@ export function SwapWidget() {
                 sellCaption
               )}
             </p>
+            {involvesOldGnars && (
+              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                {t.rich("captions.oldGnars", {
+                  link: (chunks) => (
+                    <Link href="/migrate" className="font-medium underline underline-offset-2">
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            )}
           </div>
 
           {/* CENTER — flip arrow with springy easing */}
@@ -813,8 +574,8 @@ export function SwapWidget() {
           </div>
 
           {/* TO */}
-          <div className="@2xl:pl-7">
-            <div className="mb-2.5 flex items-center justify-between gap-2">
+          <div className="min-w-0 @2xl:pl-7">
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
               <TokenPicker
                 value={buyToken}
                 tokens={availableTokens}
@@ -828,6 +589,10 @@ export function SwapWidget() {
                 userAddress={address as Address | undefined}
                 isConnected={isConnected}
                 usdValues={usdValues}
+                walletTokens={walletTokens}
+                walletLoading={walletLoading}
+                walletError={walletError}
+                onRetryWallet={() => void refetchWallet()}
               />
               {isConnected && (
                 <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -843,7 +608,7 @@ export function SwapWidget() {
               )}
             </div>
             <div className="flex items-baseline gap-3 border-b border-border pb-2.5">
-              <span className="flex-1 truncate text-[44px] font-thin leading-none tracking-[-2px] text-foreground/90 @2xl:text-[56px] @2xl:tracking-[-3px]">
+              <span className="min-w-0 flex-1 truncate text-[44px] font-thin leading-none text-foreground/90 @2xl:text-[56px]">
                 {isFetching ? (
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
                 ) : (
@@ -856,11 +621,14 @@ export function SwapWidget() {
                   </span>
                 )}
               </span>
-              <span className="shrink-0 text-xl font-light tracking-tight text-muted-foreground/60 @2xl:text-2xl">
+              <span
+                title={buyToken.symbol}
+                className="max-w-[40%] shrink-0 truncate text-xl font-light text-muted-foreground/60 @2xl:text-2xl"
+              >
                 {buyToken.symbol}
               </span>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground/70">
+            <p className="mt-2 text-[11px] text-muted-foreground/70 [overflow-wrap:anywhere]">
               {rateLine ?? (
                 <span className="text-muted-foreground/40">{t("to.bestExecution")}</span>
               )}
@@ -868,12 +636,41 @@ export function SwapWidget() {
           </div>
         </div>
 
+        {/* A Zora coin on either side gets its card: media, creator, market.
+            Renders nothing for an ordinary token, so the strip above is all
+            most pairs ever show. */}
+        {anyCoin && (
+          <div className="grid grid-cols-1 gap-y-4 @2xl:grid-cols-[1fr_auto_1fr] @2xl:gap-y-0">
+            <div className="empty:hidden @2xl:pr-7">
+              <ZoraCoinCard
+                token={sellToken}
+                counterpart={buyToken}
+                side="sell"
+                chainId={chain.id}
+              />
+            </div>
+            {/* The same width as the flip arrow above, so each card sits exactly
+              under its own token — invisible, never interactive. */}
+            <div aria-hidden className="invisible hidden p-2 @2xl:block">
+              <ArrowRight className="h-5 w-5" />
+            </div>
+            <div className="empty:hidden @2xl:pl-7">
+              <ZoraCoinCard
+                token={buyToken}
+                counterpart={sellToken}
+                side="buy"
+                chainId={chain.id}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Hairline divider */}
         <div className="h-px bg-border" />
 
         {/* CTA + footer */}
         <div className="flex flex-col items-stretch gap-4 @2xl:flex-row @2xl:items-center">
-          <div className="@2xl:flex-shrink-0">
+          <div className="min-w-0 @2xl:max-w-[55%]">
             {!isConnected ? (
               <Button
                 variant="outline"
@@ -899,15 +696,20 @@ export function SwapWidget() {
                 size="lg"
                 onClick={handleApprove}
                 disabled={isApproving}
-                className="w-full rounded-full px-7 text-[13px] font-medium tracking-wide @2xl:w-auto"
+                title={t("buttons.approve", { symbol: sellToken.symbol })}
+                className="w-full max-w-full rounded-full px-7 text-[13px] font-medium @2xl:w-auto"
               >
                 {isApproving ? (
                   <>
                     <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                    {t("buttons.approving", { symbol: sellToken.symbol })}
+                    <span className="min-w-0 truncate">
+                      {t("buttons.approving", { symbol: sellToken.symbol })}
+                    </span>
                   </>
                 ) : (
-                  t("buttons.approve", { symbol: sellToken.symbol })
+                  <span className="min-w-0 truncate">
+                    {t("buttons.approve", { symbol: sellToken.symbol })}
+                  </span>
                 )}
               </Button>
             ) : (
@@ -915,7 +717,8 @@ export function SwapWidget() {
                 size="lg"
                 onClick={handleSwap}
                 disabled={!canSwap}
-                className="w-full rounded-full px-7 text-[13px] font-medium tracking-wide @2xl:w-auto"
+                title={t("buttons.swap", { sell: sellToken.symbol, buy: buyToken.symbol })}
+                className="w-full max-w-full rounded-full px-7 text-[13px] font-medium @2xl:w-auto"
               >
                 {isSwapping ? (
                   <>
@@ -925,7 +728,9 @@ export function SwapWidget() {
                 ) : !hasAmount ? (
                   t("buttons.enterAmount")
                 ) : (
-                  t("buttons.swap", { sell: sellToken.symbol, buy: buyToken.symbol })
+                  <span className="min-w-0 truncate">
+                    {t("buttons.swap", { sell: sellToken.symbol, buy: buyToken.symbol })}
+                  </span>
                 )}
               </Button>
             )}
@@ -933,8 +738,8 @@ export function SwapWidget() {
 
           <div className="hidden h-px flex-1 bg-border @2xl:block" />
 
-          {/* Fee opt-in */}
-          <div className="flex items-center gap-2">
+          {/* Fee opt-in — only where the treasury can actually be paid. */}
+          <div className={cn("flex items-center gap-2", !canPayTreasury && "hidden")}>
             <Checkbox
               id="support-treasury-fee"
               checked={supportFee}

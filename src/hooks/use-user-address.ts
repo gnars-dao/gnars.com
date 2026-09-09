@@ -7,15 +7,13 @@ import { useViewAccount, type ViewMode } from "@/components/layout/ViewAccountCo
 export interface UseUserAddressResult {
   /**
    * The effective user address for read hooks. Reflects the current
-   * `viewMode` — the smart account by default, or the admin EOA when the
-   * user toggles "view as EOA" in the wallet panel. Writes still flow
-   * through thirdweb's active account (always the SA); this field only
-   * controls what reads key off.
+   * `viewMode`. External wallets default to their admin EOA; in-app wallets
+   * use the smart account. `useWriteAccount` selects the matching signer.
    */
   address: Address | undefined;
   /**
    * The smart account address, regardless of view mode. This is the
-   * thirdweb-active account and the signer of all transactions.
+   * thirdweb-active account and the signer in smart-account mode.
    */
   saAddress: Address | undefined;
   /**
@@ -48,9 +46,8 @@ export interface UseUserAddressResult {
  *
  * Honors the `viewMode` from `ViewAccountContext` so components that key
  * their reads off `address` automatically re-query when the user toggles
- * "view as" in the wallet panel. Writes are unaffected — they should use
- * `useActiveAccount()` from thirdweb directly (which write hooks already
- * do through `useSendTransaction`).
+ * "view as" in the wallet panel. Writes must use `useWriteAccount()` so
+ * the signer matches this same selection.
  */
 export function useUserAddress(): UseUserAddressResult {
   const account = useActiveAccount();

@@ -37,7 +37,8 @@ export function RoundDetailView({
   const [votingPowerStatus, setVotingPowerStatus] = useState<RoundVotingPower | null>(null);
   const [isLoadingVotingPower, setIsLoadingVotingPower] = useState(false);
   const [votingPowerError, setVotingPowerError] = useState("");
-  const votingPower = state === "voting_open" && isConnected ? votingPowerStatus?.votingPower || 0 : 0;
+  const votingPower =
+    state === "voting_open" && isConnected ? votingPowerStatus?.votingPower || 0 : 0;
   const remainingVotes =
     state === "voting_open" && isConnected ? votingPowerStatus?.remainingVotes || 0 : 0;
   const allocatedVotes = useMemo(

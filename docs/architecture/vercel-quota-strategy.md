@@ -1,88 +1,76 @@
 # Vercel Quota Strategy
 
-TL;DR: the site exceeds Vercel Hobby quotas because immutable or slow-moving DAO data is re-rendered, re-fetched and re-cached as if it were live. The fix is matching cache lifetime to the **real update cadence of each data type**, slimming RSC payloads, and shielding origin from bot traffic. This doc is the playbook; keep it current as fixes land.
+Reviewed 2026-09-05. The earlier June Hobby-quota figures are historical and must not be used as the current billing baseline.
 
-## Quota status (billing window Jun 3 – Jul 3, 2026)
+## Current Deployment And Usage
 
-| Quota                | Used / Limit      | Primary drivers                                                                     |
-| -------------------- | ----------------- | ----------------------------------------------------------------------------------- |
-| ISR Writes           | 620K / 200K units | `/proposals` list payload, 300s revalidate everywhere, ×2 locales, ×3 cache entries |
-| Fluid Active CPU     | 11h22 / 4h        | `/members/[address]` (force-dynamic + bot crawl), home, `/api/tv/feed`, RPC fan-out |
-| Fast Origin Transfer | 12.4GB / 10GB     | Same pages: big RSC payloads leaving compute on every render/regen                  |
+- Production belongs to the SOPA team (`sopa1`), project `gnars.com`, with Fluid compute in `iad1`.
+- The local Vercel project link was corrected during the September review; verify the project and team before running operational commands.
+- The September 1-5 usage snapshot showed approximately **$1.42 effective usage and $0 billed**. Effective usage is not an invoice and this short window is not a monthly forecast.
+- WAF configuration `waf_QLtrUWcHmDh4` version 1 is published and verified live: four active per-IP rules cover Alchemy (120/minute), uploads (60/hour), revalidation (20/minute), and wallet tokens (60/minute).
+- Record the deployment SHA, date range, project, and active firewall configuration alongside any future cost comparison.
 
-Bot traffic (Googlebot, OpenAI, Baiduspider — ~12–14K req/12h each) hits mostly-unique paths, so per-path caches don't amortize; every crawl of an expired path is a full render + ISR write.
+## Controls In The Repository
 
-## Billing mechanics (measured here + confirmed against Vercel/Next docs, 2026-07)
+| Surface         | Current behavior                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Subgraph        | `src/lib/subgraph.ts` uses a 300-second fetch TTL by default, with caller overrides and a shared concurrency/retry gate. It does not default to `no-store`.              |
+| Proposals       | List and detail service caches use 1,800-second revalidation. List payloads use the reduced proposal representation.                                                     |
+| Sitemap         | `src/app/sitemap.xml/route.ts` revalidates hourly; it no longer combines this setting with `force-dynamic`.                                                              |
+| Public GET APIs | Successful proposal/member/media responses have explicit shared-cache windows. Failures must not become cached successful empty results.                                 |
+| Wallet tokens   | Bounded Zora metadata batches have a shared cache and timeout. Short balance caching remains separate from stable metadata.                                              |
+| TV feed         | Healthy aggregation responses have a one-hour CDN window. Degraded aggregation responses must not occupy that healthy window.                                            |
+| Translations    | The global client provider receives five shared namespaces. Route layouts supply only their feature namespaces; import-graph tests cover shared dialogs and descendants. |
+| MiniTV          | Hidden routes/hero states unmount the widget and its feed request. Clearing its video input stops the stored playback state.                                             |
+| Auction bids    | React Query deduplicates by auction, cancels obsolete fetches, avoids background polling, and gates homepage polling on viewport visibility.                             |
+| Rounds          | Table/index creation is an explicit `scripts/rounds-schema.sql` migration, not request-time work.                                                                        |
 
-- **1 ISR write unit = 8KB** of data written to the ISR cache, compressed, billed per stored representation ([pricing doc](https://vercel.com/docs/incremental-static-regeneration/limits-and-pricing)). One page revalidation in Next 16 writes the HTML **plus N `.segment` entries** (`__PAGE__`, `_tree`, `_head`, `_full`), and `[locale]` doubles everything. `/en/proposals` alone measured ~70 units _per write_ before slimming (1.3MB embedded JSON). The segment-cache write multiplication is architectural — **it cannot be disabled in Next 16.2** (`clientSegmentCache` flag removed in 16.1; `cacheComponents` doesn't reduce it — [vercel/next.js#93210](https://github.com/vercel/next.js/issues/93210)).
-- Writes are traffic-triggered (revalidate-on-request after expiry). No traffic → no writes; unchanged bytes → 0 units. Bots count as traffic — **including `<Link>` viewport prefetches**, which write detail-page segments without a real pageview.
-- **Dynamic route + `Cache-Control: public, s-maxage` = zero ISR writes.** The CDN cache is free; the route only burns FOT + edge requests ([CDN usage doc](https://vercel.com/docs/manage-cdn-usage)). For routes hit mostly on unique paths by bots, dynamic+CDN beats ISR (ISR wastes a durable write per never-revisited path). `s-maxage` also moves repeat traffic from Fast Origin Transfer (10GB) to Fast Data Transfer (100GB on Hobby).
-- **Fluid Active CPU bills only actual compute, not I/O wait** ([Vercel blog](https://vercel.com/blog/introducing-active-cpu-pricing-for-fluid-compute)). Slow subgraph/RPC fetches are ~free on the CPU meter; `JSON.parse`/RSC serialization of big payloads is what burns it — another reason slimming beats TTL-raising.
-- `react.cache()` dedupes **within one render pass only**. It does not persist across revalidations or across routes. Only `unstable_cache` / fetch `next.revalidate` hit the shared data cache.
-- `export const dynamic = "force-dynamic"` **overrides** `export const revalidate` on the same route (see the sitemap bug below).
-- next-intl: 2 locales = 2 cache entries, unavoidable at runtime. The real lever is full static prerender (`setRequestLocale` in every layout+page + `generateStaticParams` for `[en, pt-br]`, no `revalidate`) → 0 runtime ISR writes, refreshed via on-demand `revalidateTag` or redeploy ([next-intl doc](https://next-intl.dev/docs/getting-started/app-router/with-i18n-routing)).
+## Cost Decisions
 
-## Data type × real cadence → correct strategy
+Measure request volume, cache hits, response size, active CPU, and origin transfer before changing architecture. A short TTL is not automatically wasteful, and a long TTL is not safe for every financial read.
 
-The core principle: **DAO data is mostly append-only and terminal.** Once a proposal is Executed/Defeated/Cancelled/Vetoed/Expired, an auction settled, a round closed, a droposal executed — that record never changes again. Only a small live window (active auction, proposals in their 4-day voting window, prices, feed) needs freshness.
+- Use request-local React memoization for duplicate reads within a render. Use Next data caching for reuse across requests.
+- Keep balances, quotes, and transaction eligibility on freshness windows appropriate to their use. Cache token metadata and immutable content separately.
+- Restrict paid upstream proxies and uploads by method, input size, timeout, and rate limits. A client-side restriction alone does not protect credentials or upstream spend.
+- Avoid introducing a unique cache key for every arbitrary caller input. Normalize, validate, and bound inputs first.
+- Keep failed upstream responses distinguishable from valid zero balances or empty collections.
+- Keep authenticated responses and order access private. Public CDN caching is appropriate only for public data.
+- Treat dependency installation size, browser transfer, GPU work, Vercel function invocations, and third-party API usage as separate measurements.
 
-| Data                              | Real cadence                                                             | Current handling                                                         | Target                                                                                                                                      |
-| --------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Base proposals (list)             | new ~weekly; votes change during 4-day window; terminal states immutable | subgraph `no-store` + 123 RPC `state()` reads per invocation, route 300s | `unstable_cache` 900–1800s; **skip `state()` RPC for terminal proposals** (subgraph already has `executed/canceled/vetoed/queued` booleans) |
-| Proposal detail pages             | immutable once finalized                                                 | revalidate 300 for all                                                   | status-aware: short TTL only for Active/Pending; long/static for finalized                                                                  |
-| Ethereum-era + Snapshot proposals | **immutable** (static JSON)                                              | re-processed every 300s via consumers                                    | static import / `revalidate = false`; `generateStaticParams`                                                                                |
-| Settled auctions                  | immutable; +1/day                                                        | `no-store` subgraph                                                      | `unstable_cache` 3600+                                                                                                                      |
-| Treasury balances                 | change on tx (slow); prices per-minute                                   | fetch 60s on balances                                                    | balances 300–900s; prices already CDN-cached (fine)                                                                                         |
-| Feed events                       | event-driven                                                             | `unstable_cache` **15s** under a 300s route                              | align to 120–300s                                                                                                                           |
-| Members                           | holdings ~daily                                                          | `/members/[address]` force-dynamic (see trap below)                      | keep dynamic; cache the data lookups (`unstable_cache`)                                                                                     |
-| Blogs                             | editorial                                                                | data cached 3600s but route 300s                                         | route revalidate 3600 to match                                                                                                              |
-| Installations                     | static JSON                                                              | `[slug]` 300s                                                            | 3600+/static                                                                                                                                |
-| Rounds (Postgres)                 | live while open; closed = immutable                                      | raw `pg` on every call, no cache                                         | `unstable_cache` 120–300s for listings; closed rounds static                                                                                |
-| TV/coins feed                     | hourly aggregation                                                       | CDN s-maxage 3600 (ok), but 2s CPU per cold miss                         | cap upstream fan-out, persist HEAD-probe cache                                                                                              |
+Do not claim that CDN cache hits or WAF-blocked traffic are universally free: check the account's current plan and billing dimensions. Likewise, disabling image optimization can reduce transformations while increasing transferred bytes.
 
-## Traps (learned the hard way — do not repeat)
+## Verification
 
-1. **Do NOT convert `/members/[address]` to ISR.** Hundreds of unique addresses are in the sitemap ×2 locales; bots crawl each path once. ISR would write ~3 cache entries per unique path per crawl (~5K+ units/day) into the _tightest_ quota. Correct approach: stay `force-dynamic`, cache the expensive lookups (Zora profile + overview via `unstable_cache`, done in PR #127) — or remove member pages from the sitemap.
-2. **`force-dynamic` + `revalidate` on the same route = fully dynamic.** The sitemap has both; every crawler hit re-runs the full fan-out (all proposals + coins + members + blogs + droposals).
-3. **Slimming beats TTL-raising.** PR #120 raised TTLs (60→300) and barely moved the needle; PR #127 cut the payload 68% — write units scale with payload size × entry count, not just frequency.
-4. **`src/lib/subgraph.ts` hardcodes `cache: "no-store"`** — every caller re-fetches origin on every regen regardless of route TTL.
-5. **robots.txt is not enforcement.** GPTBot mostly honors it; most AI crawlers ignore or spoof it (Baiduspider UA is widely forged). The real tool is the Vercel WAF at the edge — a Deny there runs **before** functions, so blocked requests cost no invocation, CPU, ISR write or FOT.
+### September 6 Request Audit
 
-## Fix backlog (impact ÷ effort, merged from route sweep + data-cadence audit)
+- OpenSea: shared in-flight GET deduplication, bounded outbound concurrency,
+  short caches, Retry-After cooldowns and separate read/fulfillment budgets.
+  Purchasing external orders no longer depends on PostgreSQL. Distributed
+  budgets are used when the marketplace schema is ready; the fallback is
+  per-instance and cannot enforce account-wide quotas across Vercel instances.
+- TV: replaced a Promise.race limiter that lost track of running tasks with a
+  fixed worker pool. The limit is 15 per pipeline, not across all pipelines.
+- ENS: bounded/deduplicated batches, five workers, provider timeouts, weighted
+  request limits and in-flight deduplication. Failed responses are not cached as
+  missing names, including in the client forward-lookup cache.
+- Token lookup: normalized metadata cache keys, one-hour Alchemy/Zora caching,
+  bounded timeouts and request limits. Optional enrichment failures retain valid
+  metadata without granting a healthy shared-cache window.
+- Prices: normalize, sort and deduplicate before the data-cache boundary; cap
+  batches/body sizes and provider duration. Failed/partial reads do not receive
+  successful CDN caching or become cached zero prices.
 
-| #   | Fix                                                                                                                                                                                              | Quota hit    | Status        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ | ------------- |
-| 1   | Slim `/proposals` + home payloads (`toListProposal`)                                                                                                                                             | ISR + FOT    | ✅ PR #127    |
-| 2   | Cache member OG metadata (`unstable_cache` 30min)                                                                                                                                                | CPU          | ✅ PR #127    |
-| 3   | Sitemap: remove `force-dynamic` (one line)                                                                                                                                                       | CPU + FOT    | todo          |
-| 4   | Skip `governor.state()` RPC for terminal proposals; `listMultiChainProposals` fetches 1000 → fetch what's needed                                                                                 | CPU          | todo          |
-| 5   | Status-aware revalidate on `/proposals/[chain]/[id]`                                                                                                                                             | ISR          | todo          |
-| 6   | `images.minimumCacheTTL: 2592000` (banners/media are immutable)                                                                                                                                  | FOT + CPU    | todo          |
-| 7   | Batch-add `Cache-Control: public, s-maxage, stale-while-revalidate` to API GETs without it (`md/*`, `api/proposals/per-month`, `api/members`, `api/coins/gnars-paired`, `api/poidh/bounties`, …) | CPU + FOT    | todo          |
-| 8   | `/api/alchemy`: 9.9% error rate — only `eth_getBalance` has RPC fallback; add fallback/retry + micro-cache for read methods                                                                      | CPU + errors | todo          |
-| 9   | Immutable content → static (`Snapshot`/ETH-era proposals, installations `[slug]`, executed droposals, closed rounds)                                                                             | ISR          | todo          |
-| 10  | Align `/blogs` route TTL to data TTL (300 → 3600)                                                                                                                                                | ISR          | todo          |
-| 11  | Replace `no-store` in `subgraph.ts` with per-caller `next.revalidate`                                                                                                                            | CPU + FOT    | todo          |
-| 12  | `prefetch={false}` on high-fan-out `<Link>` grids (proposal cards, members, auctions) — each card in viewport prefetches detail-page segments                                                    | ISR          | todo          |
-| 13  | Audit `router.refresh()` after mutations (`ProposalDetail.tsx:117`, `RoundsAdminDashboard.tsx:102`) — refresh after revalidate is a known segment-write multiplier                               | ISR          | todo          |
-| 14  | Fully static prerender for stable pages (`setRequestLocale` + `generateStaticParams`, drop `revalidate`, on-demand `revalidateTag`)                                                              | ISR + CPU    | todo (larger) |
+These changes have focused regression tests and local runtime read checks. No
+billing savings have been measured. Marketplace/ENS/price guards in memory are
+not replacements for distributed WAF controls. Treasury DeFi RPC batching remains
+a follow-up: it needs a separate financial-data correctness review.
 
-### #0 — no-code, do first: WAF bot blocking (dashboard only)
+### Release Checks
 
-Vercel → project → Firewall:
+1. Run the relevant tests, typecheck, lint, and format check.
+2. Check EN/PT-BR runtime behavior at desktop and mobile widths, including wallet dialogs and navigation.
+3. Verify the exact production deployment SHA and the active WAF rules.
+4. Compare matching traffic windows in project Observability and team Usage. Track route-level cache hits, active CPU, origin transfer, image transformations, and upstream errors.
+5. Report observed savings only after production measurements; local payload measurements are supporting evidence.
 
-1. Enable the free **"AI Bots" managed ruleset** → **Deny** (one toggle, available on Hobby, doesn't consume the custom-rule budget — [changelog](https://vercel.com/changelog/new-one-click-ai-bot-managed-ruleset)). Blocks GPTBot, ClaudeBot, Bytespider, PerplexityBot, etc. at the edge.
-2. Use the **3 free custom WAF rules** for named offenders the ruleset misses — e.g. User-Agent contains `Baiduspider` → Deny ([WAF doc](https://vercel.com/docs/vercel-firewall/vercel-waf)).
-3. Keep **Attack Challenge Mode** in mind for traffic spikes (free, blocked requests don't count as usage).
-
-With ~1/3 of identifiable traffic being AI/foreign crawlers hitting unique expensive paths, this is the single highest-leverage action and requires zero code. Decide with the team whether OpenAI/Claude crawler visibility matters for the DAO before denying (SEO via Googlebot is unaffected — it's not in the AI ruleset).
-
-## How to verify (after each deploy)
-
-Vercel dashboard → project `gnars-shadcn` → Observability:
-
-- **ISR** tab, sort by _Total Written_, view in **Units** (that's what's billed). Expect `/en/proposals` ~70 → ~10 units/write after #127.
-- **Functions** tab, sort by _Active CPU_: `/[locale]/members/[address]` and `/api/tv/feed` are the benchmarks.
-- **Fast Data Transfer** tab for payload regressions.
-
-The account-level Usage page charts frequently fail to load; per-project Observability is the reliable path. Give changes 24–48h in the 30-day rolling window before judging.
+For the September changes and deployment prerequisites, see [review remediation](2026-09-review-remediation.md). Current product billing references: [Vercel pricing](https://vercel.com/docs/pricing) and [Fluid compute](https://vercel.com/docs/fluid-compute).

@@ -21,7 +21,6 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import {
   ArrowLeftRight,
   BookOpen,
@@ -52,6 +51,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
+import Image from "@/components/ui/content-image";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -130,6 +130,12 @@ function buildNavigationItems(t: NavTranslations) {
     {
       title: t("items.money.label"),
       items: [
+        {
+          title: t("items.money.marketplace.title"),
+          href: "/marketplace",
+          icon: ShoppingBag,
+          description: t("items.money.marketplace.description"),
+        },
         {
           title: t("items.money.treasury.title"),
           href: "/treasury",

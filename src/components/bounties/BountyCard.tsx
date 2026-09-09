@@ -13,12 +13,6 @@ interface BountyCardProps {
   bounty: PoidhBounty;
 }
 
-/** Extract first markdown image URL from text */
-function extractImageUrl(text: string): string | null {
-  const match = text.match(/!\[.*?\]\((.*?)\)/);
-  return match ? match[1] : null;
-}
-
 /** Strip markdown image syntax for plain text preview */
 function stripMarkdownImages(text: string): string {
   return text
@@ -63,7 +57,6 @@ export function BountyCard({ bounty }: BountyCardProps) {
   const status = getStatus();
   const dotColor = CHAIN_DOT_COLORS[bounty.chainId] ?? "bg-gray-400";
   const detailHref = `/community/bounties/${bounty.chainId}/${bounty.id}`;
-  const thumbnailUrl = extractImageUrl(bounty.description);
   const cleanDescription = stripMarkdownImages(bounty.description);
   const { ethPrice } = useEthPrice();
   const ethAmount = parseFloat(amountEth);
@@ -94,19 +87,6 @@ export function BountyCard({ bounty }: BountyCardProps) {
         <h3 className="font-bold text-base leading-snug line-clamp-2 group-hover:text-primary transition-colors duration-150">
           {bounty.title || bounty.name}
         </h3>
-
-        {/* Thumbnail */}
-        {thumbnailUrl && (
-          <div className="rounded-lg overflow-hidden border border-border/50 -mx-1">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={thumbnailUrl}
-              alt={bounty.title || bounty.name}
-              className="w-full h-32 object-cover"
-              loading="lazy"
-            />
-          </div>
-        )}
 
         {/* Description */}
         <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed flex-1">

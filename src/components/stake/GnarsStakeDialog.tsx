@@ -13,11 +13,11 @@
 // drift the next time the campaign changes.
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import Image from "next/image";
 import { AlertTriangle, Check, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
+import Image from "@/components/ui/content-image";
 import { CountUp } from "@/components/ui/count-up";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

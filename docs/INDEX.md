@@ -10,7 +10,8 @@ This is the canonical entry point for project documentation. Everything below sh
 ## Architecture
 
 - `docs/architecture/thirdweb-wallet-layer.md` — provider tree, reads/writes split, view-mode toggle (EOA/SA), AA config, known escape hatches
-- `docs/architecture/vercel-quota-strategy.md` — Hobby quota playbook: billing mechanics, data cadence → cache strategy, fix backlog, traps
+- `docs/architecture/vercel-quota-strategy.md` — current Vercel project/usage baseline, cache controls, cost decisions, and verification
+- `docs/architecture/2026-09-review-remediation.md` — September review fixes, validation, deployment baseline, and operational prerequisites
 - `docs/architecture/caching-standard.md` — route param + cache tag + mutation invalidation standard (long caches + event-driven revalidateTag)
 - `docs/architecture/exploration-progress.md`
 - `docs/architecture/refactor-audit.md`
@@ -19,13 +20,18 @@ This is the canonical entry point for project documentation. Everything below sh
 
 ## Features
 
+- `docs/features/marketplace.md` — Base Gnars marketplace, Seaport settlement, OpenSea integration, recovery, configuration and cost controls
+- `docs/features/stake-orbit-data.md` — combined Morpho/Morpheus backing, reward routing, partial data and cache refresh
+- `docs/features/morpheus-stake-recovery.md` — resumable Ethereum staking, transaction checkpoints, and receiver-only recovery
 - `docs/features/tv.md` — Gnars TV data flow, UX, and mini-app integration
 - `docs/features/tv-infinite-menu.md` — 3D sphere menu integration details
 - `docs/features/feed.md` — live feed components and integration notes
 - `docs/features/coin-proposal.md` — coin proposal wizard
 - `docs/features/buy-coin-transaction.md` — proposal transaction type for buy-coin
-- `docs/features/store-checkout.md` — /store checkout (USDC on Base, built Phase 1, real payment gated to live) + build plan
+- `docs/features/store-checkout.md` — signed USDC checkout, durable payment claims, readiness, and tracking
 - `docs/features/blog-archive.md` — historical blog archive, IPFS image migration, and the Drive→IPFS curation pipeline proposal
+- `docs/features/migrate-runtime-checklist.md` — the human click-through for /migrate's money-moving steps (batch vs sequential, deposit, withdraw, failure states); the read-only automated pass is `scripts/pw-migrate-connected.ts`
+- `docs/features/migrate-connection-matrix.md` — the five connection modes × consolidate/deposit/withdraw/claim: works / degrades how / not, with how each cell was verified (runtime, fork, test, code, checklist)
 
 ## Integrations
 
@@ -38,7 +44,10 @@ This is the canonical entry point for project documentation. Everything below sh
 ## Strategy
 
 - `docs/strategy/gnars-token-spec.md` — $gnars token product spec: goal, current state, new-token tokenomics, allocations, migration mechanics, addresses, phases, open decisions
-- `docs/strategy/gnars-migration-handoff.md` — handoff for the Upgrader team to review/complete the gnars.com side (run steps, file map, what's built vs pending, coordination items)
+- `docs/strategy/gnars-migration-handoff.md` — how /migrate is wired to UpgraderEth: on-chain facts (ETH-only, 4-arg deposit, withdraw, owner powers), env-gated config, batch vs sequential execution, what is still open
+- `docs/strategy/gnars-migration-zap.md` — the swap→deposit zap contract: design kept for the record, and the three reasons it was decided against (redeploy expiry, trust cost, Zora recipient calldata)
+- `docs/strategy/gnars-migration-announcement-draft.md` — launch announcement draft (EN + PT-BR) carrying the 1% / 30% / 7-day terms attributed to kompreni, since the contract cannot report them; close-date paragraph left open
+- `scripts/README-campaign-baseline.md` — "Stake or Die" measurement procedure: what the pre-campaign baseline captures, why it could not wait, and the re-collection steps for 27/08, 28/08 and 01/09
 
 ## Specs
 
@@ -49,9 +58,10 @@ This is the canonical entry point for project documentation. Everything below sh
 
 ## Research
 
+- `docs/research/nft-creation-options.md` — existing IPFS reuse, NFT factory choices, token-bound accounts, sealed baskets and tokenized-stock constraints
 - `docs/research/agent-team-candidates.md` — top 4 multi-agent task candidates with file lists and agent splits
 - `docs/research/seo-metadata-audit.md` — full audit of metadata and OG image coverage across all pages; includes priority list for missing items
-- `docs/research/build-bundle-audit.md` — deep audit of next.config, tsconfig, dependencies, Client/Server boundaries, image optimization, and bundle splitting; ranked recommendations
+- `docs/research/build-bundle-audit.md` — current client/server boundaries, scoped translation measurements, background-work fixes, and remaining bundle measurements
 - `docs/research/propdates-audit.md` — DONE/PARTIAL/MISSING audit of propdates feature against Trello card requirements (Phase 1 + Phase 2)
 - `docs/research/gnars-tv-audit.md` — comprehensive audit of the TV feed: data flow, Zora SDK calls, creator qualification gates, hardcoded addresses, sorting algorithm, and why specific profiles may not appear
 - `docs/research/gnars-tv-network-audit.md` — network-focused audit: all 14 data sources, fetch frequency, caching layers (CDN/Next.js/LRU/client), request waterfall, data volume estimates, error handling, SSR vs CSR split, and 7 identified performance issues with recommendations

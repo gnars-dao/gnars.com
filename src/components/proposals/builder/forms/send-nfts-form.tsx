@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { useFormContext } from "react-hook-form";
 import { NftGridSkeleton } from "@/components/skeletons/nftGridSkeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import Image from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -151,7 +151,9 @@ export function SendNFTsForm({ index, onSelectionChange }: Props) {
         setValue(`transactions.${index}.tokenId` as const, "");
         setValue(`transactions.${index}.nftImage` as const, "");
       }
-      const imageMap = Object.fromEntries([...next].map((id) => [id, tokens.find((t) => t.id === id)?.imageUrl]));
+      const imageMap = Object.fromEntries(
+        [...next].map((id) => [id, tokens.find((t) => t.id === id)?.imageUrl]),
+      );
       onSelectionChange?.([...next], imageMap);
       return next;
     });
@@ -215,7 +217,10 @@ export function SendNFTsForm({ index, onSelectionChange }: Props) {
                         <div className="absolute top-1.5 left-1.5">
                           <Badge
                             variant={isSelected ? "default" : "secondary"}
-                            className={cn("font-mono text-[10px]", isSelected && "bg-yellow-400 text-yellow-950 border-yellow-400")}
+                            className={cn(
+                              "font-mono text-[10px]",
+                              isSelected && "bg-yellow-400 text-yellow-950 border-yellow-400",
+                            )}
                           >
                             #{String(t.id)}
                           </Badge>
@@ -232,9 +237,7 @@ export function SendNFTsForm({ index, onSelectionChange }: Props) {
           </CardContent>
         </Card>
         {selectedTokenIds.size > 1 && (
-          <p className="text-xs text-muted-foreground">
-            {t("sendNfts.multiSelectHint")}
-          </p>
+          <p className="text-xs text-muted-foreground">{t("sendNfts.multiSelectHint")}</p>
         )}
         {errors.transactions?.[index] && "tokenId" in (errors.transactions?.[index] as object) && (
           <p className="text-xs text-red-500">{t("sendNfts.pleaseSelectNft")}</p>

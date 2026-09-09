@@ -7,3 +7,4 @@
 - [user_profile.md](./user_profile.md) — r4to's profile and collaboration preferences
 - [project_stake_dark_surface.md](./project_stake_dark_surface.md) — /stake is a committed dark island in a system-theme site: scope it with a `dark` wrapper
 - [feedback_visual_differentiation.md](./feedback_visual_differentiation.md) — Redesign = change the visual language and section weights, not the section order
+- [project_morpheus_pose_narration.md](./project_morpheus_pose_narration.md) — /morpheus is narrated by Morpheus pose cut-outs: pose→section map, export recipe, mask/inset rules

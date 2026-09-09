@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import Image from "next/image";
+import Image from "@/components/ui/content-image";
 
 export function NogglesRailsClosingBox() {
   const t = useTranslations("installations.nogglesrails");

@@ -11,28 +11,11 @@ import { CACHE_TAGS, proposalTag } from "@/lib/cache-tags";
 import { CHAIN, DAO_ADDRESSES, SUBGRAPH } from "@/lib/config";
 import { serverPublicClient } from "@/lib/rpc";
 import { getProposalStatus } from "@/lib/schemas/proposals";
-
-/** Retry with exponential backoff on rate-limit / transient errors */
-async function withRetry<T>(fn: () => Promise<T>, label: string, maxAttempts = 5): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRateLimit = /429|rate.?limit|too many requests/i.test(msg);
-      const isTransient = isRateLimit || /fetch failed|ETIMEDOUT|ECONNRESET|503|502/i.test(msg);
-      if (!isTransient || attempt === maxAttempts) throw err;
-      const delay = Math.min(8_000, 500 * 2 ** (attempt - 1)) + Math.random() * 250;
-      console.warn(
-        `[${label}] attempt ${attempt} failed (${isRateLimit ? "429" : "transient"}); retry in ${Math.round(delay)}ms`,
-      );
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
-}
+import {
+  parseRetryAfter,
+  SubgraphTransientError,
+  run as withSubgraphGate,
+} from "@/lib/subgraph-gate";
 
 /** Fetch vote timestamps from subgraph (the SDK fragment omits this field) */
 async function fetchVoteTimestamps(proposalId: string): Promise<Record<string, number>> {
@@ -48,13 +31,18 @@ async function fetchVoteTimestamps(proposalId: string): Promise<Record<string, n
     }
   }`;
   try {
-    const res = await withRetry(async () => {
+    const res = await withSubgraphGate(async () => {
       const r = await fetch(SUBGRAPH.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
       });
-      if (r.status === 429) throw new Error(`GraphQL Error (Code: 429)`);
+      if (r.status === 429 || r.status >= 500) {
+        throw new SubgraphTransientError(`Subgraph error: ${r.status}`, {
+          status: r.status,
+          retryAfterMs: parseRetryAfter(r.headers.get("retry-after")),
+        });
+      }
       return r;
     }, "fetchVoteTimestamps");
     if (!res.ok) return {};
@@ -211,7 +199,7 @@ function rehydrateProposal(p: Proposal): Proposal {
 }
 
 async function fetchProposalListUncached(limit: number, page: number): Promise<Proposal[]> {
-  const data = await withRetry(
+  const data = await withSubgraphGate(
     () =>
       SubgraphSDK.connect(CHAIN.id).proposals({
         where: { dao: DAO_ADDRESSES.token.toLowerCase() },
@@ -259,7 +247,7 @@ async function fetchProposalByIdOrNumberUncached(idOrNumber: string): Promise<Pr
     ? fetchVoteTimestamps(idOrNumber)
     : Promise.resolve<Record<string, number> | null>(null);
 
-  const data = await withRetry(
+  const data = await withSubgraphGate(
     () => SubgraphSDK.connect(CHAIN.id).proposals({ where, first: 1 }),
     `getProposalByIdOrNumber(${idOrNumber})`,
   );

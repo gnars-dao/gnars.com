@@ -6,7 +6,7 @@ import { useTVFeed } from "@/components/tv/useTVFeed";
 const GNARS_COIN_ADDRESS = "0x0cf0c3b75d522290d7d12c74d7f1f0cc47ccb23b";
 
 export default function DebugTVPage() {
-  const { items, loading, error } = useTVFeed({});
+  const { items, loading, error, sourceHealth } = useTVFeed({});
   const [filter, setFilter] = useState<"all" | "video" | "image" | "gnars-paired">("all");
 
   // Filter items based on selection
@@ -77,6 +77,44 @@ export default function DebugTVPage() {
             Droposals: <span className="text-orange-400 font-bold">{stats.droposals}</span>
           </div>
         </div>
+
+        {/* Upstream health — the counts that used to exist only as a silent
+            `catch {}`. On 27/08 creator content went from 375 items to 0 with
+            no signal anywhere; this row is where that becomes visible without
+            anyone having to diff two saved payloads. */}
+        {sourceHealth && (
+          <div className="flex flex-wrap gap-4 mb-4 text-sm">
+            {(["creatorContent", "farcaster"] as const).map((name) => {
+              const report = sourceHealth[name];
+              if (!report) return null;
+              const ok = report.status === "ok";
+              return (
+                <div
+                  key={name}
+                  className={`rounded px-3 py-1 ${ok ? "bg-gray-800" : "bg-red-950 border border-red-700"}`}
+                  title={typeof report.reason === "string" ? report.reason : undefined}
+                >
+                  {name}:{" "}
+                  <span className={ok ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
+                    {report.status}
+                  </span>
+                  {!ok && typeof report.creatorsFailed === "number" && (
+                    <span className="text-red-300"> · {report.creatorsFailed} failed</span>
+                  )}
+                  {typeof report.creatorsSkipped === "number" && report.creatorsSkipped > 0 && (
+                    <span className="text-gray-400">
+                      {" "}
+                      · {report.creatorsSkipped} unusable handle
+                    </span>
+                  )}
+                  {!ok && typeof report.reason === "string" && (
+                    <span className="text-gray-400"> · {report.reason.slice(0, 60)}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex gap-2">

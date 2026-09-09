@@ -3,7 +3,7 @@ import { predictSmartAccountAddress } from "thirdweb/wallets/smart";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { subgraphQuery } from "@/lib/subgraph";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import type { FarcasterProfile } from "@/services/farcaster";
+import type { FarcasterLookupStatus, FarcasterProfile } from "@/services/farcaster";
 
 // Helper to delay between batched queries to avoid rate limits
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -385,6 +385,12 @@ export type MemberListItem = {
   // Percentage of FOR votes among the member's cast votes (0-100)
   likePct?: number;
   farcaster?: FarcasterProfile | null;
+  /**
+   * Why `farcaster` is null. "absent" = we asked and there is no account;
+   * "unavailable" = we could not ask. The UI must not say "Not linked" for
+   * the second one — see issue #2.
+   */
+  farcasterStatus?: FarcasterLookupStatus;
 };
 
 type DaoMembersPageQuery = {
