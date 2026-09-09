@@ -99,13 +99,30 @@ so they cannot intercept the mobile checkout controls.
 
 ## Drawer And Recovery
 
-### Own-Contract Floor Sweep
+### Combined Floor Sweep
 
-The for-sale grid supports selecting up to ten native Gnars on the configured
-Gnars contract, or requesting the cheapest available listings by quantity and
-optional per-NFT ETH ceiling. Community NFTs, OpenSea and the canonical local
-Seaport book are excluded from this batch path. Selection displays the actual
-own-contract price even when another loaded offer is cheaper.
+The for-sale grid selects up to ten Gnars across the dedicated Gnars contract and
+OpenSea, with an optional per-NFT ETH ceiling. `/api/marketplace/sweep/plan` merges
+price-ascending feeds, excludes the buyer and duplicate token IDs, and prefers
+Gnars on equal prices. Community collections and the canonical local Seaport book
+are not included. Each preview shows the chosen marketplace and its exact price.
+The planner validates at most thirty distinct candidates and reads at most three
+cached OpenSea feed pages. Price frontiers bound unseen listings; incomplete
+coverage or provider failures fail closed, never masquerading as an empty floor.
+Ownership/order status is rechecked; actual fulfillment is revalidated and
+simulated again immediately before the wallet prompt.
+
+Mixed or OpenSea-only selections use separate, explicitly confirmed purchases,
+not cross-contract atomicity. The account-scoped local cart records progress;
+the existing transaction journal remains the authority for pending/unknown
+outcomes. Confirmed items are not purchased again on reload. Earlier purchases
+remain final when a later one fails. Each purchase retains its signed fees and
+royalties, uses the existing EOA/smart-wallet path and Base builder attribution.
+There is no new router deployment, cross-chain funding, or automatic wallet send.
+
+An entirely native selection retains the existing single-call batch path below.
+The execution quote is bound to the earlier combined-market review by token,
+order hash, individual prices and total before a wallet can be prompted.
 
 `POST /api/marketplace/sweep/quote` queries numeric price order across the own-contract
 database, excluding the buyer. It validates at most sixty candidates and fails
@@ -142,26 +159,32 @@ The asset step offers a paginated Base ERC721 wallet picker, scoped to the activ
 write account, with manual contract/token entry as a fallback. Discovery uses
 server-side Alchemy metadata; selecting a card still requires fresh onchain
 ownership verification. EOA and smart-wallet inventories are never merged.
-Wallet pages contain at most 24 indexed assets, newest transfers first. The
+Broad wallet discovery reads up to 100 indexed assets per provider page, newest
+transfers first. Sparse pages auto-fill until at least 24 eligible NFTs are found,
+the inventory ends, or three provider pages have been read, within one 12-second
+deadline. All eligible items from the final page are retained, and the next cursor
+starts after that page. Duplicate NFTs are removed across the filled pages; a
+provider failure is never reported as a successful partial inventory. The
 collection filter accepts a Base contract address or Base OpenSea item URL and
-queries that collection directly without scanning the whole wallet. Cache keys
+queries one 24-item page directly without scanning the whole wallet. Cache keys
 and pagination are scoped to owner and collection. Unsupported ERC1155 inventory
 is reported explicitly, not offered for signing. Cached raw metadata images are
 a fallback when Alchemy's image fields are absent; there is no Builder-specific
 discovery fallback. An indexer error remains an error, not an empty wallet.
-Media-to-NFT creation requires a separate verified mint contract and is not part
-of this existing-token picker.
+The asset step also links to [basic media-to-NFT creation](create-nft.md), which
+requires a separately deployed and verified mint contract. Its return link
+prefills this drawer but still requires membership and onchain ownership checks.
 A transferable ERC721 representing a basket can use this single-token listing
 path. The marketplace transfers the wrapper, not each underlying asset; it does
 not verify basket contents or redemption. Multiple independent NFTs in one signed
 order are not supported by the current validator.
 
 Requested extensions, not implemented: ERC1155 listings (including Nogglesboard),
-Ethereum mainnet alongside Base, media-to-NFT creation, and optional seller/creator
+Ethereum mainnet alongside Base, NFT packs/reveal, and optional seller/creator
 payout splits. The requested economic policy separates the Gnars builders/treasury
 fee from creator royalties and optional payout recipients. Rates, OpenSea-path
 compatibility and per-chain split addresses still need agreement; this discovery
-change does not alter signed orders, royalties or transaction fees.
+change does not alter existing signed orders, royalties or transaction fees.
 
 Collection/token identity, ERC721 support, ownership, approval, signature, exact
 fee consideration and royalties are validated before publication. Metadata comes

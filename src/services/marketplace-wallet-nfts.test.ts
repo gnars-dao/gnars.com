@@ -43,7 +43,7 @@ describe("community wallet NFT discovery", () => {
       expect(requestUrl.pathname).toBe("/nft/v3/server-secret/getNFTsForOwner");
       expect(Object.fromEntries(requestUrl.searchParams)).toEqual({
         owner: getAddress(address),
-        pageSize: "24",
+        pageSize: "100",
         withMetadata: "true",
         tokenUriTimeoutInMs: "0",
         orderBy: "transferTime",
@@ -68,12 +68,14 @@ describe("community wallet NFT discovery", () => {
     },
   );
 
-  it("preserves opaque page keys and makes one request per page", async () => {
+  it("fills sparse pages automatically while preserving opaque page keys", async () => {
     const cursor = "opaque+/key==&value";
     fetchMock.mockResolvedValueOnce(respond([], cursor));
-    expect(await getMarketplaceWalletNfts(owner)).toEqual({ items: [], nextCursor: cursor });
     fetchMock.mockResolvedValueOnce(respond());
-    expect((await getMarketplaceWalletNfts(owner, cursor)).nextCursor).toBeNull();
+    expect(await getMarketplaceWalletNfts(owner)).toMatchObject({
+      items: [{ tokenId: "7" }],
+      nextCursor: null,
+    });
     expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("pageKey")).toBe(cursor);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -119,7 +121,14 @@ describe("community wallet NFT discovery", () => {
       getMarketplaceWalletNfts(getAddress(owner), undefined, getAddress(collection)),
     ];
     expect(fetchMock).toHaveBeenCalledTimes(5);
-    resolvers.forEach((resolve, index) => resolve(respond([], `next-${index}`)));
+    resolvers.forEach((resolve, index) =>
+      resolve(
+        respond(
+          Array.from({ length: 24 }, (_, tokenId) => nft({ tokenId: String(tokenId) })),
+          `next-${index}`,
+        ),
+      ),
+    );
     const results = await Promise.all(requests);
     expect(results.map((result) => result.nextCursor)).toEqual([
       "next-0",
@@ -144,6 +153,74 @@ describe("community wallet NFT discovery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     finish(respond());
     expect(await first).toEqual(await second);
+  });
+
+  it("surfaces older owned NFTs beyond the first 24 raw tokens in one request", async () => {
+    fetchMock.mockResolvedValueOnce(
+      respond([
+        ...Array.from({ length: 74 }, (_, tokenId) =>
+          nft({ tokenId: String(tokenId), contract: { address: DAO_ADDRESSES.token } }),
+        ),
+        nft({ tokenId: "271", name: "SkateHive #271" }),
+        nft({ tokenId: "278", name: "SkateHive #278" }),
+      ]),
+    );
+    expect((await getMarketplaceWalletNfts(owner)).items.map((item) => item.tokenId)).toEqual([
+      "271",
+      "278",
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps auto-fill at three upstream pages and returns the next unconsumed cursor", async () => {
+    fetchMock
+      .mockResolvedValueOnce(respond([nft()], "page-2"))
+      .mockResolvedValueOnce(respond([nft(), nft({ tokenId: "8" })], "page-3"))
+      .mockResolvedValueOnce(respond([], "page-4"));
+    expect(await getMarketplaceWalletNfts(owner)).toMatchObject({
+      items: [{ tokenId: "7" }, { tokenId: "8" }],
+      nextCursor: "page-4",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(([url]) => new URL(url).searchParams.get("pageKey"))).toEqual([
+      null,
+      "page-2",
+      "page-3",
+    ]);
+    expect(new Set(fetchMock.mock.calls.map(([, options]) => options.signal)).size).toBe(1);
+  });
+
+  it("does not drop eligible items after reaching the fill target inside a page", async () => {
+    fetchMock
+      .mockResolvedValueOnce(respond([nft({ tokenId: "1000" })], "page-2"))
+      .mockResolvedValueOnce(
+        respond(
+          Array.from({ length: 100 }, (_, id) => nft({ tokenId: String(id) })),
+          "page-3",
+        ),
+      );
+    const page = await getMarketplaceWalletNfts(owner);
+    expect(page.items).toHaveLength(101);
+    expect(page.items.at(-1)?.tokenId).toBe("99");
+    expect(page.nextCursor).toBe("page-3");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects cursor cycles across filled pages", async () => {
+    fetchMock
+      .mockResolvedValueOnce(respond([], "page-2"))
+      .mockResolvedValueOnce(respond([], "page-1"));
+    await expect(getMarketplaceWalletNfts(owner, "page-1")).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not turn an auto-fill failure into a successful partial wallet", async () => {
+    fetchMock
+      .mockResolvedValueOnce(respond([nft()], "page-2"))
+      .mockRejectedValueOnce(new Error("timeout"));
+    await expect(getMarketplaceWalletNfts(owner)).rejects.toMatchObject({ status: 503 });
+    fetchMock.mockResolvedValueOnce(respond([nft({ tokenId: "8" })]));
+    expect((await getMarketplaceWalletNfts(owner)).items[0].tokenId).toBe("8");
   });
 
   it("excludes Gnars, ERC1155, unknown types, and provider-classified spam", async () => {

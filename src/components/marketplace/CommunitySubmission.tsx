@@ -38,7 +38,12 @@ import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { NftArtwork } from "./NftArtwork";
 import { WalletNftPicker } from "./WalletNftPicker";
 
-type Props = { open: boolean; onClose: () => void; onPublished?: () => void };
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  onPublished?: () => void;
+  initialSelection?: Selection | null;
+};
 type Selection = { collectionAddress: Address; tokenId: string };
 
 async function readJson<T>(path: string, signal: AbortSignal): Promise<T> {
@@ -58,7 +63,13 @@ export function CommunitySubmission(props: Props) {
   );
 }
 
-function SubmissionDrawer({ open, onClose, onPublished, owner }: Props & { owner?: Address }) {
+function SubmissionDrawer({
+  open,
+  onClose,
+  onPublished,
+  owner,
+  initialSelection,
+}: Props & { owner?: Address }) {
   const t = useTranslations("marketplace");
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const reduceMotion = useReducedMotion();
@@ -67,7 +78,7 @@ function SubmissionDrawer({ open, onClose, onPublished, owner }: Props & { owner
   const [step, setStep] = useState(0);
   const [collection, setCollection] = useState("");
   const [token, setToken] = useState("");
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(initialSelection ?? null);
   const [manualOpen, setManualOpen] = useState(false);
   const [invalidSelection, setInvalidSelection] = useState(false);
   const [price, setPrice] = useState("");
@@ -377,6 +388,19 @@ function SubmissionDrawer({ open, onClose, onPublished, owner }: Props & { owner
                   >
                     {step === 0 && (
                       <>
+                        {!selection && (
+                          <Button asChild variant="outline" className="w-full" disabled={!canEdit}>
+                            <Link
+                              href="/create-nft"
+                              onClick={(event) => {
+                                if (!canEdit) event.preventDefault();
+                              }}
+                            >
+                              <ImagePlus className="size-4" />
+                              {t("community.createFromMedia")}
+                            </Link>
+                          </Button>
+                        )}
                         {!manualOpen && !selection && (
                           <WalletNftPicker
                             owner={owner}

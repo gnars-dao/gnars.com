@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { SEAPORT_ADDRESS } from "@/lib/marketplace/routing";
 import type { MarketplaceItem, MarketplaceOffer } from "@/types/marketplace";
 import {
   ownSweepListings,
@@ -31,7 +32,7 @@ const item: MarketplaceItem = {
 describe("sweep selection", () => {
   beforeEach(() => vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol));
   afterEach(() => vi.unstubAllEnvs());
-  it("selects the cheapest eligible custom order, not a cheaper OpenSea or canonical order", () => {
+  it("selects the cheapest eligible order and rejects wrong protocols or canonical local orders", () => {
     const offers: MarketplaceOffer[] = [
       { ...offer, priceWei: "1", source: "opensea" },
       { ...offer, priceWei: "2", source: "gnars" },
@@ -40,6 +41,24 @@ describe("sweep selection", () => {
       offer,
     ];
     expect(selectableSweepOffer({ ...item, offers }, buyer, 100_000)?.priceWei).toBe("50");
+  });
+  it("accepts cheaper OpenSea orders and prefers Gnars at equal prices", () => {
+    const openSea: MarketplaceOffer = {
+      ...offer,
+      source: "opensea",
+      protocolAddress: SEAPORT_ADDRESS,
+      priceWei: "50",
+    };
+    expect(selectableSweepOffer({ ...item, offers: [offer, openSea] }, buyer, 100_000)).toEqual(
+      openSea,
+    );
+    expect(
+      selectableSweepOffer(
+        { ...item, offers: [{ ...openSea, priceWei: "100" }, offer] },
+        buyer,
+        100_000,
+      ),
+    ).toEqual(offer);
   });
   it("excludes both owned NFTs and self-sold orders for the actual write account", () => {
     expect(selectableSweepOffer(item, seller, 100_000)).toBeUndefined();

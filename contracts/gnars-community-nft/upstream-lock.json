@@ -1,0 +1,6 @@
+{
+  "repository": "OpenZeppelin/openzeppelin-contracts",
+  "version": "5.4.0",
+  "commit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+  "compiler": "0.8.24+commit.e11b9ed9"
+}

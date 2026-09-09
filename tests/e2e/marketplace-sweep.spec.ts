@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  decodeFunctionData,
   encodeAbiParameters,
   encodeEventTopics,
   encodeFunctionResult,
@@ -10,7 +11,13 @@ import {
   type Hex,
 } from "viem";
 import { BUILDER_CODE_SUFFIX, DAO_ADDRESSES, MARKETPLACE_CONFIG } from "../../src/lib/config";
-import { getListingOrderHash, type SignedListing } from "../../src/lib/marketplace/seaport";
+import { SEAPORT_ADDRESS } from "../../src/lib/marketplace/routing";
+import {
+  getListingFulfillment,
+  getListingOrderHash,
+  seaportAbi,
+  type SignedListing,
+} from "../../src/lib/marketplace/seaport";
 import { getSweepFulfillment, sweepAbi, type SweepQuote } from "../../src/lib/marketplace/sweep";
 
 const protocol = "0xC35813d40961151c11C97cB9d67D0D25CD4Cc86e";
@@ -88,15 +95,27 @@ function fixture(): SweepQuote {
   };
 }
 
-async function setup(page: Page, mode: "reject" | "unknown" = "reject", ownOnly = false) {
+async function setup(
+  page: Page,
+  mode: "reject" | "unknown" = "reject",
+  ownOnly = false,
+  mixed = false,
+) {
   const quote = fixture();
+  const planItems = structuredClone(quote.items);
+  if (mixed)
+    planItems[0].offers[0] = {
+      ...planItems[0].offers[0],
+      source: "opensea",
+      protocolAddress: SEAPORT_ADDRESS,
+    };
   const inventory = ownOnly
     ? quote.items.map((item) => ({
         ...item,
         owner: buyer,
         offers: item.offers.map((offer) => ({ ...offer, seller: buyer })),
       }))
-    : quote.items;
+    : planItems;
   const prompts: Array<{ method: string; params: unknown[] }> = [];
   const quoteRequests: unknown[] = [];
   let quoteFails = false;
@@ -151,12 +170,21 @@ async function setup(page: Page, mode: "reject" | "unknown" = "reject", ownOnly 
     if (["eth_gasPrice", "eth_maxPriorityFeePerGas"].includes(method)) return "0x3b9aca00";
     if (method === "eth_estimateGas") return "0x50000";
     if (method === "eth_getLogs") return [];
-    if (method === "eth_call")
+    if (method === "eth_call") {
+      try {
+        const decoded = decodeFunctionData({
+          abi: seaportAbi,
+          data: (params[0] as { data: Hex }).data,
+        });
+        if (decoded.functionName === "getCounter")
+          return encodeFunctionResult({ abi: seaportAbi, functionName: "getCounter", result: 0n });
+      } catch {}
       return encodeFunctionResult({
         abi: sweepAbi,
         functionName: "fulfillAvailableOrders",
         result: [[true, true], []],
       });
+    }
     if (method === "eth_getTransactionByHash")
       return {
         hash,
@@ -286,6 +314,26 @@ async function setup(page: Page, mode: "reject" | "unknown" = "reject", ownOnly 
     const req = route.request();
     const url = new URL(req.url());
     if (req.method() === "POST") {
+      if (url.pathname === "/api/marketplace/sweep/plan") {
+        quoteRequests.push(req.postDataJSON());
+        return route.fulfill({
+          status: quoteFails ? 503 : ownOnly ? 409 : 200,
+          json: quoteFails
+            ? { error: "unavailable" }
+            : ownOnly
+              ? { code: "SWEEP_EMPTY" }
+              : { buyer, items: planItems, totalWei: quote.totalWei, expiresAt: quote.expiresAt },
+        });
+      }
+      if (mixed && url.pathname === "/api/marketplace/fulfillment") {
+        const transaction = getListingFulfillment(quote.listings[0], { source: "opensea" });
+        return route.fulfill({
+          json: {
+            offer: planItems[0].offers[0],
+            transaction: { chainId: 8453, ...transaction, value: transaction.value.toString() },
+          },
+        });
+      }
       if (url.pathname === "/api/marketplace/sweep/quote") {
         quoteRequests.push(req.postDataJSON());
         return route.fulfill({
@@ -382,7 +430,7 @@ for (const mobile of [false, true]) {
     const state = await setup(page, "reject", true);
     const drawer = page.getByRole("dialog");
     await expect(
-      drawer.getByText("Nenhum Gnar disponível para esta carteira no contrato Gnars.", {
+      drawer.getByText("Nenhum Gnar elegível disponível para esta carteira.", {
         exact: true,
       }),
     ).toBeVisible();
@@ -391,11 +439,13 @@ for (const mobile of [false, true]) {
     await expect(drawer.getByText("Sua carteira · fora da compra", { exact: true })).toHaveCount(2);
     await expect(drawer.getByRole("img").first()).toBeVisible();
     await expect(
-      drawer.getByRole("button", { name: "Comprar até 3 NFTs", exact: true }),
+      drawer.getByRole("button", { name: "Comprar NFT 1 de 3", exact: true }),
     ).toBeDisabled();
     await expect(drawer.getByText("0.02 ETH", { exact: true })).toHaveCount(0);
     await expect(
-      drawer.getByText("Anúncios da OpenSea e de outras coleções não entram neste lote."),
+      drawer.getByText(
+        "Anúncios elegíveis de Gnars em ETH na Base, na Gnars e OpenSea. Seus próprios anúncios ficam de fora.",
+      ),
     ).toBeVisible();
     await page.screenshot({
       path: `test-results/sweep-own-listings-${mobile ? "mobile" : "desktop"}.png`,
@@ -411,7 +461,7 @@ for (const mobile of [false, true]) {
     await expect.poll(() => state.quoteRequests.length).toBeGreaterThan(before);
     await expect(
       drawer.getByText(
-        "Nenhum Gnar disponível para esta carteira no contrato Gnars dentro deste limite de preço.",
+        "Nenhum Gnar elegível disponível para esta carteira dentro deste limite de preço.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -481,7 +531,9 @@ test("sweep quote failure is recoverable and cannot prompt a purchase", async ({
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
     "Não foi possível confirmar",
   );
-  await expect(page.getByRole("button", { name: /Comprar até \d+ NFTs/ })).toBeDisabled();
+  await expect(
+    page.getByRole("dialog").getByRole("button", { name: /Comprar (até|NFT)/ }),
+  ).toBeDisabled();
   expect(state.prompts).toHaveLength(0);
   state.failQuotes(false);
   await page.getByRole("button", { name: "Atualizar cotação", exact: true }).click();
@@ -520,3 +572,64 @@ test("unknown sweep survives reload and partial receipt recovery never sends aga
     spentWei: parseEther("0.01").toString(),
   });
 });
+
+for (const mobile of [false, true])
+  test(`mixed sweep previews both markets, tags OpenSea and resumes without rebuying ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize(
+      mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+    );
+    const state = await setup(page, "unknown", false, true);
+    let drawer = page.getByRole("dialog");
+    await expect(
+      drawer.getByRole("button", { name: "Comprar NFT 1 de 2", exact: true }),
+    ).toBeEnabled();
+    await expect(drawer.getByText("OpenSea", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("Contrato Gnars", { exact: true })).toBeVisible();
+    await expect(drawer.getByText(/2 compras separadas/)).toBeVisible();
+    await expect(drawer.getByText("0.02 ETH", { exact: true })).toBeVisible();
+    await page.screenshot({
+      path: `/tmp/gnars-mixed-sweep-${mobile ? "mobile" : "desktop"}.png`,
+      animations: "disabled",
+    });
+    expect(
+      await drawer.locator(".overflow-y-auto").evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    await drawer.getByRole("button", { name: "Comprar NFT 1 de 2", exact: true }).click();
+    await expect.poll(() => state.prompts.length).toBe(1);
+    const tx = state.prompts[0].params[0] as { to: string; data: string; value: string };
+    expect(tx.to.toLowerCase()).toBe(SEAPORT_ADDRESS.toLowerCase());
+    expect(BigInt(tx.value)).toBe(parseEther("0.01"));
+    expect(tx.data.toLowerCase().endsWith(BUILDER_CODE_SUFFIX.slice(2).toLowerCase())).toBe(true);
+    await expect
+      .poll(
+        async () =>
+          JSON.parse((await page.evaluate((key) => localStorage.getItem(key), journalKey)) ?? "{}")
+            .phase,
+      )
+      .toBe("unknown");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Ver lote", exact: true }).click();
+    drawer = page.getByRole("dialog");
+    await expect(
+      drawer.getByRole("button", { name: "Comprar NFT 1 de 2", exact: true }),
+    ).toBeDisabled();
+    expect(state.prompts).toHaveLength(1);
+    // Simulate the durable result written by the separately tested receipt reconciler.
+    await page.evaluate((key) => {
+      const saved = JSON.parse(localStorage.getItem(key)!);
+      saved.phase = "complete";
+      delete saved.error;
+      localStorage.setItem(key, JSON.stringify(saved));
+    }, journalKey);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Ver lote", exact: true }).click();
+    drawer = page.getByRole("dialog");
+    await expect(drawer.getByText("Comprado", { exact: true })).toBeVisible();
+    await expect(
+      drawer.getByRole("button", { name: "Comprar NFT 2 de 2", exact: true }),
+    ).toBeEnabled();
+    expect(state.prompts).toHaveLength(1);
+  });

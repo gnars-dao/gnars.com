@@ -1337,6 +1337,12 @@ export function useMarketplaceActions() {
     canCancelSavedListing: canCancelSavedListing(visible),
     recovery: visible
       ? {
+          journalId: visible.id,
+          orderHash: visible.offer?.orderHash,
+          source: visible.offer?.source,
+          sweepOrderHashes: visible.sweep?.listings.map((listing) =>
+            getListingOrderHash(listing.parameters),
+          ),
           tokenId: visible.tokenId,
           collectionAddress: visible.collectionAddress,
           kind: visible.kind,

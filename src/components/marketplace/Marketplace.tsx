@@ -29,10 +29,10 @@ import type { MarketplaceItem, MarketplacePage } from "@/types/marketplace";
 import { CommunitySellerListings } from "./CommunitySellerListings";
 import { toggleSweepSelection, type MarketplaceSweepSelection } from "./marketplace-sweep-model";
 import { MarketplaceCard } from "./MarketplaceCard";
+import { MarketplaceMixedSweep as MarketplaceSweep } from "./MarketplaceMixedSweep";
 import { MarketplaceModerationQueue } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { MarketplaceSaleBands } from "./MarketplaceSaleBands";
-import { MarketplaceSweep } from "./MarketplaceSweep";
 
 const MarketplaceDetail = dynamic(() => import("./MarketplaceDetail"), { ssr: false });
 const CommunitySubmission = dynamic(
@@ -51,6 +51,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<Address | null>(null);
   const [submissionOpen, setSubmissionOpen] = useState(false);
+  const [createdNft, setCreatedNft] = useState<{
+    collectionAddress: Address;
+    tokenId: string;
+  } | null>(null);
   const queryClient = useQueryClient();
   const [urlReady, setUrlReady] = useState(false);
   const selectedTrigger = useRef<HTMLButtonElement | null>(null);
@@ -91,6 +95,21 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       const restoredId = params.get("q");
       const restoredSelection = params.get("nft");
       const restoredCollection = params.get("collection");
+      const createdCollection = params.get("createCollection");
+      const createdToken = params.get("createTokenId");
+      if (
+        createdCollection &&
+        isAddress(createdCollection, { strict: false }) &&
+        createdToken &&
+        /^\d{1,78}$/.test(createdToken) &&
+        BigInt(createdToken) < 2n ** 256n
+      ) {
+        setCreatedNft({
+          collectionAddress: createdCollection,
+          tokenId: BigInt(createdToken).toString(),
+        });
+        setSubmissionOpen(true);
+      }
       setSelectedCollection(
         restoredCollection && isAddress(restoredCollection) ? restoredCollection : null,
       );
@@ -525,8 +544,16 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
 
       {submissionOpen && (
         <CommunitySubmission
+          initialSelection={createdNft}
           open={submissionOpen}
-          onClose={() => setSubmissionOpen(false)}
+          onClose={() => {
+            setSubmissionOpen(false);
+            setCreatedNft(null);
+            const url = new URL(window.location.href);
+            url.searchParams.delete("createCollection");
+            url.searchParams.delete("createTokenId");
+            window.history.replaceState(window.history.state, "", url);
+          }}
           onPublished={() => {
             void queryClient.invalidateQueries({ queryKey: ["marketplace"] });
           }}

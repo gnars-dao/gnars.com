@@ -132,7 +132,7 @@ export function MarketplaceSaleBands({
             <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">
               {group.items.map((item) => {
                 const sweepOffer =
-                  group.key === "native" && sweepEnabled
+                  (group.key === "native" || group.key === "opensea") && sweepEnabled
                     ? selectableSweepOffer(item, sweepBuyer)
                     : undefined;
                 const selected = sweepSelections.some(
@@ -167,7 +167,7 @@ export function MarketplaceSaleBands({
                           onChange={() => onSweepSelect?.({ item, offer: sweepOffer })}
                         />
                         <span className="min-w-0 flex-1 text-muted-foreground">
-                          {t("sourceNames.gnars-contract")}
+                          {t(`sourceNames.${sweepOffer.source}`)}
                         </span>
                         <span
                           className="break-all text-right font-mono"

@@ -2,6 +2,7 @@ import { zeroAddress, zeroHash, type Address } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { GNARS_MARKETPLACE_FEE_POLICY } from "./community-policy";
+import { bindNativeSweepQuote } from "./mixed-sweep";
 import { getListingOrderHash, type SignedListing } from "./seaport";
 import { getSweepFulfillment, type SweepQuote } from "./sweep";
 import { validateSweepQuote, validateSweepSnapshot, verifySweepIntent } from "./sweep-journal";
@@ -80,6 +81,28 @@ function quote(): SweepQuote {
 beforeEach(() => vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol));
 afterEach(() => vi.unstubAllEnvs());
 describe("sweep review and journal", () => {
+  it("binds the native execution quote to the earlier combined-market review", () => {
+    const reviewed = quote();
+    const plan = {
+      buyer,
+      items: reviewed.items,
+      totalWei: reviewed.totalWei,
+      expiresAt: reviewed.expiresAt,
+    };
+    expect(bindNativeSweepQuote(plan, reviewed, buyer)).toEqual(reviewed);
+    const replacement = quote();
+    replacement.listings[1].parameters.salt = "999";
+    replacement.items[1].offers[0].orderHash = getListingOrderHash(
+      replacement.listings[1].parameters,
+    );
+    expect(() => bindNativeSweepQuote(plan, replacement, buyer)).toThrow("reviewed plan");
+    expect(() => bindNativeSweepQuote({ ...plan, totalWei: "1999" }, reviewed, buyer)).toThrow(
+      "reviewed plan",
+    );
+    expect(() =>
+      bindNativeSweepQuote({ ...plan, items: [...plan.items].reverse() }, reviewed, buyer),
+    ).toThrow("reviewed plan");
+  });
   it("retains all signed orders and exact consideration", () => {
     const reviewed = quote();
     expect(validateSweepQuote(reviewed, buyer)).toEqual(reviewed);

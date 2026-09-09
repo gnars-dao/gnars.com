@@ -1,5 +1,7 @@
 import type { Address } from "viem";
 import { DAO_ADDRESSES, getConfiguredGnarsMarketplaceAddress } from "@/lib/config";
+import { compareSweepOffers } from "@/lib/marketplace/mixed-sweep";
+import { SEAPORT_ADDRESS } from "@/lib/marketplace/routing";
 import type { MarketplaceItem, MarketplaceOffer } from "@/types/marketplace";
 
 export type MarketplaceSweepSelection = { item: MarketplaceItem; offer: MarketplaceOffer };
@@ -26,28 +28,22 @@ export function ownSweepListings(
 export function selectableSweepOffer(item: MarketplaceItem, buyer?: Address, now = Date.now()) {
   const protocol = getConfiguredGnarsMarketplaceAddress()?.toLowerCase();
   if (
-    !protocol ||
-    (item.collectionAddress &&
-      item.collectionAddress.toLowerCase() !== DAO_ADDRESSES.token.toLowerCase())
+    item.collectionAddress &&
+    item.collectionAddress.toLowerCase() !== DAO_ADDRESSES.token.toLowerCase()
   )
     return undefined;
   if (buyer && item.owner?.toLowerCase() === buyer.toLowerCase()) return undefined;
   return item.offers
     .filter(
       (offer) =>
-        offer.source === "gnars-contract" &&
-        offer.protocolAddress.toLowerCase() === protocol &&
+        ((offer.source === "gnars-contract" && offer.protocolAddress.toLowerCase() === protocol) ||
+          (offer.source === "opensea" &&
+            offer.protocolAddress.toLowerCase() === SEAPORT_ADDRESS.toLowerCase())) &&
         offer.currency === "ETH" &&
         offer.expiresAt * 1000 > now &&
         offer.seller.toLowerCase() !== buyer?.toLowerCase(),
     )
-    .sort((a, b) =>
-      BigInt(a.priceWei) < BigInt(b.priceWei)
-        ? -1
-        : BigInt(a.priceWei) > BigInt(b.priceWei)
-          ? 1
-          : a.orderHash.localeCompare(b.orderHash),
-    )[0];
+    .sort(compareSweepOffers)[0];
 }
 
 export function toggleSweepSelection(

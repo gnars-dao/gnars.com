@@ -5,6 +5,8 @@ export const ROUTE_NAMESPACES = {
   home: ["auctions", "bounties", "home", "installations", "map", "newhome", "swap", "tv"],
   auctions: ["auctions"],
   marketplace: ["marketplace"],
+  "create-nft": ["createNft"],
+  "local-nft-deploy": ["createNft"],
   base: ["auctions", "base", "droposals", "newhome", "swap"],
   blogs: ["blogs"],
   "coin-proposal": ["coinProposal", "proposals", "propose"],

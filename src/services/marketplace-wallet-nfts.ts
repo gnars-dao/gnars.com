@@ -62,7 +62,7 @@ const nftSchema = z.object({
     .nullish(),
 });
 const pageSchema = z.object({
-  ownedNfts: z.array(nftSchema).max(MARKETPLACE_PAGE_SIZE),
+  ownedNfts: z.array(nftSchema).max(100),
   pageKey: cursorSchema.nullish(),
 });
 
@@ -113,60 +113,73 @@ async function fetchWalletPage(
   const key = process.env.ALCHEMY_API_KEY;
   if (!key) throw marketplaceUnavailable("Wallet NFT provider is not configured.");
   try {
+    const signal = AbortSignal.timeout(12000);
     const params = new URLSearchParams({
       owner,
       withMetadata: "true",
-      pageSize: String(MARKETPLACE_PAGE_SIZE),
+      pageSize: String(requestedCollection ? MARKETPLACE_PAGE_SIZE : 100),
       tokenUriTimeoutInMs: "0",
       orderBy: "transferTime",
     });
     if (cursor) params.set("pageKey", cursor);
     if (requestedCollection) params.append("contractAddresses[]", requestedCollection);
-    const response = await fetch(
-      `https://base-mainnet.g.alchemy.com/nft/v3/${encodeURIComponent(key)}/getNFTsForOwner?${params}`,
-      { cache: "no-store", signal: AbortSignal.timeout(8000) },
-    );
-    const page = pageSchema.parse(await readPage(response));
-    if (page.pageKey && page.pageKey === cursor) throw marketplaceUnavailable();
     const items = new Map<string, MarketplaceItem>();
     const unsupportedErc1155 = new Set<string>();
-    for (const nft of page.ownedNfts) {
-      const collection = nft.contract.address;
-      // Alchemy's query-level SPAM exclusion is paid-only; use available classification metadata.
-      if (
-        nft.contract.isSpam === true ||
-        nft.contract.spamClassifications?.length ||
-        isAddressEqual(collection, DAO_ADDRESSES.token) ||
-        (requestedCollection && !isAddressEqual(collection, requestedCollection))
-      )
-        continue;
-      const tokenType = nft.tokenType ?? nft.contract.tokenType;
-      if (
-        tokenType === "ERC1155" &&
-        (!nft.contract.tokenType || nft.contract.tokenType === "ERC1155")
-      )
-        unsupportedErc1155.add(`${collection}:${nft.tokenId}`);
-      if (tokenType !== "ERC721" || (nft.contract.tokenType && nft.contract.tokenType !== "ERC721"))
-        continue;
-      items.set(`${collection}:${nft.tokenId}`, {
-        collectionAddress: collection,
-        tokenId: nft.tokenId,
-        name: nft.name?.trim().slice(0, 200) || `NFT #${nft.tokenId}`,
-        collectionName:
-          nft.contract.name?.trim().slice(0, 120) ||
-          `${collection.slice(0, 6)}...${collection.slice(-4)}`,
-        image:
-          safeImage(nft.image?.cachedUrl) ??
-          safeImage(nft.image?.thumbnailUrl) ??
-          safeImage(nft.image?.originalUrl) ??
-          safeImage(nft.raw?.metadata?.image),
-        owner,
-        offers: [],
-      });
+    const seenCursors = new Set(cursor ? [cursor] : []);
+    let nextCursor: string | null = cursor ?? null;
+    // Fill sparse wallets without scanning indefinitely or discarding a provider page's tail.
+    for (let pageIndex = 0; pageIndex < (requestedCollection ? 1 : 3); pageIndex++) {
+      const response = await fetch(
+        `https://base-mainnet.g.alchemy.com/nft/v3/${encodeURIComponent(key)}/getNFTsForOwner?${params}`,
+        { cache: "no-store", signal },
+      );
+      const page = pageSchema.parse(await readPage(response));
+      nextCursor = page.pageKey ?? null;
+      if (nextCursor && seenCursors.has(nextCursor)) throw marketplaceUnavailable();
+      if (nextCursor) seenCursors.add(nextCursor);
+      for (const nft of page.ownedNfts) {
+        const collection = nft.contract.address;
+        // Alchemy's query-level SPAM exclusion is paid-only; use available classification metadata.
+        if (
+          nft.contract.isSpam === true ||
+          nft.contract.spamClassifications?.length ||
+          isAddressEqual(collection, DAO_ADDRESSES.token) ||
+          (requestedCollection && !isAddressEqual(collection, requestedCollection))
+        )
+          continue;
+        const tokenType = nft.tokenType ?? nft.contract.tokenType;
+        if (
+          tokenType === "ERC1155" &&
+          (!nft.contract.tokenType || nft.contract.tokenType === "ERC1155")
+        )
+          unsupportedErc1155.add(`${collection}:${nft.tokenId}`);
+        if (
+          tokenType !== "ERC721" ||
+          (nft.contract.tokenType && nft.contract.tokenType !== "ERC721")
+        )
+          continue;
+        items.set(`${collection}:${nft.tokenId}`, {
+          collectionAddress: collection,
+          tokenId: nft.tokenId,
+          name: nft.name?.trim().slice(0, 200) || `NFT #${nft.tokenId}`,
+          collectionName:
+            nft.contract.name?.trim().slice(0, 120) ||
+            `${collection.slice(0, 6)}...${collection.slice(-4)}`,
+          image:
+            safeImage(nft.image?.cachedUrl) ??
+            safeImage(nft.image?.thumbnailUrl) ??
+            safeImage(nft.image?.originalUrl) ??
+            safeImage(nft.raw?.metadata?.image),
+          owner,
+          offers: [],
+        });
+      }
+      if (!nextCursor || items.size >= MARKETPLACE_PAGE_SIZE) break;
+      params.set("pageKey", nextCursor);
     }
     return {
       items: [...items.values()],
-      nextCursor: page.pageKey ?? null,
+      nextCursor,
       ...(unsupportedErc1155.size ? { unsupportedErc1155Count: unsupportedErc1155.size } : {}),
     };
   } catch {
@@ -189,7 +202,7 @@ const loadWalletPage = unstable_cache(
     pendingReads.set(cacheKey, request);
     return request;
   },
-  ["marketplace-wallet-nfts-v2"],
+  ["marketplace-wallet-nfts-v3"],
   { revalidate: 15 },
 );
 

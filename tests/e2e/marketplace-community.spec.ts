@@ -227,6 +227,63 @@ test.beforeEach(({ page }) => page.setDefaultTimeout(15000));
 test.setTimeout(90000);
 
 for (const mobile of [false, true]) {
+  test(`wallet auto-filled inventory shows SkateHive without manual pagination ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(
+      mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+    );
+    const state = await setup(page);
+    const requests: URLSearchParams[] = [];
+    await page.route("**/api/marketplace/community/wallet?**", async (route) => {
+      requests.push(new URL(route.request().url()).searchParams);
+      await route.fulfill({
+        json: {
+          items: ["1", "2", "3", "4", "271", "278"].map((tokenId) => ({
+            collectionAddress: collection,
+            tokenId,
+            name: Number(tokenId) > 4 ? `SkateHive #${tokenId}` : `NFT #${tokenId}`,
+            collectionName: Number(tokenId) > 4 ? "SkateHive" : "Community",
+            image: "/gnars.webp",
+            owner,
+            offers: [],
+          })),
+          nextCursor: null,
+          unsupportedErc1155Count: 3,
+        },
+      });
+    });
+    const drawer = await openWizard(page);
+    const skatehive = drawer.getByRole("button", {
+      name: "Selecionar SkateHive #271",
+      exact: true,
+    });
+    await expect(skatehive).toBeVisible();
+    await expect(
+      drawer.getByRole("button", { name: "Selecionar SkateHive #278", exact: true }),
+    ).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "Carregar mais NFTs" })).toHaveCount(0);
+    await skatehive.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        skatehive.locator("img").evaluate((img) => (img as HTMLImageElement).naturalWidth),
+      )
+      .toBeGreaterThan(0);
+    expect(
+      await drawer
+        .locator("[data-vaul-no-drag]")
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    await page.screenshot({
+      path: `test-results/wallet-autofill-${mobile ? "mobile" : "desktop"}.png`,
+    });
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.every((params) => !params.has("cursor") && !params.has("collection"))).toBe(
+      true,
+    );
+    expect(state.writes).toEqual([]);
+  });
+
   test(`wallet NFT picker paginates, retries and verifies selection ${mobile ? "mobile" : "desktop"}`, async ({
     page,
   }) => {
