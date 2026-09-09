@@ -158,6 +158,26 @@ test("mobile cards keep exact prices and multiple sources inside their bounds", 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+for (const width of [390, 1440]) {
+  test(`rounded card prices have no approximation symbol at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.route("**/api/marketplace**", (route) =>
+      route.fulfill({
+        json: {
+          ...data,
+          items: [{ ...item, offers: [{ ...offer, priceWei: "8489987998790000" }] }],
+        },
+      }),
+    );
+    await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
+    const card = page.getByRole("button", { name: "Ver Gnar #42", exact: true });
+    await expect(card.getByTitle("0.00848998799879 ETH")).toHaveText("0.0085 ETH");
+    await expect(card).not.toContainText("\u2248");
+    await page.screenshot({ path: `/tmp/gnars-card-price-${width}.png` });
+  });
+}
+
 test("collection stays directly linkable after changing the default tab", async ({ page }) => {
   await page.route("**/api/marketplace**", (route) => route.fulfill({ json: data }));
   await page.goto("/pt-br/marketplace?view=catalogue", { waitUntil: "domcontentloaded" });

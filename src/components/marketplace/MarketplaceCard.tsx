@@ -141,7 +141,6 @@ export function MarketplaceCard({
                 title={`${price?.exact} ${best.currency}`}
                 aria-label={`${price?.exact} ${best.currency}`}
               >
-                {price?.rounded && <span aria-hidden="true">&asymp;</span>}
                 {price?.display} {best.currency}
               </p>
               <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-medium text-muted-foreground md:mt-2">
