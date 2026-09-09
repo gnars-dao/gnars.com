@@ -7,17 +7,27 @@ export interface ShopCardLabels {
 }
 
 /**
- * Plate behind a product cover.
+ * Separation for a product cover, without a panel behind it.
  *
  * The artwork is transparent cutouts, so the page ground shows straight
- * through. Without a plate a white garment disappeared on the light theme and a
- * black one on dark — both read as an empty tile. The wash this replaces was
- * `dark:` only, so it could only ever solve one of those directions. A neutral
- * panel plus its ring gives the tile a shape even where the garment and the
- * ground are the same colour.
+ * through: a white garment vanished on the light theme, a black one on dark.
+ * `drop-shadow` follows the alpha silhouette rather than the image box, so the
+ * garment casts its own shadow the way it would in a product shot — it fixes
+ * both directions with nothing drawn around it. The wash this replaces was
+ * `dark:` only and could solve one direction at best.
+ *
+ * Dark flips it to a light halo: a black shadow buys nothing against a near
+ * black ground.
+ *
+ * These are Tailwind filter utilities, not an arbitrary `filter:`, so they
+ * compose with the `grayscale` the coming-soon covers also carry.
  */
-export const COVER_PLATE =
-  "pointer-events-none absolute inset-0 rounded-lg bg-black/[0.055] ring-1 ring-inset ring-black/[0.06] dark:bg-white/[0.07] dark:ring-white/[0.08] dark:[background-image:radial-gradient(circle_at_center,rgba(255,255,255,0.10),transparent_65%)]";
+export const COVER_SHADOW =
+  "drop-shadow-[0_6px_10px_rgba(0,0,0,0.28)] dark:drop-shadow-[0_0_14px_rgba(255,255,255,0.22)]";
+
+/** Same treatment, scaled for the featured card and the detail hero. */
+export const COVER_SHADOW_LG =
+  "drop-shadow-[0_10px_18px_rgba(0,0,0,0.30)] dark:drop-shadow-[0_0_22px_rgba(255,255,255,0.22)]";
 
 export function formatPrice(priceUSD?: number) {
   if (priceUSD == null) return null;

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";
-import { COVER_PLATE, formatPrice } from "./shared";
+import { COVER_SHADOW_LG, formatPrice } from "./shared";
 
 export function ShopDetail({ item }: { item: ShopItem }) {
   const t = useTranslations("shop");
@@ -41,13 +41,12 @@ export function ShopDetail({ item }: { item: ShopItem }) {
         {cover && (
           <div className="flex flex-col gap-3">
             <div className="relative aspect-square w-full">
-              <div className={COVER_PLATE} />
               <Image
                 src={cover}
                 alt={item.title}
                 fill
                 priority
-                className={cn("object-contain p-4 drop-shadow-md", isComingSoon && "grayscale")}
+                className={cn("object-contain p-4", COVER_SHADOW_LG, isComingSoon && "grayscale")}
               />
             </div>
 

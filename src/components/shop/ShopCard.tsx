@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";
-import { COVER_PLATE, formatPrice, isDirectBuyLink, type ShopCardLabels } from "./shared";
+import { COVER_SHADOW, formatPrice, isDirectBuyLink, type ShopCardLabels } from "./shared";
 
 function CardInner({ item, labels }: { item: ShopItem; labels: ShopCardLabels }) {
   const cover = item.images[0];
@@ -15,7 +15,6 @@ function CardInner({ item, labels }: { item: ShopItem; labels: ShopCardLabels })
   return (
     <div className="group flex h-full flex-col">
       <div className="relative aspect-square w-full">
-        <div className={COVER_PLATE} />
         {cover && (
           <Image
             src={cover}
@@ -23,7 +22,8 @@ function CardInner({ item, labels }: { item: ShopItem; labels: ShopCardLabels })
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className={cn(
-              "object-contain p-2 drop-shadow-sm transition-transform duration-300 ease-out group-hover:-translate-y-1 group-hover:scale-105",
+              "object-contain p-2 transition-transform duration-300 ease-out group-hover:-translate-y-1 group-hover:scale-105",
+              COVER_SHADOW,
               isComingSoon && "grayscale",
             )}
           />

@@ -3,7 +3,7 @@ import { ArrowUpRight, Sparkles } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";
-import { COVER_PLATE, formatPrice, isDirectBuyLink, type ShopCardLabels } from "./shared";
+import { COVER_SHADOW_LG, formatPrice, isDirectBuyLink, type ShopCardLabels } from "./shared";
 
 function FeaturedCard({ item, labels }: { item: ShopItem; labels: ShopCardLabels }) {
   const cover = item.images[0];
@@ -14,7 +14,6 @@ function FeaturedCard({ item, labels }: { item: ShopItem; labels: ShopCardLabels
   const content = (
     <div className="group flex h-full flex-col">
       <div className="relative aspect-[4/3] w-full">
-        <div className={COVER_PLATE} />
         {cover && (
           <Image
             src={cover}
@@ -22,7 +21,8 @@ function FeaturedCard({ item, labels }: { item: ShopItem; labels: ShopCardLabels
             fill
             sizes="(max-width: 768px) 100vw, 33vw"
             className={cn(
-              "object-contain p-4 drop-shadow-md transition-transform duration-500 ease-out group-hover:-translate-y-1.5 group-hover:scale-105",
+              "object-contain p-4 transition-transform duration-500 ease-out group-hover:-translate-y-1.5 group-hover:scale-105",
+              COVER_SHADOW_LG,
               isComingSoon && "grayscale",
             )}
           />
