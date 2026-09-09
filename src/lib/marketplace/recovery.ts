@@ -1,7 +1,9 @@
 import { formatEther, isAddressEqual, type Address, type PublicClient } from "viem";
+import { getCommunityFeeWei, validateCommunityFeePolicy } from "./community-policy";
 import { MarketplaceApiError } from "./errors";
 import {
   assertMarketplaceJournalProtocol,
+  buildCommunityListingQuote,
   listingSource,
   savedListingOutcome,
 } from "./listing-intent";
@@ -78,11 +80,33 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
     throw new Error("Export the saved attempt: an unresolved signature cannot be safely discarded");
   const source = listingSource(value.input ?? { source: value.offer?.source });
   assertMarketplaceJournalProtocol({ kind: "list", input: { ...value.input, source } });
-  const listing = validateListingStructure(value.listing, { source, allowExpired: true });
+  const collectionAddress = value.input?.collectionAddress ?? value.offer?.collectionAddress;
+  const feePolicy = collectionAddress
+    ? validateCommunityFeePolicy(value.input?.expectedQuote?.feePolicy ?? value.offer?.feePolicy)
+    : undefined;
+  const listing = validateListingStructure(value.listing, {
+    source,
+    collectionAddress,
+    feePolicy,
+    allowExpired: true,
+  });
   if (!isAddressEqual(listing.parameters.offerer, account))
     throw new Error("Saved order does not match this wallet");
   const tokenId = listing.parameters.offer[0].identifierOrCriteria;
   const priceWei = getListingPriceWei(listing);
+  const royalty = feePolicy
+    ? listing.parameters.consideration[getCommunityFeeWei(priceWei, feePolicy) > 0n ? 2 : 1]
+    : undefined;
+  const expectedQuote = feePolicy
+    ? buildCommunityListingQuote(
+        priceWei.toString(),
+        {
+          amount: royalty ? BigInt(royalty.startAmount) : 0n,
+          recipient: royalty?.recipient ?? account,
+        },
+        feePolicy,
+      )
+    : undefined;
   return JSON.stringify({
     version: 1,
     account,
@@ -90,10 +114,12 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
     kind: "list",
     phase: "saving",
     tokenId,
+    ...(collectionAddress ? { collectionAddress } : {}),
     listing,
     input: {
       tokenId,
       source,
+      ...(collectionAddress ? { collectionAddress, expectedQuote } : {}),
       ...(source === "gnars-contract" ? { protocolAddress: value.input.protocolAddress } : {}),
       priceEth: formatEther(priceWei),
       durationDays: Math.max(

@@ -5,7 +5,7 @@ import {
   type Address,
   type PublicClient,
 } from "viem";
-import { DAO_ADDRESSES } from "@/lib/config";
+import { marketplaceCollectionAddress } from "./community-policy";
 import {
   getGnarsMarketplaceAddress,
   isSupportedListingOperator,
@@ -20,12 +20,13 @@ export function isListingApprovalIntent(
   account: Address,
   tokenId: string,
   operator: Address = SEAPORT_ADDRESS,
+  collectionAddress?: Address,
 ): boolean {
   return Boolean(
     intent &&
       isSupportedListingOperator(operator) &&
       isAddressEqual(intent.account, account) &&
-      isAddressEqual(intent.to, DAO_ADDRESSES.token) &&
+      isAddressEqual(intent.to, marketplaceCollectionAddress(collectionAddress)) &&
       intent.value === "0" &&
       intent.data.toLowerCase() ===
         encodeFunctionData({
@@ -40,10 +41,11 @@ export function getListingApprovalOperator(
   intent: MarketplaceTransactionIntent | undefined,
   account: Address,
   tokenId: string,
+  collectionAddress?: Address,
 ): Address | undefined {
   const custom = getGnarsMarketplaceAddress();
   return [SEAPORT_ADDRESS, OPENSEA_CONDUIT_ADDRESS, ...(custom ? [custom] : [])].find((operator) =>
-    isListingApprovalIntent(intent, account, tokenId, operator),
+    isListingApprovalIntent(intent, account, tokenId, operator, collectionAddress),
   );
 }
 
@@ -53,19 +55,21 @@ export async function hasConfirmedMarketplaceApproval(
   account: Address,
   tokenId: string,
   operator: Address = SEAPORT_ADDRESS,
+  collectionAddress?: Address,
 ): Promise<boolean> {
   if (!isSupportedListingOperator(operator)) throw new Error("Unsupported NFT approval operator");
   if ((await client.getChainId()) !== 8453) throw new Error("Base chain required");
   const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
+  const collection = marketplaceCollectionAddress(collectionAddress);
   const owner = await client.readContract({
-    address: DAO_ADDRESSES.token,
+    address: collection,
     abi: erc721Abi,
     functionName: "ownerOf",
     args: [BigInt(tokenId)],
     blockNumber,
   });
   const approved = await client.readContract({
-    address: DAO_ADDRESSES.token,
+    address: collection,
     abi: erc721Abi,
     functionName: "getApproved",
     args: [BigInt(tokenId)],
@@ -75,7 +79,7 @@ export async function hasConfirmedMarketplaceApproval(
   if (isAddressEqual(approved, operator)) return true;
   return (
     (await client.readContract({
-      address: DAO_ADDRESSES.token,
+      address: collection,
       abi: erc721Abi,
       functionName: "isApprovedForAll",
       args: [account, operator],

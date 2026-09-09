@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
 import dynamic from "next/dynamic";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
-  ArrowUpRight,
   CircleAlert,
   LoaderCircle,
   RefreshCw,
@@ -14,6 +13,7 @@ import {
   ShoppingBag,
   X,
 } from "lucide-react";
+import { isAddress, type Address } from "viem";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
 import Image from "@/components/ui/content-image";
@@ -23,12 +23,20 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useMarketplace, type MarketplaceView } from "@/hooks/use-marketplace";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
+import { DAO_ADDRESSES } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { MarketplaceItem, MarketplacePage } from "@/types/marketplace";
+import { CommunitySellerListings } from "./CommunitySellerListings";
 import { MarketplaceCard } from "./MarketplaceCard";
+import { MarketplaceModerationQueue } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
+import { MarketplaceSaleBands } from "./MarketplaceSaleBands";
 
 const MarketplaceDetail = dynamic(() => import("./MarketplaceDetail"), { ssr: false });
+const CommunitySubmission = dynamic(
+  () => import("./CommunitySubmission").then((mod) => mod.CommunitySubmission),
+  { ssr: false },
+);
 const views: MarketplaceView[] = ["listings", "catalogue", "owned", "selling"];
 
 export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) {
@@ -39,6 +47,9 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   const [tokenId, setTokenId] = useState<string | undefined>();
   const [searchInvalid, setSearchInvalid] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedCollection, setSelectedCollection] = useState<Address | null>(null);
+  const [submissionOpen, setSubmissionOpen] = useState(false);
+  const queryClient = useQueryClient();
   const [urlReady, setUrlReady] = useState(false);
   const selectedTrigger = useRef<HTMLButtonElement | null>(null);
   const writer = useWriteAccount();
@@ -51,10 +62,14 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   const pages = query.data?.pages ?? [];
   const page = pages[0];
   const sharedItem = useQuery({
-    queryKey: ["marketplace", "detail", selectedId],
+    queryKey: ["marketplace", "detail", selectedCollection ?? DAO_ADDRESSES.token, selectedId],
     enabled: !!selectedId && !selected,
     queryFn: async ({ signal }): Promise<MarketplacePage> => {
-      const response = await fetch(`/api/marketplace/nfts/${selectedId}`, { signal });
+      const path =
+        selectedCollection && selectedCollection.toLowerCase() !== DAO_ADDRESSES.token.toLowerCase()
+          ? `/api/marketplace/community/nfts/${selectedCollection}/${selectedId}`
+          : `/api/marketplace/nfts/${selectedId}`;
+      const response = await fetch(path, { signal });
       if (!response.ok) throw new Error("NFT unavailable");
       return response.json();
     },
@@ -67,6 +82,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       const restoredView = params.get("view");
       const restoredId = params.get("q");
       const restoredSelection = params.get("nft");
+      const restoredCollection = params.get("collection");
+      setSelectedCollection(
+        restoredCollection && isAddress(restoredCollection) ? restoredCollection : null,
+      );
       setView(
         views.includes(restoredView as MarketplaceView)
           ? (restoredView as MarketplaceView)
@@ -77,7 +96,9 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       );
       setSearch(restoredId && /^\d{1,20}$/.test(restoredId) ? BigInt(restoredId).toString() : "");
       setSelectedId(
-        restoredSelection && /^\d{1,20}$/.test(restoredSelection)
+        restoredSelection &&
+          /^\d{1,78}$/.test(restoredSelection) &&
+          BigInt(restoredSelection) < 2n ** 256n
           ? BigInt(restoredSelection).toString()
           : null,
       );
@@ -97,8 +118,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     else url.searchParams.delete("q");
     if (selectedId) url.searchParams.set("nft", selectedId);
     else url.searchParams.delete("nft");
+    if (selectedId && selectedCollection) url.searchParams.set("collection", selectedCollection);
+    else url.searchParams.delete("collection");
     window.history.replaceState(window.history.state, "", url);
-  }, [view, tokenId, selectedId, urlReady]);
+  }, [view, tokenId, selectedId, selectedCollection, urlReady]);
   useEffect(() => {
     const restored = sharedItem.data?.items.find((item) => item.tokenId === selectedId);
     if (!selected && restored) setSelected(restored);
@@ -133,6 +156,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     setView(next);
     setSelected(null);
     setSelectedId(null);
+    setSelectedCollection(null);
     setSearch("");
     setTokenId(undefined);
     setSearchInvalid(false);
@@ -176,15 +200,25 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
             <h1 className="text-2xl font-bold md:text-3xl">{t("title")}</h1>
           </div>
         </div>
-        <Button
-          variant="outline"
-          disabled={!urlReady}
-          onClick={() => changeView("owned")}
-          className="cursor-pointer"
-        >
-          <ShoppingBag className="size-4" />
-          {t("sell")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={!urlReady}
+            onClick={() => setSubmissionOpen(true)}
+            className="cursor-pointer"
+          >
+            <ShoppingBag className="size-4" />
+            {t("community.submit")}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!urlReady}
+            onClick={() => changeView("owned")}
+            className="cursor-pointer"
+          >
+            <ShoppingBag className="size-4" />
+            {t("sell")}
+          </Button>
+        </div>
       </header>
 
       {!selected && <MarketplaceRecovery />}
@@ -220,7 +254,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
               variant="ghost"
               aria-label={t("refresh")}
               disabled={!urlReady || query.isFetching || disconnected}
-              onClick={() => void query.refetch()}
+              onClick={() => {
+                void query.refetch();
+                void queryClient.invalidateQueries({ queryKey: ["marketplace", "community"] });
+              }}
               className="mb-1 shrink-0 cursor-pointer"
             >
               <RefreshCw className={cn("size-4", query.isFetching && "animate-spin")} />
@@ -363,6 +400,20 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
               <ConnectButton />
             </div>
           </div>
+        ) : view === "listings" ? (
+          <MarketplaceSaleBands
+            items={items}
+            pending={query.isPending}
+            failed={query.isError}
+            complete={sourcesComplete}
+            onRetry={() => void query.refetch()}
+            onSelect={(item, event) => {
+              selectedTrigger.current = event.currentTarget;
+              setSelected(item);
+              setSelectedId(item.tokenId);
+              setSelectedCollection(item.collectionAddress ?? null);
+            }}
+          />
         ) : query.isPending ? (
           <div
             aria-label={t("loading")}
@@ -386,7 +437,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
             <p className="text-sm text-muted-foreground">
               {tokenId && page?.sources.catalogue.available
                 ? t("tokenNotFound", { id: tokenId })
-                : view !== "listings" && view !== "selling" && !page?.sources.catalogue.available
+                : view !== "selling" && !page?.sources.catalogue.available
                   ? t("loadError")
                   : view === "owned"
                     ? t("emptyOwned")
@@ -396,12 +447,6 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
                         ? t("empty")
                         : t("availabilityUnknown")}
             </p>
-            {view === "listings" && (
-              <Button variant="outline" onClick={() => changeView("catalogue")}>
-                {t("views.catalogue")}
-                <ArrowUpRight className="size-4" />
-              </Button>
-            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">
@@ -416,6 +461,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
                   selectedTrigger.current = event.currentTarget;
                   setSelected(item);
                   setSelectedId(item.tokenId);
+                  setSelectedCollection(item.collectionAddress ?? null);
                 }}
               />
             ))}
@@ -445,12 +491,31 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           </div>
         )}
       </section>
+      {view === "selling" && <CommunitySellerListings />}
+      <MarketplaceModerationQueue />
 
-      {selected && (page || sharedItem.data) && (
+      {submissionOpen && (
+        <CommunitySubmission
+          open={submissionOpen}
+          onClose={() => setSubmissionOpen(false)}
+          onPublished={() => {
+            void queryClient.invalidateQueries({ queryKey: ["marketplace"] });
+          }}
+        />
+      )}
+      {selected && (
         <MarketplaceDetail
-          key={`${selected.tokenId}-${writer?.account.address ?? "guest"}`}
+          key={`${selectedCollection ?? DAO_ADDRESSES.token}-${selected.tokenId}-${writer?.account.address ?? "guest"}`}
           item={selected}
-          capabilities={(page ?? sharedItem.data!).capabilities}
+          capabilities={
+            (page ?? sharedItem.data)?.capabilities ?? {
+              openseaBuy: false,
+              openseaSell: false,
+              openseaCancel: false,
+              localTrading: false,
+              customTrading: false,
+            }
+          }
           restoreFocus={() => {
             if (selectedTrigger.current?.isConnected) {
               selectedTrigger.current.focus({ preventScroll: true });
@@ -459,6 +524,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           onClose={() => {
             setSelected(null);
             setSelectedId(null);
+            setSelectedCollection(null);
           }}
         />
       )}

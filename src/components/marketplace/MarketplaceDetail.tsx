@@ -25,6 +25,13 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useMarketplaceActions } from "@/hooks/use-marketplace-actions";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useWriteAccount } from "@/hooks/use-write-account";
@@ -38,7 +45,9 @@ import type {
   MarketplacePage,
   MarketplaceSource,
 } from "@/types/marketplace";
+import { MarketplaceModeration } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
+import { MarketplaceSourceLogo } from "./MarketplaceSourceLogo";
 import { NftArtwork } from "./NftArtwork";
 
 type Mode = "details" | "buy" | "sell" | "cancel";
@@ -70,15 +79,26 @@ export default function MarketplaceDetail({
   const [price, setPrice] = useState("");
   const [duration, setDuration] = useState(7);
   const [listingDestination, setListingDestination] = useState<MarketplaceSource>(
-    initialCapabilities.openseaSell ? "opensea" : "gnars",
+    initialCapabilities.customTrading
+      ? "gnars-contract"
+      : initialCapabilities.openseaSell
+        ? "opensea"
+        : "gnars",
   );
   const [submitted, setSubmitted] = useState(false);
   const [priceTouched, setPriceTouched] = useState(false);
   const [quotePrice, setQuotePrice] = useState("");
+  const community =
+    !!initialItem.collectionAddress &&
+    initialItem.collectionAddress.toLowerCase() !== DAO_ADDRESSES.token.toLowerCase();
+  const collectionAddress = initialItem.collectionAddress ?? DAO_ADDRESSES.token;
   const detail = useQuery({
-    queryKey: ["marketplace", "detail", initialItem.tokenId],
+    queryKey: ["marketplace", "detail", collectionAddress, initialItem.tokenId],
     queryFn: async ({ signal }): Promise<MarketplacePage> => {
-      const response = await fetch(`/api/marketplace/nfts/${initialItem.tokenId}`, { signal });
+      const path = community
+        ? `/api/marketplace/community/nfts/${collectionAddress}/${initialItem.tokenId}`
+        : `/api/marketplace/nfts/${initialItem.tokenId}`;
+      const response = await fetch(path, { signal });
       if (!response.ok) throw new Error("NFT unavailable");
       return response.json();
     },
@@ -91,7 +111,7 @@ export default function MarketplaceDetail({
     source === "gnars-contract" ? !!capabilities.customTrading : capabilities.localTrading;
   const sourceName = (source: MarketplaceSource) =>
     source === "opensea" ? "OpenSea" : source === "gnars" ? "Seaport" : t("customContract");
-  const destinations = (["opensea", "gnars", "gnars-contract"] as const).filter((source) =>
+  const destinations = (["gnars-contract", "opensea", "gnars"] as const).filter((source) =>
     source === "opensea" ? capabilities.openseaSell : nativeTrading(source),
   );
   const isOwner = !!writer && item.owner?.toLowerCase() === writer.account.address.toLowerCase();
@@ -219,7 +239,7 @@ export default function MarketplaceDetail({
                 {item.name}
               </DrawerTitle>
               <DrawerDescription className="flex items-center gap-2 text-xs">
-                {t("collection")}
+                {item.collectionName ?? t("collection")}
                 <span aria-hidden="true" className="text-border">
                   /
                 </span>
@@ -258,7 +278,7 @@ export default function MarketplaceDetail({
               <NftArtwork key={item.image} item={item} sizes="(max-width: 767px) 36vh, 512px" />
             </div>
             <a
-              href={`https://opensea.io/item/base/${DAO_ADDRESSES.token}/${item.tokenId}`}
+              href={`https://opensea.io/item/base/${collectionAddress}/${item.tokenId}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -379,12 +399,18 @@ export default function MarketplaceDetail({
                           {t("buy")}
                         </Button>
                       )}
+                      {community && (
+                        <MarketplaceModeration
+                          key={`${listing.orderHash}:${listing.moderation?.revision}`}
+                          offer={listing}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
                 {!writer ? (
                   <ConnectButton />
-                ) : isOwner ? (
+                ) : isOwner && !community ? (
                   <div className="space-y-2">
                     <Button
                       variant="default"
@@ -413,23 +439,38 @@ export default function MarketplaceDetail({
                     <div className="space-y-2">
                       <Label htmlFor="market-destination">{t("source")}</Label>
                       {destinations.length > 1 ? (
-                        <select
-                          id="market-destination"
+                        <Select
                           value={listingDestination}
-                          onChange={(event) =>
-                            setListingDestination(event.target.value as MarketplaceSource)
+                          onValueChange={(value) =>
+                            setListingDestination(value as MarketplaceSource)
                           }
                           disabled={busy || success || unresolved}
-                          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                         >
-                          {destinations.map((source) => (
-                            <option key={source} value={source}>
-                              {sourceName(source)}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger
+                            id="market-destination"
+                            className="h-11 w-full cursor-pointer"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {destinations.map((source) => (
+                              <SelectItem
+                                key={source}
+                                value={source}
+                                className="cursor-pointer py-3"
+                              >
+                                <MarketplaceSourceLogo source={source} />
+                                {sourceName(source)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       ) : (
-                        <p id="market-destination" className="text-sm font-medium">
+                        <p
+                          id="market-destination"
+                          className="flex items-center gap-2 text-sm font-medium"
+                        >
+                          <MarketplaceSourceLogo source={listingDestination} />
                           {sourceName(listingDestination)}
                         </p>
                       )}

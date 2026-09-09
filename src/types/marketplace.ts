@@ -2,6 +2,9 @@ import type { Address, Hex } from "viem";
 
 export type MarketplaceSource = "opensea" | "gnars" | "gnars-contract";
 export type MarketplaceOffer = {
+  collectionAddress?: Address;
+  feePolicy?: { basisPoints: number; recipient: Address };
+  moderation?: { hidden: boolean; revision: number };
   id: string;
   source: MarketplaceSource;
   orderHash: Hex;
@@ -13,11 +16,29 @@ export type MarketplaceOffer = {
 };
 
 export type MarketplaceItem = {
+  collectionAddress?: Address;
+  collectionName?: string;
   tokenId: string;
   name: string;
   image: string | null;
   owner: Address | null;
   offers: MarketplaceOffer[];
+};
+
+export type CommunityMarketplacePage = {
+  items: MarketplaceItem[];
+  nextCursor: string | null;
+  available: boolean;
+};
+
+export type MarketplaceEligibility = {
+  owner: Address;
+  balance: string;
+  minimum: number;
+  eligible: boolean;
+  feeBps: number | null;
+  feeRecipient: Address;
+  canModerate: boolean;
 };
 
 export type MarketplaceAvailability = {

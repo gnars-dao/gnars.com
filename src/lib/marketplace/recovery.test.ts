@@ -1,6 +1,7 @@
 import { zeroAddress, zeroHash, type Address, type PublicClient } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { COMMUNITY_FEE_RECIPIENT } from "./community-policy";
 import { parseMarketplaceApiError } from "./errors";
 import { canCancelSavedListing } from "./listing-intent";
 import {
@@ -49,6 +50,50 @@ const listing = {
   signature: "0x1234",
 };
 describe("marketplace recovery guards", () => {
+  it("preserves community collection and signed fee snapshot across journal repair", () => {
+    const custom = "0x3333333333333333333333333333333333333333";
+    const collectionAddress = "0x4444444444444444444444444444444444444444";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    vi.stubEnv("MARKETPLACE_COMMUNITY_FEE_BPS", "999");
+    const community = structuredClone(listing);
+    community.parameters.offer[0].token = collectionAddress;
+    community.parameters.consideration = [
+      {
+        ...community.parameters.consideration[0],
+        startAmount: "19500000000000000",
+        endAmount: "19500000000000000",
+      },
+      {
+        ...community.parameters.consideration[0],
+        recipient: COMMUNITY_FEE_RECIPIENT,
+        startAmount: "500000000000000",
+        endAmount: "500000000000000",
+      },
+    ];
+    const feePolicy = { basisPoints: 250, recipient: COMMUNITY_FEE_RECIPIENT };
+    const raw = {
+      account: owner,
+      listing: community,
+      input: {
+        source: "gnars-contract",
+        protocolAddress: custom,
+        collectionAddress,
+        expectedQuote: { feePolicy },
+      },
+    };
+    const repaired = JSON.parse(repairMarketplaceJournal(JSON.stringify(raw), owner));
+    expect(repaired.listing).toEqual(community);
+    expect(repaired.collectionAddress).toBe(collectionAddress);
+    expect(repaired.input.collectionAddress).toBe(collectionAddress);
+    expect(repaired.input.expectedQuote.feePolicy).toEqual(feePolicy);
+    expect(repaired.input.expectedQuote.sellerWei).toBe("19500000000000000");
+    expect(() =>
+      repairMarketplaceJournal(
+        JSON.stringify({ ...raw, input: { ...raw.input, expectedQuote: undefined } }),
+        owner,
+      ),
+    ).toThrow("fee policy");
+  });
   it("inspects only the explicit protocol and never rewrites legacy source defaults", async () => {
     const custom = "0x3333333333333333333333333333333333333333";
     vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);

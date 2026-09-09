@@ -5,7 +5,15 @@ import { ImageOff } from "lucide-react";
 import Image from "@/components/ui/content-image";
 import type { MarketplaceItem } from "@/types/marketplace";
 
-export function NftArtwork({ item, sizes }: { item: MarketplaceItem; sizes: string }) {
+export function NftArtwork({
+  item,
+  sizes,
+  loading = "lazy",
+}: {
+  item: MarketplaceItem;
+  sizes: string;
+  loading?: "lazy" | "eager";
+}) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
   return (
     <div className="relative aspect-square overflow-hidden bg-muted">
@@ -15,6 +23,7 @@ export function NftArtwork({ item, sizes }: { item: MarketplaceItem; sizes: stri
           alt={item.name}
           fill
           sizes={sizes}
+          loading={loading}
           className="object-contain"
           onError={() => setFailedSource(item.image)}
         />

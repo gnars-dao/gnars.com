@@ -110,7 +110,7 @@ test("provider failure is not rendered as an empty successful marketplace", asyn
   await page.goto("/marketplace", { waitUntil: "domcontentloaded" });
   await page.getByRole("tab", { name: "For sale", exact: true }).click();
   await page.getByRole("button", { name: "Refresh listings", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "Couldn't load" })).toBeVisible({
+  await expect(page.getByRole("alert").filter({ hasText: "Couldn't load" }).first()).toBeVisible({
     timeout: 15000,
   });
   await expect(page.getByText("No active listings found.")).not.toBeVisible();
@@ -145,15 +145,21 @@ test("mobile cards keep exact prices and multiple sources inside their bounds", 
   );
   await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
-  const card = page.getByRole("button", { name: "Ver Gnar #42", exact: true });
+  const card = page
+    .locator('section[aria-labelledby="sale-band-native"]')
+    .getByRole("button", { name: "Ver Gnar #42", exact: true });
   await expect(card.getByText("1e-18 ETH", { exact: true })).toBeVisible();
   await expect(card.getByTitle("0.000000000000000001 ETH")).toHaveAttribute(
     "aria-label",
     "0.000000000000000001 ETH",
   );
-  await expect(card.getByText("OpenSea", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator('section[aria-labelledby="sale-band-opensea"]')
+      .getByText("OpenSea", { exact: true }),
+  ).toBeVisible();
   await expect(card.getByText("Seaport", { exact: true })).toBeVisible();
-  await expect(card.getByTitle("2 anúncios")).toBeVisible();
+  await expect(card.getByTitle("2 anúncios")).not.toBeVisible();
   expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

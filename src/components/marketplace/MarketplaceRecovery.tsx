@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMarketplaceActions } from "@/hooks/use-marketplace-actions";
+import { Link } from "@/i18n/navigation";
 import { MarketplaceError } from "./MarketplaceError";
 
 export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?: boolean }) {
@@ -97,13 +98,14 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
         : actions.phase === "signing"
           ? 1
           : 0;
+  const collectionAddress = actions.recovery?.input?.collectionAddress;
+  const recoveryTitle = actions.recovery
+    ? t(collectionAddress ? "community.recoveryTitle" : "recoveryTitle", {
+        id: actions.recovery.tokenId,
+      })
+    : t("steps.error");
   return (
-    <section
-      aria-label={
-        actions.recovery ? t("recoveryTitle", { id: actions.recovery.tokenId }) : t("steps.error")
-      }
-      className="space-y-3 border-y py-4"
-    >
+    <section aria-label={recoveryTitle} className="space-y-3 border-y py-4">
       {actions.recovery && (
         <div className="flex items-center gap-2">
           {actions.isBusy ? (
@@ -116,9 +118,20 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
               ? actions.listingOutcome
                 ? t("statusVerified")
                 : t(`completed.${actions.recovery.kind}`)
-              : t("recoveryTitle", { id: actions.recovery.tokenId })}
+              : recoveryTitle}
           </h2>
         </div>
+      )}
+      {collectionAddress && (
+        <p className="break-all text-xs text-muted-foreground">
+          {t("community.collectionAddress")}:{" "}
+          <Link
+            href={`/members/${collectionAddress}`}
+            className="font-mono underline underline-offset-4"
+          >
+            {collectionAddress}
+          </Link>
+        </p>
       )}
       {actions.recovery?.input && (
         <p className="font-mono text-xs tabular-nums">

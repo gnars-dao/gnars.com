@@ -91,7 +91,11 @@ export function MarketplaceCard({
       onPointerMove={reflect}
       onPointerLeave={resetReflection}
       onPointerCancel={resetReflection}
-      aria-label={t("details", { id: item.tokenId })}
+      aria-label={
+        item.collectionAddress
+          ? t("community.details", { name: item.name })
+          : t("details", { id: item.tokenId })
+      }
       style={
         {
           "--card-rotate-x": "0deg",
@@ -120,8 +124,11 @@ export function MarketplaceCard({
 
       <div className="flex w-full flex-1 flex-col gap-2 p-2.5 md:gap-3 md:p-4">
         <div className="min-w-0">
-          <p className="mb-1 hidden text-[10px] font-medium uppercase text-muted-foreground sm:block">
-            {t("collection")}
+          <p
+            className="mb-1 hidden truncate text-[10px] font-medium uppercase text-muted-foreground sm:block"
+            title={item.collectionName}
+          >
+            {item.collectionName ?? t("collection")}
           </p>
           <h2 className="truncate text-sm font-semibold md:text-base" title={item.name}>
             {item.name}

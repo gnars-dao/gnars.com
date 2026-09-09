@@ -4,7 +4,8 @@
 
 `/marketplace` and `/pt-br/marketplace` trade the existing Gnars DAO ERC721 on Base,
 using `DAO_ADDRESSES.token`. This is not the $GNARS ERC20, the primary auction,
-or a new NFT collection. Community collections, ERC1155, offers, auctions,
+or a new NFT collection. Community ERC721 collections have a separate submission
+flow and order book on the Gnars contract. ERC1155, offers, auctions,
 cross-chain payments and collection deployment are outside this release.
 
 The default server-rendered view shows for-sale listings first, with NFT metadata
@@ -15,7 +16,9 @@ The collection grid does not claim that missing price data means an NFT is unlis
 The frontend includes collection, for-sale, owned-inventory and owner-listings
 (`selling`) views, exact token-ID search and direct links to an NFT drawer.
 The URL preserves `view`, `q` (token ID) and `nft` (selected NFT); browser navigation
-restores them. Wallet-scoped views always use the connected write account.
+restores them. Community NFT links also include `collection`, so identical token
+IDs from different collections never share a drawer or query identity.
+Wallet-scoped views always use the connected write account.
 Cards show the best loaded supported offer and its source. This is not a claim
 that the entire collection has been globally sorted or that every order type is
 supported.
@@ -31,7 +34,8 @@ unchanged for signing, execution and the detail view.
   listings on Base only. Detail requests fetch the best supported external listing.
   Sellers can approve a single Gnars NFT to OpenSea's canonical conduit, sign an order, and publish
   directly to OpenSea without a local database. The sell form explicitly chooses
-  among the configured destinations; it never changes the destination silently.
+  among the configured destinations, with logos. A new review defaults to the
+  Gnars contract when available; an existing signed attempt keeps its destination.
 - Gnars: PostgreSQL stores signed Seaport orders. NFTs remain in the seller wallet.
   Listing approval is per NFT, followed by EIP-712 signing and publication.
   These local orders are not automatically cross-posted to OpenSea.
@@ -41,8 +45,8 @@ unchanged for signing, execution and the detail view.
   and its own storage readiness. It is not live merely because its code exists.
 - OpenSea and Gnars (`gnars`) retain canonical Seaport 1.6,
   `0x0000000000000068F116a894984e2DB1123eB395`. The custom destination uses only
-  `NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS`. Neither local destination adds a
-  platform fee; applicable collection royalties are still included by the app.
+  `NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS`. Native Gnars listings retain their
+  royalty-only pricing. Community listings use the explicit fee policy below.
 - New OpenSea listings use the canonical conduit key and operator
   `0x1e0049783f008a0085193e00003d00cd54003c71`; Gnars-native listings use direct
   Seaport approvals to their selected protocol address. Legacy zero-conduit signed orders remain readable and
@@ -79,6 +83,61 @@ unchanged for signing, execution and the detail view.
   pass ERC1271. Counterfactual signatures are not accepted as EOA signatures.
 
 ## Drawer And Recovery
+
+The for-sale view has three ordered bands: locally listed Gnars (custom contract
+and canonical Seaport book), community NFTs, then OpenSea Gnars. Each band retains
+its own offers/prices; community pagination and errors are independent.
+
+## Community Listings
+
+The animated submission drawer has asset, terms and publication steps. Only the
+actual signer holding at least six Gnars may submit a new community listing.
+The server rechecks `balanceOf(offerer)` on Base; the client gate is not authority.
+The holder requirement does not restrict buyers or seller cancellation.
+Collection/token identity, ERC721 support, ownership, approval, signature, exact
+fee consideration and royalties are validated before publication. Metadata comes
+from a bounded Alchemy request, not an arbitrary caller-supplied URL.
+
+`MARKETPLACE_COMMUNITY_FEE_BPS` must be explicitly configured; blank fails closed,
+not zero. Its recipient is pinned to
+`0x15e69fd67dcc17e061ceeb93dac791e0f5af0eae`. The signed order routes that fee on
+settlement. Network gas and third-party royalties are not redirected. Each order
+stores its fee policy snapshot, preserving old orders after rate changes.
+
+Apply `scripts/marketplace-community-schema.sql` with the local admin connection.
+It adds isolated community orders and moderation audit tables, with RLS and
+restricted runtime grants. Existing native orders are not migrated or rewritten.
+No fee rate or administrator list is supplied by default.
+
+`MARKETPLACE_COMMUNITY_ADMIN_ADDRESSES` defines moderators. Hide/restore requests
+require signed wallet authorization binding action, order, expected revision,
+reason, protocol and builder code. A durable unique nonce and atomic revision
+update prevent replay. Hidden orders disappear from the public feed and the site
+refuses fulfillment. The admin queue can restore them. This is site moderation,
+not an onchain cancellation: a previously shared signature remains executable
+directly until the seller cancels or the order expires. Moderation signatures are
+offchain authorizations, not Base leaderboard transactions.
+
+The seller-management section under `selling` signs a read-only request to
+`/api/marketplace/community/manage`. It includes the signer's hidden active
+listings so moderation never removes their cancellation controls. This request
+does not require six Gnars or an enabled current fee policy. Seller identity is
+derived from the signature, never a query-string wallet.
+
+Verification commands:
+
+- `node scripts/marketplace-community-smoke.mjs`: rollback-only restricted-role
+  PostgreSQL permissions, holder constraint, nonce and revision checks.
+- `pnpm exec tsx scripts/community-marketplace-fork.ts`: isolated localhost Base
+  fork, fixture ERC721, explicit test-only fee and royalty, exact seller/split/
+  creator payouts, tagged transactions, cancellation and replay rejection.
+- `tests/e2e/marketplace-community.spec.ts` and `marketplace-sale-bands.spec.ts`:
+  responsive submission, eligibility failures and collection-qualified links.
+
+Selector branding uses the [official OpenSea logomark](https://docs.opensea.io/docs/logos)
+and the Seaport mark from its [protocol announcement](https://opensea.io/blog/articles/introducing-seaport-protocol).
+
+## Detail Recovery
 
 Selected NFTs open in a right-side drawer at desktop widths (768px+) and a bottom
 drawer on mobile. A fixed header keeps close/back controls visible; the interior

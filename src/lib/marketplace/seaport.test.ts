@@ -13,6 +13,7 @@ import { entryPoint06Abi } from "viem/account-abstraction";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { COMMUNITY_FEE_RECIPIENT } from "./community-policy";
 import { OPENSEA_CONDUIT_ADDRESS, OPENSEA_CONDUIT_KEY } from "./routing";
 import {
   canAbandonMarketplaceSignature,
@@ -95,7 +96,130 @@ function client(order: SignedListing, overrides: Record<string, unknown> = {}) {
   } as unknown as SeaportClient;
 }
 
+describe("community ERC721 Seaport orders", () => {
+  const custom = "0x3333333333333333333333333333333333333333" as Address;
+  const collection = "0x4444444444444444444444444444444444444444" as Address;
+  const feePolicy = { basisPoints: 250, recipient: COMMUNITY_FEE_RECIPIENT };
+  const options = { source: "gnars-contract" as const, collectionAddress: collection, feePolicy };
+  function communityOrder() {
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    const order = listing();
+    order.parameters.offer[0].token = collection;
+    const payment = order.parameters.consideration[0];
+    order.parameters.consideration = [
+      { ...payment, startAmount: "925000000000000000", endAmount: "925000000000000000" },
+      {
+        ...payment,
+        recipient: COMMUNITY_FEE_RECIPIENT,
+        startAmount: "25000000000000000",
+        endAmount: "25000000000000000",
+      },
+      {
+        ...payment,
+        recipient: royaltyRecipient,
+        startAmount: "50000000000000000",
+        endAmount: "50000000000000000",
+      },
+    ];
+    return order;
+  }
+  it("requires explicit collection and fee policy; legacy routes stay DAO-only", () => {
+    const order = communityOrder();
+    expect(validateListingStructure(order, options)).toEqual(order);
+    expect(() => validateListingStructure(order, { source: "gnars-contract" })).toThrow();
+    expect(() => validateListingStructure(order, { ...options, feePolicy: undefined })).toThrow();
+    expect(() => validateListingStructure(order, { ...options, source: "gnars" })).toThrow();
+    expect(() =>
+      validateListingStructure(order, { ...options, collectionAddress: royaltyRecipient }),
+    ).toThrow();
+    order.parameters.offer[0].itemType = 3;
+    expect(() => validateListingStructure(order, options)).toThrow();
+  });
+  it.each(["recipient", "amount", "rate", "extra"])("rejects altered community %s", (field) => {
+    const order = communityOrder();
+    if (field === "recipient") order.parameters.consideration[1].recipient = royaltyRecipient;
+    if (field === "amount")
+      order.parameters.consideration[1].startAmount = order.parameters.consideration[1].endAmount =
+        "1";
+    if (field === "extra")
+      order.parameters.consideration.push({ ...order.parameters.consideration[1] });
+    expect(() =>
+      validateListingStructure(
+        order,
+        field === "rate" ? { ...options, feePolicy: { ...feePolicy, basisPoints: 500 } } : options,
+      ),
+    ).toThrow();
+  });
+  it("checks ownership, royalty, approval and signature against the selected collection and custom domain", async () => {
+    const order = communityOrder();
+    order.signature = await account.signTypedData(getListingTypedData(order.parameters, options));
+    const reader = client(order, {
+      getApproved: custom,
+      supportsInterface: true,
+      royaltyInfo: [royaltyRecipient, 50000000000000000n],
+    });
+    await expect(validateListingOnchain(reader, order, options)).resolves.toEqual({
+      orderHash: getListingOrderHash(order.parameters),
+    });
+    for (const [call] of vi.mocked(reader.readContract).mock.calls) {
+      if (
+        ["ownerOf", "getApproved", "supportsInterface", "royaltyInfo"].includes(call.functionName)
+      )
+        expect(call.address).toBe(collection);
+    }
+    expect(getListingFulfillment(order, options).to).toBe(custom);
+    const decoded = decodeFunctionData({
+      abi: seaportAbi,
+      data: getListingCancellation(order, options).data,
+    });
+    expect(decoded.functionName).toBe("cancel");
+    if (decoded.functionName === "cancel")
+      expect(decoded.args[0][0].offer[0].token.toLowerCase()).toBe(collection);
+    await expect(
+      validateListingOnchain(
+        client(order, { getApproved: custom, supportsInterface: false }),
+        order,
+        options,
+      ),
+    ).rejects.toThrow("ERC721");
+    await expect(
+      validateListingOnchain(
+        client(order, {
+          getApproved: custom,
+          supportsInterface: true,
+          royaltyInfo: [royaltyRecipient, 0n],
+        }),
+        order,
+        options,
+      ),
+    ).rejects.toThrow("royalty");
+  });
+  it("cancels with the signed policy snapshot even after fee configuration changes", () => {
+    const order = communityOrder();
+    vi.stubEnv("MARKETPLACE_COMMUNITY_FEE_BPS", "500");
+    expect(getListingCancellation(order, options).to).toBe(custom);
+    vi.stubEnv("MARKETPLACE_COMMUNITY_FEE_BPS", "");
+    expect(getListingCancellation(order, options).to).toBe(custom);
+  });
+});
+
 describe("canonical Gnars Seaport orders", () => {
+  it("accepts ECDSA signed orders from delegated EOAs without requiring EIP1271", async () => {
+    const order = listing();
+    order.signature = await account.signTypedData(getListingTypedData(order.parameters));
+    const reader = client(order, {
+      isValidSignature: new Error("EOA delegation need not support EIP1271"),
+    });
+    vi.mocked(reader.getCode).mockResolvedValue(`0xef0100${royaltyRecipient.slice(2)}`);
+    await expect(validateListingOnchain(reader, order)).resolves.toEqual({
+      orderHash: getListingOrderHash(order.parameters),
+    });
+    expect(
+      vi
+        .mocked(reader.readContract)
+        .mock.calls.some(([call]) => call.functionName === "isValidSignature"),
+    ).toBe(false);
+  });
   it("separates custom signature domain, reads, approvals and transaction targets", async () => {
     const custom = "0x3333333333333333333333333333333333333333";
     vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);

@@ -23,12 +23,18 @@ import {
   hasConfirmedMarketplaceApproval,
 } from "@/lib/marketplace/approval";
 import { generateMarketplaceSalt } from "@/lib/marketplace/attribution";
+import {
+  marketplaceCollectionAddress,
+  MIN_COMMUNITY_GNARS,
+  validateCommunityFeePolicy,
+} from "@/lib/marketplace/community-policy";
 import { parseMarketplaceApiError } from "@/lib/marketplace/errors";
 import {
   assertMarketplaceJournalProtocol,
   assertPublishedListing,
   canCancelSavedListing,
   listingSource,
+  parseCommunityQuote,
   parseOpenSeaQuote,
   sameListingQuote,
   type MarketplaceListingQuote,
@@ -65,12 +71,14 @@ import {
   validateListingOnchain,
   validateListingStructure,
   verifyMarketplaceTransaction,
+  type ListingSourceOptions,
   type MarketplaceTransactionIntent,
   type OrderComponents,
   type SignedListing,
 } from "@/lib/marketplace/seaport";
+import { isMarketplaceWalletRejection } from "@/lib/marketplace/wallet-request";
 import { getThirdwebClient } from "@/lib/thirdweb";
-import { ensureOnChain, normalizeTxError, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
+import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
 import type { MarketplaceOffer, MarketplaceSource } from "@/types/marketplace";
 
 export type MarketplacePhase =
@@ -91,7 +99,8 @@ export type MarketplaceActionError = {
   retryable?: boolean;
   requestId?: string;
 };
-type ListInput = {
+export type ListInput = {
+  collectionAddress?: Address;
   tokenId: string;
   priceEth: string;
   durationDays: number;
@@ -101,6 +110,7 @@ type ListInput = {
   expectedQuote?: MarketplaceListingQuote;
 };
 type Journal = {
+  collectionAddress?: Address;
   version: 1;
   account: Address;
   id: string;
@@ -128,6 +138,29 @@ type Entry = {
 const entries = new Map<string, Entry>();
 const keyFor = (account: Address) => `gnars:marketplace:v1:8453:${account.toLowerCase()}`;
 const notify = (entry: Entry) => entry.listeners.forEach((listener) => listener());
+function journalOptions(value: Journal): ListingSourceOptions {
+  const identity = value.kind === "list" ? value.input : value.offer;
+  const collectionAddress = identity?.collectionAddress;
+  if (
+    (value.collectionAddress === undefined) !== (collectionAddress === undefined) ||
+    !isAddressEqual(
+      marketplaceCollectionAddress(value.collectionAddress),
+      marketplaceCollectionAddress(collectionAddress),
+    )
+  )
+    throw new Error("Saved collection does not match this attempt");
+  return {
+    source: listingSource(identity),
+    ...(collectionAddress
+      ? {
+          collectionAddress,
+          feePolicy:
+            value.kind === "list" ? value.input?.expectedQuote?.feePolicy : value.offer?.feePolicy,
+        }
+      : {}),
+  };
+}
+const communityPrefix = (collectionAddress?: Address) => (collectionAddress ? "/community" : "");
 function read(account: Address): Journal | null {
   const raw = localStorage.getItem(keyFor(account));
   if (!raw) return null;
@@ -144,11 +177,18 @@ function parseJournal(raw: string, account: Address): Journal {
     throw new Error("Invalid saved marketplace attempt");
   if (value.kind === "list") listingSource(value.input);
   assertMarketplaceJournalProtocol(value);
+  const options = journalOptions(value);
   if (value.listing)
     validateListingStructure(value.listing, {
       allowExpired: true,
-      source: value.kind === "list" ? listingSource(value.input) : (value.offer?.source ?? "gnars"),
+      ...options,
     });
+  if (
+    value.listing &&
+    (value.listing.parameters.offer[0].identifierOrCriteria !== value.tokenId ||
+      (value.kind !== "buy" && !isAddressEqual(value.listing.parameters.offerer, account)))
+  )
+    throw new Error("Saved signed order does not match this NFT or owner");
   if (
     ![
       "idle",
@@ -412,8 +452,7 @@ export function useMarketplaceActions() {
           const saved = read(owner);
           if (saved?.id !== intent.id || saved.phase === "complete" || saved.txStep !== step)
             return;
-          const rejected =
-            !lateHash && !saved.txHash && normalizeTxError(reason).category === "user-rejected";
+          const rejected = !lateHash && !saved.txHash && isMarketplaceWalletRejection(reason);
           save(entry, {
             ...saved,
             txHash: saved.txHash ?? lateHash,
@@ -469,10 +508,17 @@ export function useMarketplaceActions() {
             listingOutcome: "cancelled",
             error: undefined,
           });
-          await api(saved.offer?.source === "opensea" ? "/opensea/reconcile" : "/reconcile", {
-            orderHash,
-            ...(saved.offer?.source === "gnars-contract" ? { source: "gnars-contract" } : {}),
-          }).catch(() => {});
+          await api(
+            saved.offer?.source === "opensea"
+              ? "/opensea/reconcile"
+              : `${communityPrefix(saved.collectionAddress)}/reconcile`,
+            {
+              orderHash,
+              ...(!saved.collectionAddress && saved.offer?.source === "gnars-contract"
+                ? { source: "gnars-contract" }
+                : {}),
+            },
+          ).catch(() => {});
           return;
         }
       }
@@ -480,6 +526,7 @@ export function useMarketplaceActions() {
         saved.transactionIntent,
         owner,
         saved.tokenId,
+        saved.collectionAddress,
       );
       if (
         saved.kind === "list" &&
@@ -487,7 +534,13 @@ export function useMarketplaceActions() {
         saved.txHash &&
         !saved.listing &&
         approvalOperator &&
-        (await hasConfirmedMarketplaceApproval(client(), owner, saved.tokenId, approvalOperator))
+        (await hasConfirmedMarketplaceApproval(
+          client(),
+          owner,
+          saved.tokenId,
+          approvalOperator,
+          saved.collectionAddress,
+        ))
       ) {
         // Preserve the observed hash for audit; it is not proof that its receipt succeeded.
         save(entry, {
@@ -532,6 +585,7 @@ export function useMarketplaceActions() {
               owner,
               saved.tokenId,
               approvalOperator,
+              saved.collectionAddress,
             ))
           )
             throw new Error("NFT approval is not confirmed");
@@ -561,7 +615,7 @@ export function useMarketplaceActions() {
             throw new Error("Marketplace execution is not confirmed");
           if (saved.kind === "buy") {
             const nftOwner = await client().readContract({
-              address: DAO_ADDRESSES.token,
+              address: marketplaceCollectionAddress(saved.collectionAddress),
               abi: erc721Abi,
               functionName: "ownerOf",
               args: [BigInt(saved.tokenId)],
@@ -570,17 +624,26 @@ export function useMarketplaceActions() {
               throw new Error("The purchased NFT is not owned by this buyer");
           }
           save(entry, { ...saved, phase: "complete", error: undefined });
-          await api(saved.offer?.source === "opensea" ? "/opensea/reconcile" : "/reconcile", {
-            orderHash,
-            ...(saved.offer?.source === "gnars-contract" ? { source: "gnars-contract" } : {}),
-          }).catch(() => {});
+          await api(
+            saved.offer?.source === "opensea"
+              ? "/opensea/reconcile"
+              : `${communityPrefix(saved.collectionAddress)}/reconcile`,
+            {
+              orderHash,
+              ...(!saved.collectionAddress && saved.offer?.source === "gnars-contract"
+                ? { source: "gnars-contract" }
+                : {}),
+            },
+          ).catch(() => {});
           return;
         }
       }
       if (saved.kind === "list" && saved.listing) {
-        const outcome = await inspectSavedMarketplaceListing(client(), saved.listing, {
-          source: listingSource(saved.input),
-        });
+        const outcome = await inspectSavedMarketplaceListing(
+          client(),
+          saved.listing,
+          journalOptions(saved),
+        );
         if (outcome)
           save(entry, { ...saved, phase: "complete", listingOutcome: outcome, error: undefined });
         else {
@@ -599,9 +662,11 @@ export function useMarketplaceActions() {
       const current = read(saved.account);
       if (current?.id !== saved.id) return;
       if (!current.listing) throw new Error("Missing signed marketplace order");
-      const outcome = await inspectSavedMarketplaceListing(client(), current.listing, {
-        source: listingSource(current.input),
-      });
+      const outcome = await inspectSavedMarketplaceListing(
+        client(),
+        current.listing,
+        journalOptions(current),
+      );
       if (outcome) {
         save(entry, { ...current, phase: "complete", listingOutcome: outcome, error: undefined });
         return;
@@ -609,10 +674,15 @@ export function useMarketplaceActions() {
       if (!canRetryMarketplacePublication(current)) return;
       save(entry, { ...current, phase: "saving" });
       const source = listingSource(current.input);
-      const response = await api(source === "opensea" ? "/opensea/orders" : "/orders", {
-        listing: current.listing,
-        ...(source === "gnars-contract" ? { source } : {}),
-      });
+      const response = await api(
+        source === "opensea"
+          ? "/opensea/orders"
+          : `${communityPrefix(current.collectionAddress)}/orders`,
+        {
+          listing: current.listing,
+          ...(!current.collectionAddress && source === "gnars-contract" ? { source } : {}),
+        },
+      );
       assertPublishedListing(response.offer, current.listing, source);
       const latest = read(saved.account);
       if (latest?.id === saved.id) save(entry, { ...latest, phase: "complete", error: undefined });
@@ -623,19 +693,31 @@ export function useMarketplaceActions() {
     tokenId,
     priceEth,
     source = "gnars",
+    collectionAddress,
   }: {
     tokenId: string;
     priceEth: string;
     source?: MarketplaceSource;
+    collectionAddress?: Address;
   }): Promise<MarketplaceListingQuote> {
     if (!/^(0|[1-9]\d*)(\.\d{1,18})?$/.test(priceEth)) throw new Error("Invalid ETH precision");
     const price = parseEther(priceEth);
     if (price <= 0n) throw new Error("Invalid listing price");
+    if (collectionAddress && source !== "gnars-contract")
+      throw new Error("Community collections require the Gnars contract");
     if (source === "opensea") {
       const response = await api("/opensea/quote", { tokenId, priceWei: price.toString() });
       return parseOpenSeaQuote(response.quote, price.toString());
     }
-    const royalty = await getListingRoyalty(client(), BigInt(tokenId), price);
+    const royalty = await getListingRoyalty(client(), BigInt(tokenId), price, collectionAddress);
+    if (collectionAddress) {
+      const response = await api("/community/quote", {
+        collectionAddress,
+        tokenId,
+        priceWei: price.toString(),
+      });
+      return parseCommunityQuote(response.quote, price.toString(), royalty);
+    }
     return {
       priceWei: price.toString(),
       royaltyWei: royalty.amount.toString(),
@@ -653,6 +735,12 @@ export function useMarketplaceActions() {
           ? saved.input
           : input,
       );
+      const selectedInput =
+        saved && !canReplaceMarketplaceAttempt(saved) && saved.kind === "list"
+          ? saved.input!
+          : input;
+      if (selectedInput.collectionAddress && source !== "gnars-contract")
+        throw new Error("Community collections require the Gnars contract");
       const ready = await api("/readiness");
       if (
         !(source === "opensea"
@@ -666,6 +754,11 @@ export function useMarketplaceActions() {
         if (
           saved.kind !== "list" ||
           saved.tokenId !== input.tokenId ||
+          (saved.collectionAddress === undefined) !== (input.collectionAddress === undefined) ||
+          !isAddressEqual(
+            marketplaceCollectionAddress(saved.collectionAddress),
+            marketplaceCollectionAddress(input.collectionAddress),
+          ) ||
           !["signing", "saving", "approving"].includes(saved.phase)
         )
           throw new Error("Resolve the existing marketplace attempt");
@@ -692,6 +785,7 @@ export function useMarketplaceActions() {
             kind: "list",
             phase: "approving",
             tokenId: input.tokenId,
+            ...(input.collectionAddress ? { collectionAddress: input.collectionAddress } : {}),
             input: {
               ...input,
               ...(source === "gnars-contract"
@@ -703,11 +797,21 @@ export function useMarketplaceActions() {
         saved = entry.journal!;
       }
       const current = await prepareSigner(owner);
+      if (saved.collectionAddress) {
+        const balance = await client().readContract({
+          address: DAO_ADDRESSES.token,
+          abi: erc721Abi,
+          functionName: "balanceOf",
+          args: [owner],
+        });
+        if (balance < BigInt(MIN_COMMUNITY_GNARS))
+          throw new Error("Community sellers must own at least six Gnars");
+      }
       const code = await client().getCode({ address: owner });
       if (current.wallet.id === "smart" && (!code || code === "0x"))
         throw new Error("Deploy this smart account before listing, or select the NFT-owning EOA");
       const actualOwner = await client().readContract({
-        address: DAO_ADDRESSES.token,
+        address: marketplaceCollectionAddress(saved.collectionAddress),
         abi: erc721Abi,
         functionName: "ownerOf",
         args: [BigInt(saved.tokenId)],
@@ -720,18 +824,35 @@ export function useMarketplaceActions() {
         throw new Error("Listing fees changed; review the price again");
       if (source === "opensea" && !fixed.expectedQuote)
         throw new Error("Review OpenSea fees before listing");
+      if (fixed.collectionAddress && (!fixed.expectedQuote?.feePolicy || !amounts.feePolicy))
+        throw new Error("Review the community fee quote before listing");
+      const listingOptions: ListingSourceOptions = {
+        source,
+        ...(fixed.collectionAddress
+          ? {
+              collectionAddress: fixed.collectionAddress,
+              feePolicy: amounts.feePolicy,
+            }
+          : {}),
+      };
       if (fixed.expectedRoyaltyWei !== undefined && fixed.expectedRoyaltyWei !== amounts.royaltyWei)
         throw new Error("The collection royalty changed; review the price again");
       const conduitKey = getListingConduitKey(source);
       const approvalOperator = getConduitOperator(conduitKey, source);
       if (
-        !(await hasConfirmedMarketplaceApproval(client(), owner, saved.tokenId, approvalOperator))
+        !(await hasConfirmedMarketplaceApproval(
+          client(),
+          owner,
+          saved.tokenId,
+          approvalOperator,
+          saved.collectionAddress,
+        ))
       ) {
         await broadcast(
           entry,
           owner,
           {
-            to: DAO_ADDRESSES.token,
+            to: marketplaceCollectionAddress(saved.collectionAddress),
             data: encodeFunctionData({
               abi: erc721Abi,
               functionName: "approve",
@@ -764,7 +885,7 @@ export function useMarketplaceActions() {
         offer: [
           {
             itemType: 2,
-            token: DAO_ADDRESSES.token,
+            token: marketplaceCollectionAddress(saved.collectionAddress),
             identifierOrCriteria: saved.tokenId,
             startAmount: "1",
             endAmount: "1",
@@ -785,7 +906,7 @@ export function useMarketplaceActions() {
         conduitKey,
         counter: counter.toString(),
       };
-      validateListingStructure({ parameters, signature: "0x00" }, { source });
+      validateListingStructure({ parameters, signature: "0x00" }, listingOptions);
       const currentQuote = await quote(fixed);
       if (!sameListingQuote(currentQuote, amounts))
         throw new Error("Listing fees changed; review the price again");
@@ -796,9 +917,9 @@ export function useMarketplaceActions() {
         save(entry, { ...entry.journal!, phase: "unknown", signatureRequestSettled: false });
       });
       const pending = signer(owner)
-        .account.signTypedData(getListingTypedData(parameters, { source }))
+        .account.signTypedData(getListingTypedData(parameters, listingOptions))
         .then(async (signature) => {
-          const listing = validateListingStructure({ parameters, signature }, { source });
+          const listing = validateListingStructure({ parameters, signature }, listingOptions);
           if (source === "opensea") validateOpenSeaListingFees(listing, amounts);
           const accepted = await locked(owner, async () => {
             const latest = read(owner);
@@ -807,14 +928,17 @@ export function useMarketplaceActions() {
             return true;
           });
           if (!accepted) return;
-          await validateListingOnchain(client(), listing, { requireApproval: true, source });
+          await validateListingOnchain(client(), listing, {
+            requireApproval: true,
+            ...listingOptions,
+          });
           await publish(entry, { ...saved!, listing, phase: "saving" });
         })
         .catch(async (reason) => {
           await locked(owner, async () => {
             const latest = read(owner);
             if (latest?.id !== saved!.id) return;
-            const rejected = normalizeTxError(reason).category === "user-rejected";
+            const rejected = isMarketplaceWalletRejection(reason);
             save(entry, {
               ...latest,
               signatureRequestSettled: true,
@@ -843,6 +967,8 @@ export function useMarketplaceActions() {
     tokenId: string,
     offer: MarketplaceOffer,
   ) {
+    if (offer.collectionAddress && offer.source !== "gnars-contract")
+      throw new Error("Community collections require the Gnars contract");
     const ready = await api("/readiness");
     if (
       offer.source !== "opensea" &&
@@ -914,12 +1040,29 @@ export function useMarketplaceActions() {
       await broadcast(entry, owner, tx, "buy");
       return;
     }
-    const { listing: raw } = await api(
-      `/orders/${offer.orderHash}${offer.source === "gnars-contract" ? "?source=gnars-contract" : ""}`,
+    const { listing: raw, feePolicy } = await api(
+      `${communityPrefix(offer.collectionAddress)}/orders/${offer.orderHash}${!offer.collectionAddress && offer.source === "gnars-contract" ? "?source=gnars-contract" : ""}`,
     );
+    const options: ListingSourceOptions = {
+      source: offer.source,
+      ...(offer.collectionAddress
+        ? {
+            collectionAddress: offer.collectionAddress,
+            feePolicy: validateCommunityFeePolicy(feePolicy),
+          }
+        : {}),
+    };
+    if (
+      offer.feePolicy &&
+      options.feePolicy &&
+      (offer.feePolicy.basisPoints !== options.feePolicy.basisPoints ||
+        !isAddressEqual(offer.feePolicy.recipient, options.feePolicy.recipient))
+    )
+      throw new Error("Marketplace fee policy changed");
+    if (options.feePolicy) offer = { ...offer, feePolicy: options.feePolicy };
     const listing = validateListingStructure(raw, {
       allowExpired: kind === "cancel",
-      source: offer.source,
+      ...options,
     });
     if (!isAddressEqual(offer.protocolAddress, getMarketplaceProtocolAddress(offer.source)))
       throw new Error("Marketplace protocol changed");
@@ -932,23 +1075,24 @@ export function useMarketplaceActions() {
     if (kind === "cancel" && !isAddressEqual(owner, listing.parameters.offerer))
       throw new Error("Only the listing owner can cancel");
     if (kind === "buy") {
-      await validateListingOnchain(client(), listing, { source: offer.source });
+      await validateListingOnchain(client(), listing, options);
       if (isAddressEqual(owner, listing.parameters.offerer))
         throw new Error("The seller cannot buy their own listing");
     }
     const call =
       kind === "buy"
-        ? getListingFulfillment(listing, { source: offer.source })
-        : getListingCancellation(listing, { source: offer.source });
+        ? getListingFulfillment(listing, options)
+        : getListingCancellation(listing, options);
     if (kind === "buy" && call.value.toString() !== offer.priceWei)
       throw new Error("Marketplace price changed");
     if (kind === "buy") {
-      const response = await api("/fulfillment", {
+      const response = await api(`${communityPrefix(offer.collectionAddress)}/fulfillment`, {
         source: offer.source,
         orderHash: offer.orderHash,
         tokenId,
         buyer: owner,
         expectedPriceWei: offer.priceWei,
+        ...(offer.collectionAddress ? { collectionAddress: offer.collectionAddress } : {}),
       });
       if (
         response.transaction.chainId !== 8453 ||
@@ -970,6 +1114,7 @@ export function useMarketplaceActions() {
         kind,
         phase: kind === "buy" ? "buying" : "cancelling",
         tokenId,
+        ...(offer.collectionAddress ? { collectionAddress: offer.collectionAddress } : {}),
         offer,
         listing,
       });
@@ -990,7 +1135,13 @@ export function useMarketplaceActions() {
     canAbandonSignature: canAbandonMarketplaceSignature(visible),
     canCancelSavedListing: canCancelSavedListing(visible),
     recovery: visible
-      ? { tokenId: visible.tokenId, kind: visible.kind, input: visible.input, phase: visible.phase }
+      ? {
+          tokenId: visible.tokenId,
+          collectionAddress: visible.collectionAddress,
+          kind: visible.kind,
+          input: visible.input,
+          phase: visible.phase,
+        }
       : null,
     canResume: Boolean(
       visible &&
@@ -1040,7 +1191,7 @@ export function useMarketplaceActions() {
                   const call =
                     visible.kind === "cancel"
                       ? visible.listing
-                        ? getListingCancellation(visible.listing, { source: visible.offer!.source })
+                        ? getListingCancellation(visible.listing, journalOptions(visible))
                         : getOpenSeaCancellation(
                             await api(`/opensea/orders/${visible.offer!.orderHash}`),
                             {
@@ -1090,10 +1241,11 @@ export function useMarketplaceActions() {
           saved.kind === "cancel"
             ? (saved.offer?.source ?? listingSource(saved.input))
             : listingSource(saved.input);
-        const listing = validateListingStructure(saved.listing, { source, allowExpired: true });
+        const options = journalOptions(saved);
+        const listing = validateListingStructure(saved.listing, { ...options, allowExpired: true });
         if (!isAddressEqual(listing.parameters.offerer, owner))
           throw new Error("Only the listing owner can cancel");
-        const call = getListingCancellation(listing, { source });
+        const call = getListingCancellation(listing, options);
         await client().call({ account: owner, ...call });
         await locked(owner, async () => {
           const latest = read(owner);
@@ -1107,6 +1259,7 @@ export function useMarketplaceActions() {
             kind: "cancel",
             phase: "cancelling",
             tokenId: saved.tokenId,
+            ...(saved.collectionAddress ? { collectionAddress: saved.collectionAddress } : {}),
             listing,
             input: saved.input,
             offer: {
@@ -1118,6 +1271,9 @@ export function useMarketplaceActions() {
               priceWei: getListingPriceWei(listing).toString(),
               currency: "ETH",
               expiresAt: Number(listing.parameters.endTime),
+              ...(saved.collectionAddress
+                ? { collectionAddress: saved.collectionAddress, feePolicy: options.feePolicy }
+                : {}),
             },
           });
         });

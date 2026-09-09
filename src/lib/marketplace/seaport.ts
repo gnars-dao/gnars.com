@@ -16,8 +16,13 @@ import {
 } from "viem";
 import { entryPoint06Abi } from "viem/account-abstraction";
 import { z } from "zod";
-import { DAO_ADDRESSES } from "@/lib/config";
 import type { MarketplaceSource } from "@/types/marketplace";
+import {
+  getCommunityFeeWei,
+  marketplaceCollectionAddress,
+  validateCommunityFeePolicy,
+  type CommunityFeePolicy,
+} from "./community-policy";
 import { getConduitOperator, getMarketplaceProtocolAddress, OPENSEA_CONDUIT_KEY } from "./routing";
 
 export { SEAPORT_ADDRESS } from "./routing";
@@ -233,7 +238,19 @@ export const listingSchema = z
   .strict();
 export type SignedListing = z.infer<typeof listingSchema>;
 export type OrderComponents = SignedListing["parameters"];
-export type ListingSourceOptions = { source?: MarketplaceSource };
+export type ListingSourceOptions = {
+  source?: MarketplaceSource;
+  collectionAddress?: Address;
+  feePolicy?: CommunityFeePolicy;
+};
+const communityListingSchema = listingSchema.extend({
+  parameters: listingSchema.shape.parameters.extend({
+    consideration: z
+      .array(item.extend({ recipient: address }))
+      .min(1)
+      .max(3),
+  }),
+});
 const openSeaListingSchema = listingSchema.extend({
   parameters: listingSchema.shape.parameters.extend({
     consideration: z
@@ -256,7 +273,20 @@ export function validateListingStructure(
   options: ListingSourceOptions & { now?: number; allowExpired?: boolean } = {},
 ): SignedListing {
   getMarketplaceProtocolAddress(options.source);
-  const listing = (options.source === "opensea" ? openSeaListingSchema : listingSchema).parse(raw),
+  const community = options.collectionAddress !== undefined;
+  if (community && options.source !== "gnars-contract")
+    throw new Error("Community collections require the Gnars contract");
+  if (community) validateCommunityFeePolicy(options.feePolicy);
+  else if (options.feePolicy !== undefined)
+    throw new Error("Community collection required for fees");
+  const collection = marketplaceCollectionAddress(options.collectionAddress);
+  const listing = (
+      community
+        ? communityListingSchema
+        : options.source === "opensea"
+          ? openSeaListingSchema
+          : listingSchema
+    ).parse(raw),
     p = listing.parameters,
     nft = p.offer[0];
   if (
@@ -269,11 +299,11 @@ export function validateListingStructure(
     throw new Error("Unsupported Seaport routing");
   if (
     nft.itemType !== 2 ||
-    !isAddressEqual(nft.token, DAO_ADDRESSES.token) ||
+    !isAddressEqual(nft.token, collection) ||
     nft.startAmount !== "1" ||
     nft.endAmount !== "1"
   )
-    throw new Error("Only a single Gnars ERC721 is supported");
+    throw new Error("Only a single ERC721 from the selected collection is supported");
   if (!isAddressEqual(p.consideration[0].recipient, p.offerer))
     throw new Error("Seller proceeds must go to the offerer");
   for (const c of p.consideration)
@@ -286,6 +316,18 @@ export function validateListingStructure(
       isAddressEqual(c.recipient, zeroAddress)
     )
       throw new Error("Only fixed native ETH consideration is supported");
+  if (community) {
+    const fee = getCommunityFeeWei(getListingPriceWei(listing), options.feePolicy!);
+    if (
+      fee > 0n &&
+      (p.consideration.length < 2 ||
+        !isAddressEqual(p.consideration[1].recipient, options.feePolicy!.recipient) ||
+        BigInt(p.consideration[1].startAmount) !== fee)
+    )
+      throw new Error("Listing does not match the community fee policy");
+    if (p.consideration.length > (fee > 0n ? 3 : 2))
+      throw new Error("Unexpected community consideration");
+  }
   const start = BigInt(p.startTime),
     end = BigInt(p.endTime),
     now = BigInt(options.now ?? Math.floor(Date.now() / 1000));
@@ -345,16 +387,22 @@ export function getListingOrderHash(parameters: OrderComponents): Hex {
 const royaltyAbi = parseAbi([
   "function royaltyInfo(uint256 tokenId,uint256 salePrice) view returns(address receiver,uint256 royaltyAmount)",
 ]);
-export async function getListingRoyalty(client: SeaportClient, tokenId: bigint, price: bigint) {
+export async function getListingRoyalty(
+  client: SeaportClient,
+  tokenId: bigint,
+  price: bigint,
+  collectionAddress?: Address,
+) {
+  const collection = marketplaceCollectionAddress(collectionAddress);
   const supported = await client.readContract({
-    address: DAO_ADDRESSES.token,
+    address: collection,
     abi: parseAbi(["function supportsInterface(bytes4 interfaceId) view returns(bool)"]),
     functionName: "supportsInterface",
     args: ["0x2a55205a"],
   });
   if (!supported) return { recipient: zeroAddress as Address, amount: 0n };
   const [recipient, amount] = await client.readContract({
-    address: DAO_ADDRESSES.token,
+    address: collection,
     abi: royaltyAbi,
     functionName: "royaltyInfo",
     args: [tokenId, price],
@@ -392,15 +440,16 @@ export async function getListingStatus(
   });
   if (counter !== BigInt(p.counter)) return "invalid-counter";
   const tokenId = BigInt(p.offer[0].identifierOrCriteria);
+  const collection = marketplaceCollectionAddress(options.collectionAddress);
   const owner = await client.readContract({
-    address: DAO_ADDRESSES.token,
+    address: collection,
     abi: erc721Abi,
     functionName: "ownerOf",
     args: [tokenId],
   });
   if (!isAddressEqual(owner, p.offerer)) return "invalid-owner";
   const approved = await client.readContract({
-    address: DAO_ADDRESSES.token,
+    address: collection,
     abi: erc721Abi,
     functionName: "getApproved",
     args: [tokenId],
@@ -409,7 +458,7 @@ export async function getListingStatus(
   if (
     !isAddressEqual(approved, operator) &&
     !(await client.readContract({
-      address: DAO_ADDRESSES.token,
+      address: collection,
       abi: erc721Abi,
       functionName: "isApprovedForAll",
       args: [p.offerer, operator],
@@ -425,6 +474,16 @@ export async function validateListingOnchain(
 ) {
   const listing = validateListingStructure(raw, options),
     p = listing.parameters;
+  if (
+    options.collectionAddress !== undefined &&
+    !(await client.readContract({
+      address: marketplaceCollectionAddress(options.collectionAddress),
+      abi: parseAbi(["function supportsInterface(bytes4 interfaceId) view returns(bool)"]),
+      functionName: "supportsInterface",
+      args: ["0x80ac58cd"],
+    }))
+  )
+    throw new Error("Community collection must support ERC721");
   const status = await getListingStatus(client, listing, options);
   if (status !== "active" && !(status === "unapproved" && options.requireApproval === false))
     throw new Error(`Listing is ${status}`);
@@ -436,9 +495,20 @@ export async function validateListingOnchain(
     args: [orderValues(p)],
   });
   if (chainHash !== orderHash) throw new Error("Seaport order hash mismatch");
-  const code = await client.getCode({ address: p.offerer });
   const typed = getListingTypedData(p, options);
-  if (code && code !== "0x") {
+  // Seaport tries ECDSA first, including EOAs with EIP-7702 delegated code.
+  let recovered = false;
+  try {
+    recovered = isAddressEqual(
+      await recoverTypedDataAddress({ ...typed, signature: listing.signature }),
+      p.offerer,
+    );
+  } catch {
+    /* Contract-wallet signatures need not be ECDSA encoded. */
+  }
+  if (!recovered) {
+    const code = await client.getCode({ address: p.offerer });
+    if (!code || code === "0x") throw new Error("Invalid owner signature");
     const magic = await client.readContract({
       address: p.offerer,
       abi: parseAbi([
@@ -449,26 +519,26 @@ export async function validateListingOnchain(
     });
     if (magic !== "0x1626ba7e")
       throw new Error("Smart account does not support this Seaport signature");
-  } else if (
-    !isAddressEqual(
-      await recoverTypedDataAddress({ ...typed, signature: listing.signature }),
-      p.offerer,
-    )
-  )
-    throw new Error("Invalid owner signature");
+  }
   // OpenSea fees are checked against a fresh collection quote at publication.
   if (options.source === "opensea") return { orderHash };
   const royalty = await getListingRoyalty(
     client,
     BigInt(p.offer[0].identifierOrCriteria),
     getListingPriceWei(listing),
+    options.collectionAddress,
   );
+  const fee =
+    options.collectionAddress !== undefined
+      ? getCommunityFeeWei(getListingPriceWei(listing), options.feePolicy!)
+      : 0n;
+  const royaltyIndex = fee > 0n ? 2 : 1;
   if (
     royalty.amount === 0n
-      ? p.consideration.length !== 1
-      : p.consideration.length !== 2 ||
-        !isAddressEqual(p.consideration[1].recipient, royalty.recipient) ||
-        BigInt(p.consideration[1].startAmount) !== royalty.amount
+      ? p.consideration.length !== royaltyIndex
+      : p.consideration.length !== royaltyIndex + 1 ||
+        !isAddressEqual(p.consideration[royaltyIndex].recipient, royalty.recipient) ||
+        BigInt(p.consideration[royaltyIndex].startAmount) !== royalty.amount
   )
     throw new Error("Listing does not match the collection royalty");
   return { orderHash };

@@ -13,6 +13,10 @@ export function getConfiguredGnarsMarketplaceAddress(): string | undefined {
   return process.env.NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS;
 }
 
+export const MARKETPLACE_CONFIG = {
+  communityFeeRecipient: "0x15e69fd67dcc17e061ceeb93dac791e0f5af0eae",
+} as const;
+
 // Core Builder DAO addresses — override via env vars to deploy for a different DAO
 export const DAO_ADDRESSES = {
   token: (process.env.NEXT_PUBLIC_TOKEN_ADDRESS ||

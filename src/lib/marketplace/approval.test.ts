@@ -19,6 +19,25 @@ function fixture(owner: Address = account, approved: Address = SEAPORT_ADDRESS) 
   };
 }
 describe("confirmed listing approval recovery", () => {
+  it("does not confuse identical token IDs from different collections during recovery", async () => {
+    const collection = "0x4444444444444444444444444444444444444444";
+    const custom = "0x3333333333333333333333333333333333333333";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    const intent = {
+      account,
+      to: collection,
+      value: "0",
+      startedBlock: "100",
+      data: encodeFunctionData({ abi: erc721Abi, functionName: "approve", args: [custom, 42n] }),
+    } as const;
+    expect(getListingApprovalOperator(intent, account, "42", collection)).toBe(custom);
+    expect(getListingApprovalOperator(intent, account, "42")).toBeUndefined();
+    const reader = fixture(account, custom);
+    expect(await hasConfirmedMarketplaceApproval(reader, account, "42", custom, collection)).toBe(
+      true,
+    );
+    for (const [call] of reader.readContract.mock.calls) expect(call.address).toBe(collection);
+  });
   it("recovers only the configured custom contract and does not mistake canonical approval for it", async () => {
     const custom = "0x3333333333333333333333333333333333333333";
     vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);

@@ -382,16 +382,31 @@ async function setupWallet(
     throw new Error(`Unsupported mock RPC method: ${method}`);
   }
 
-  await page.exposeFunction("marketplaceTestRpc", rpc);
+  await page.exposeFunction("marketplaceTestRpc", async (input: RpcInput) => {
+    try {
+      return { result: await rpc(input) };
+    } catch (error) {
+      const failure = error as Error & { code?: number | string };
+      return { error: { message: failure.message, code: failure.code } };
+    }
+  });
   await page.addInitScript(() => {
     localStorage.setItem("gnars:view-as", "eoa");
     const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
     const provider = {
       isMetaMask: true,
-      request: (input: unknown) =>
-        (
-          window as unknown as { marketplaceTestRpc(input: unknown): Promise<unknown> }
-        ).marketplaceTestRpc(input),
+      request: async (input: unknown) => {
+        const response = await (
+          window as unknown as {
+            marketplaceTestRpc(
+              input: unknown,
+            ): Promise<{ result?: unknown; error?: { message: string; code?: number | string } }>;
+          }
+        ).marketplaceTestRpc(input);
+        if (response.error)
+          throw Object.assign(new Error(response.error.message), { code: response.error.code });
+        return response.result;
+      },
       on(event: string, callback: (...args: unknown[]) => void) {
         (listeners[event] ??= []).push(callback);
         return provider;
