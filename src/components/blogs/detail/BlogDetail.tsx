@@ -136,7 +136,14 @@ export function BlogDetail({ blog }: BlogDetailProps) {
           </div>
         </CardHeader>
         <CardContent>
-          <Markdown className="prose-lg">{blog.markdown || ""}</Markdown>
+          {/* staticHtml preserva tabelas; o markdown do Paragraph as achata. */}
+          {blog.staticHtml ? (
+            <Markdown className="prose-lg" allowHtml>
+              {blog.staticHtml}
+            </Markdown>
+          ) : (
+            <Markdown className="prose-lg">{blog.markdown || ""}</Markdown>
+          )}
         </CardContent>
       </Card>
     </div>
