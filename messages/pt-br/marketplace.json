@@ -20,6 +20,12 @@
     "findNft": "Buscar NFT",
     "wallet": {
       "title": "Seus NFTs na Base",
+      "collection": "Filtrar coleção",
+      "searchPlaceholder": "Contrato ou link da OpenSea na Base",
+      "searchCollection": "Buscar coleção",
+      "clearCollection": "Limpar filtro de coleção",
+      "invalidCollection": "Informe um endereço de contrato ou link de NFT da OpenSea na Base.",
+      "unsupportedErc1155": "NFTs ERC-1155 encontrados. Este fluxo de anúncio aceita apenas ERC-721.",
       "loading": "Carregando seus NFTs...",
       "empty": "Nenhum NFT compatível encontrado nesta carteira.",
       "error": "Não foi possível carregar os NFTs da carteira. Tente novamente.",

@@ -309,6 +309,89 @@ test("community submission requires six Gnars and fails closed below the thresho
 });
 
 for (const mobile of [false, true]) {
+  test(`wallet collection search finds indexed NFTs without scanning every page ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(
+      mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+    );
+    const state = await setup(page);
+    const skatehive = "0xfe10d3ce1b0f090935670368ec6de00d8d965523";
+    const nogglesboard = "0x9580c826076bcba116ce4729ec243290c2e3b441";
+    const requests: URLSearchParams[] = [];
+    await page.route("**/api/marketplace/community/wallet?**", async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      requests.push(params);
+      const selected = params.get("collection")?.toLowerCase();
+      await route.fulfill({
+        json: {
+          items:
+            selected === skatehive
+              ? [
+                  {
+                    collectionAddress: skatehive,
+                    tokenId: "271",
+                    name: "SkateHive #271",
+                    collectionName: "SkateHive",
+                    image: "/gnars.webp",
+                    owner,
+                    offers: [],
+                  },
+                ]
+              : [],
+          nextCursor: selected ? null : "later-page",
+          ...(selected === nogglesboard ? { unsupportedErc1155Count: 2 } : {}),
+        },
+      });
+    });
+    const drawer = await openWizard(page);
+    await expect(drawer.getByRole("button", { name: "Carregar mais NFTs" })).toBeVisible();
+    const filter = drawer.getByLabel("Filtrar coleção", { exact: true });
+    const initialRequests = requests.length;
+    await filter.fill("not-a-contract");
+    await drawer.getByRole("button", { name: "Buscar coleção", exact: true }).click();
+    await expect(drawer.getByRole("alert")).toContainText("Informe um endereço");
+    expect(requests).toHaveLength(initialRequests);
+    await filter.fill(skatehive);
+    await drawer.getByRole("button", { name: "Buscar coleção", exact: true }).click();
+    await expect(
+      drawer.getByRole("button", { name: "Selecionar SkateHive #271", exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        drawer
+          .getByRole("img", { name: "SkateHive #271", exact: true })
+          .evaluate((img) => (img as HTMLImageElement).naturalWidth),
+      )
+      .toBeGreaterThan(0);
+    expect(requests.at(-1)?.get("cursor")).toBeNull();
+    expect(requests.at(-1)?.get("owner")).toBe(owner);
+    await page.screenshot({
+      path: `test-results/wallet-collection-search-${mobile ? "mobile" : "desktop"}.png`,
+    });
+    await filter.fill(`https://opensea.io/item/base/${nogglesboard}/54`);
+    await drawer.getByRole("button", { name: "Buscar coleção", exact: true }).click();
+    await expect(
+      drawer.getByText("NFTs ERC-1155 encontrados. Este fluxo de anúncio aceita apenas ERC-721.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      drawer.getByRole("button", { name: "Selecionar SkateHive #271", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      drawer.getByText("Nenhum NFT compatível encontrado nesta carteira."),
+    ).not.toBeVisible();
+    expect(requests.at(-1)?.get("collection")?.toLowerCase()).toBe(nogglesboard);
+    expect(requests.at(-1)?.get("cursor")).toBeNull();
+    await drawer.getByRole("button", { name: "Limpar filtro de coleção", exact: true }).click();
+    await expect(filter).toHaveValue("");
+    await expect(drawer.getByRole("button", { name: "Carregar mais NFTs" })).toBeVisible();
+    expect(state.writes).toEqual([]);
+  });
+}
+
+for (const mobile of [false, true]) {
   test(`community NFT lookup and fee review ${mobile ? "mobile" : "desktop"}`, async ({ page }) => {
     await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 });
     const state = await setup(page);

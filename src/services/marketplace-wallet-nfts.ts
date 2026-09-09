@@ -21,10 +21,18 @@ const cursorSchema = z
   .max(1024)
   .regex(/^[\x21-\x7e]+$/);
 export const marketplaceWalletQuerySchema = z
-  .object({ owner: addressSchema, cursor: cursorSchema.optional() })
+  .object({
+    owner: addressSchema,
+    cursor: cursorSchema.optional(),
+    collection: addressSchema.optional(),
+  })
   .strict();
 
-export type MarketplaceWalletPage = { items: MarketplaceItem[]; nextCursor: string | null };
+export type MarketplaceWalletPage = {
+  items: MarketplaceItem[];
+  nextCursor: string | null;
+  unsupportedErc1155Count?: number;
+};
 
 const tokenIdSchema = z
   .string()
@@ -49,14 +57,17 @@ const nftSchema = z.object({
       originalUrl: z.string().nullish(),
     })
     .nullish(),
+  raw: z
+    .object({ metadata: z.object({ image: z.unknown().optional() }).nullish().catch(null) })
+    .nullish(),
 });
 const pageSchema = z.object({
   ownedNfts: z.array(nftSchema).max(MARKETPLACE_PAGE_SIZE),
   pageKey: cursorSchema.nullish(),
 });
 
-function safeImage(value: string | null | undefined): string | null {
-  if (!value || value.length > 8192) return null;
+function safeImage(value: unknown): string | null {
+  if (typeof value !== "string" || !value || value.length > 8192) return null;
   try {
     const url = new URL(value.startsWith("ipfs://") ? ipfsToHttp(value) : value);
     if (url.protocol !== "https:" || url.username || url.password) return null;
@@ -94,7 +105,11 @@ async function readPage(response: Response): Promise<unknown> {
   }
 }
 
-async function fetchWalletPage(owner: Address, cursor?: string): Promise<MarketplaceWalletPage> {
+async function fetchWalletPage(
+  owner: Address,
+  cursor?: string,
+  requestedCollection?: Address,
+): Promise<MarketplaceWalletPage> {
   const key = process.env.ALCHEMY_API_KEY;
   if (!key) throw marketplaceUnavailable("Wallet NFT provider is not configured.");
   try {
@@ -103,8 +118,10 @@ async function fetchWalletPage(owner: Address, cursor?: string): Promise<Marketp
       withMetadata: "true",
       pageSize: String(MARKETPLACE_PAGE_SIZE),
       tokenUriTimeoutInMs: "0",
+      orderBy: "transferTime",
     });
     if (cursor) params.set("pageKey", cursor);
+    if (requestedCollection) params.append("contractAddresses[]", requestedCollection);
     const response = await fetch(
       `https://base-mainnet.g.alchemy.com/nft/v3/${encodeURIComponent(key)}/getNFTsForOwner?${params}`,
       { cache: "no-store", signal: AbortSignal.timeout(8000) },
@@ -112,16 +129,24 @@ async function fetchWalletPage(owner: Address, cursor?: string): Promise<Marketp
     const page = pageSchema.parse(await readPage(response));
     if (page.pageKey && page.pageKey === cursor) throw marketplaceUnavailable();
     const items = new Map<string, MarketplaceItem>();
+    const unsupportedErc1155 = new Set<string>();
     for (const nft of page.ownedNfts) {
       const collection = nft.contract.address;
       // Alchemy's query-level SPAM exclusion is paid-only; use available classification metadata.
       if (
-        (nft.tokenType ?? nft.contract.tokenType) !== "ERC721" ||
-        (nft.contract.tokenType && nft.contract.tokenType !== "ERC721") ||
         nft.contract.isSpam === true ||
         nft.contract.spamClassifications?.length ||
-        isAddressEqual(collection, DAO_ADDRESSES.token)
+        isAddressEqual(collection, DAO_ADDRESSES.token) ||
+        (requestedCollection && !isAddressEqual(collection, requestedCollection))
       )
+        continue;
+      const tokenType = nft.tokenType ?? nft.contract.tokenType;
+      if (
+        tokenType === "ERC1155" &&
+        (!nft.contract.tokenType || nft.contract.tokenType === "ERC1155")
+      )
+        unsupportedErc1155.add(`${collection}:${nft.tokenId}`);
+      if (tokenType !== "ERC721" || (nft.contract.tokenType && nft.contract.tokenType !== "ERC721"))
         continue;
       items.set(`${collection}:${nft.tokenId}`, {
         collectionAddress: collection,
@@ -133,12 +158,17 @@ async function fetchWalletPage(owner: Address, cursor?: string): Promise<Marketp
         image:
           safeImage(nft.image?.cachedUrl) ??
           safeImage(nft.image?.thumbnailUrl) ??
-          safeImage(nft.image?.originalUrl),
+          safeImage(nft.image?.originalUrl) ??
+          safeImage(nft.raw?.metadata?.image),
         owner,
         offers: [],
       });
     }
-    return { items: [...items.values()], nextCursor: page.pageKey ?? null };
+    return {
+      items: [...items.values()],
+      nextCursor: page.pageKey ?? null,
+      ...(unsupportedErc1155.size ? { unsupportedErc1155Count: unsupportedErc1155.size } : {}),
+    };
   } catch {
     // Do not return provider URLs, API keys, or untrusted provider error bodies.
     throw marketplaceUnavailable("Wallet NFTs could not be loaded. Try again.");
@@ -147,28 +177,32 @@ async function fetchWalletPage(owner: Address, cursor?: string): Promise<Marketp
 
 const pendingReads = new Map<string, Promise<MarketplaceWalletPage>>();
 const loadWalletPage = unstable_cache(
-  (owner: Address, cursor?: string) => {
-    const cacheKey = JSON.stringify([owner, cursor]);
+  (owner: Address, cursor?: string, collection?: Address) => {
+    const cacheKey = JSON.stringify([owner, cursor, collection]);
     const pending = pendingReads.get(cacheKey);
     if (pending) return pending;
     if (pendingReads.size >= 16)
       throw marketplaceUnavailable("Wallet NFT provider is busy. Try again.");
-    const request = fetchWalletPage(owner, cursor).finally(() => pendingReads.delete(cacheKey));
+    const request = fetchWalletPage(owner, cursor, collection).finally(() =>
+      pendingReads.delete(cacheKey),
+    );
     pendingReads.set(cacheKey, request);
     return request;
   },
-  ["marketplace-wallet-nfts-v1"],
+  ["marketplace-wallet-nfts-v2"],
   { revalidate: 15 },
 );
 
 export async function getMarketplaceWalletNfts(
   rawOwner: string,
   rawCursor?: string,
+  rawCollection?: string,
 ): Promise<MarketplaceWalletPage> {
-  const { owner, cursor } = parseMarketplaceInput(marketplaceWalletQuerySchema, {
+  const { owner, cursor, collection } = parseMarketplaceInput(marketplaceWalletQuerySchema, {
     owner: rawOwner,
     cursor: rawCursor,
+    collection: rawCollection,
   });
   // Indexed ownership is discovery only; token details and publication recheck ownerOf on Base.
-  return loadWalletPage(owner, cursor);
+  return loadWalletPage(owner, cursor, collection);
 }

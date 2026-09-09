@@ -142,12 +142,27 @@ The asset step offers a paginated Base ERC721 wallet picker, scoped to the activ
 write account, with manual contract/token entry as a fallback. Discovery uses
 server-side Alchemy metadata; selecting a card still requires fresh onchain
 ownership verification. EOA and smart-wallet inventories are never merged.
+Wallet pages contain at most 24 indexed assets, newest transfers first. The
+collection filter accepts a Base contract address or Base OpenSea item URL and
+queries that collection directly without scanning the whole wallet. Cache keys
+and pagination are scoped to owner and collection. Unsupported ERC1155 inventory
+is reported explicitly, not offered for signing. Cached raw metadata images are
+a fallback when Alchemy's image fields are absent; there is no Builder-specific
+discovery fallback. An indexer error remains an error, not an empty wallet.
 Media-to-NFT creation requires a separate verified mint contract and is not part
 of this existing-token picker.
 A transferable ERC721 representing a basket can use this single-token listing
 path. The marketplace transfers the wrapper, not each underlying asset; it does
 not verify basket contents or redemption. Multiple independent NFTs in one signed
 order are not supported by the current validator.
+
+Requested extensions, not implemented: ERC1155 listings (including Nogglesboard),
+Ethereum mainnet alongside Base, media-to-NFT creation, and optional seller/creator
+payout splits. The requested economic policy separates the Gnars builders/treasury
+fee from creator royalties and optional payout recipients. Rates, OpenSea-path
+compatibility and per-chain split addresses still need agreement; this discovery
+change does not alter signed orders, royalties or transaction fees.
+
 Collection/token identity, ERC721 support, ownership, approval, signature, exact
 fee consideration and royalties are validated before publication. Metadata comes
 from a bounded Alchemy request, not an arbitrary caller-supplied URL.

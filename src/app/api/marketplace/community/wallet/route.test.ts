@@ -32,11 +32,31 @@ describe("community wallet route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ items: [], nextCursor: null });
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(mocks.inventory).toHaveBeenCalledWith(getAddress(owner), "opaque+/page==");
+    expect(mocks.inventory).toHaveBeenCalledWith(getAddress(owner), "opaque+/page==", undefined);
     expect(mocks.rate).toHaveBeenCalledWith(req, {
       scope: "community-wallet",
       limit: 30,
       windowSeconds: 60,
+    });
+  });
+  it("forwards a normalized collection filter and unsupported NFT count", async () => {
+    mocks.inventory.mockResolvedValueOnce({
+      items: [],
+      nextCursor: "next",
+      unsupportedErc1155Count: 2,
+    });
+    const collection = "0xfe10d3ce1b0f090935670368ec6de00d8d965523";
+    const response = await GET(request({ owner, collection, cursor: "filtered-page" }));
+    expect(response.status).toBe(200);
+    expect(mocks.inventory).toHaveBeenCalledWith(
+      getAddress(owner),
+      "filtered-page",
+      getAddress(collection),
+    );
+    expect(await response.json()).toEqual({
+      items: [],
+      nextCursor: "next",
+      unsupportedErc1155Count: 2,
     });
   });
   it.each<Record<string, string>>([
@@ -49,6 +69,10 @@ describe("community wallet route", () => {
     { owner, admin: owner },
     { owner, chainId: "1" },
     { owner, pageSize: "100" },
+    { owner, collection: "invalid" },
+    { owner, collection: zeroAddress },
+    { owner, collection: "" },
+    { owner, collection: "skatehive.eth" },
   ])("rejects invalid or unsupported query fields", async (params) => {
     const response = await GET(request(params));
     expect(response.status).toBe(400);

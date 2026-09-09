@@ -20,6 +20,12 @@
     "findNft": "Find NFT",
     "wallet": {
       "title": "Your NFTs on Base",
+      "collection": "Filter collection",
+      "searchPlaceholder": "Contract or OpenSea link on Base",
+      "searchCollection": "Search collection",
+      "clearCollection": "Clear collection filter",
+      "invalidCollection": "Enter a contract address or an OpenSea NFT link on Base.",
+      "unsupportedErc1155": "ERC-1155 NFTs found. This listing flow only accepts ERC-721.",
       "loading": "Loading your NFTs...",
       "empty": "No eligible NFTs found in this wallet.",
       "error": "Could not load your wallet NFTs. Try again.",
