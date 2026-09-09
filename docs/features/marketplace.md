@@ -251,6 +251,32 @@ These checks and the upstream protocol's history are not an audit of this
 deployment or integration. Exact audit coverage of the pinned version has not
 been established; never represent a modified fork as inheriting an upstream audit.
 
+### Base Deployment Record
+
+The dedicated Gnars Seaport 1.6 instance was deployed by the user's external
+wallet on Base mainnet (chain ID 8453):
+
+- Contract: `0xC35813d40961151c11C97cB9d67D0D25CD4Cc86e`.
+- Creation transaction: `0x8e304836e9a849749989c7e2c289c5a5afabeb2a9fc9e803a2bb6919ad36df9c`.
+- Block: `51084380`; successful receipt; gas used: `5290703`.
+- Creator: `0x8Bf5941d27176242745B716251943Ae4892a3C26`.
+
+Read-only checks confirmed the exact creation payload and builder suffix, pinned
+runtime, immutable values, Seaport version, signing domain, conduit controller
+and constructor probe. This is bytecode verification, not an independent audit
+or a claim that explorer source verification is complete.
+
+Activation sets `NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS` to this address in local
+development and Vercel Production, followed by a rebuild. Preview remains
+unconfigured. The additive `marketplace-contract-schema.sql` migration has been
+applied; TLS, RLS, restricted runtime reads/inserts/status updates, denied
+destructive operations and rolled-back test rows were verified. Existing
+canonical Seaport orders were not modified.
+
+The explicit listing destination is **Contrato Gnars** / **Gnars contract**.
+OpenSea and canonical Seaport destinations remain independent. The temporary
+local deployment tool is not part of the production application deployment.
+
 ### Supabase Connection Security
 
 Use the project's transaction-pooler connection for Vercel, with a dedicated
