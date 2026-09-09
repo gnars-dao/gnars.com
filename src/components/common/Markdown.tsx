@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeExternalLinks from "rehype-external-links";
+import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
 import remarkBreaks from "remark-breaks";
@@ -15,9 +16,22 @@ import { cn } from "@/lib/utils";
 interface MarkdownProps {
   children: string;
   className?: string;
+  /**
+   * Treat `children` as HTML instead of Markdown.
+   *
+   * Paragraph returns each post three ways, and its own `markdown` serializer
+   * FLATTENS tables — a 3×7 table comes back as 21 loose paragraphs with no
+   * pipes, so no remark plugin can rebuild it. `staticHtml` keeps the real
+   * `<table>`, so the blog detail feeds us that instead.
+   *
+   * Opt-in per call site: raw HTML stays off for bounties and store copy,
+   * which have no reason to carry markup. It is still sanitised either way —
+   * rehypeRaw only parses; rehypeSanitize runs after it and decides what lives.
+   */
+  allowHtml?: boolean;
 }
 
-export function Markdown({ children, className }: MarkdownProps) {
+export function Markdown({ children, className, allowHtml = false }: MarkdownProps) {
   return (
     <div
       className={cn(
@@ -29,13 +43,19 @@ export function Markdown({ children, className }: MarkdownProps) {
         "prose-pre:bg-muted prose-pre:p-0 prose-pre:rounded-lg",
         "prose-code:before:hidden prose-code:after:hidden",
         // Images & tables
+        // Paragraph emite <p> dentro de cada celula; o prose da 1.25em de margem
+        // a esses <p>, deixando cada linha duas vezes mais alta que precisa.
+        "[&_td>p]:my-0 [&_th>p]:my-0",
         "prose-img:rounded-md prose-img:border",
         className,
       )}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
+        remarkPlugins={allowHtml ? [remarkGfm] : [remarkGfm, remarkBreaks]}
         rehypePlugins={[
+          // rehypeRaw TEM de rodar antes do sanitize: ele so converte o HTML cru em
+          // nos; quem decide o que sobrevive continua sendo o rehypeSanitize abaixo.
+          ...(allowHtml ? [rehypeRaw] : []),
           rehypeSlug,
           [
             rehypeAutolinkHeadings,
