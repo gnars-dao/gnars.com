@@ -122,10 +122,14 @@ export function MarketplaceCard({
         )}
       </div>
 
-      <div className="flex w-full flex-1 flex-col gap-2 p-2.5 md:gap-3 md:p-4">
+      <div className="flex w-full flex-1 flex-col gap-1.5 p-2 md:gap-2 md:p-3">
         <div className="min-w-0">
           <p
-            className="mb-1 hidden truncate text-[10px] font-medium uppercase text-muted-foreground sm:block"
+            className={
+              item.collectionAddress
+                ? "mb-0.5 hidden truncate text-[10px] font-medium uppercase text-muted-foreground sm:block"
+                : "sr-only"
+            }
             title={item.collectionName}
           >
             {item.collectionName ?? t("collection")}
@@ -139,7 +143,9 @@ export function MarketplaceCard({
           {best ? (
             <>
               <p
-                className={`${offers.length === 1 ? "sr-only sm:not-sr-only" : ""} mb-0.5 text-[10px] text-muted-foreground md:mb-1 md:text-[11px]`}
+                className={
+                  offers.length === 1 ? "sr-only" : "mb-0.5 text-[10px] text-muted-foreground"
+                }
               >
                 {offers.length > 1 ? t("from") : t("cardPrice")}
               </p>
@@ -150,7 +156,7 @@ export function MarketplaceCard({
               >
                 {price?.display} {best.currency}
               </p>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-medium text-muted-foreground md:mt-2">
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-medium text-muted-foreground">
                 {sources.map((source) => (
                   <span key={source} className="inline-flex items-center gap-1">
                     <span
@@ -175,7 +181,7 @@ export function MarketplaceCard({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t pt-2 text-[10px] text-muted-foreground md:pt-3 md:text-xs">
+        <div className="flex items-center justify-between gap-2 border-t pt-1.5 text-[10px] text-muted-foreground md:text-xs">
           {expiry ? (
             <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <Clock3 className="size-3 shrink-0" aria-hidden="true" />

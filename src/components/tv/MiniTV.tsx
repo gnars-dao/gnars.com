@@ -19,6 +19,8 @@ export function MiniTV() {
   if (
     heroTVVisible ||
     pathname.startsWith("/tv") ||
+    pathname === "/marketplace" ||
+    pathname.startsWith("/marketplace/") ||
     pathname === "/migrate" ||
     pathname.startsWith("/migrate/")
   )

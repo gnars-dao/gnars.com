@@ -58,6 +58,7 @@ This is the canonical entry point for project documentation. Everything below sh
 
 ## Research
 
+- `docs/research/nft-creation-options.md` — existing IPFS reuse, NFT factory choices, token-bound accounts, sealed baskets and tokenized-stock constraints
 - `docs/research/agent-team-candidates.md` — top 4 multi-agent task candidates with file lists and agent splits
 - `docs/research/seo-metadata-audit.md` — full audit of metadata and OG image coverage across all pages; includes priority list for missing items
 - `docs/research/build-bundle-audit.md` — current client/server boundaries, scoped translation measurements, background-work fixes, and remaining bundle measurements

@@ -304,6 +304,45 @@ export async function getMarketplaceOrder(
   return listing;
 }
 
+/** A bounded, price-ordered snapshot for floor discovery; never reuse id-paginated catalogue order. */
+export async function getMarketplaceSweepCandidates(buyer: Address, maxPriceWei?: string) {
+  const protocol = getMarketplaceProtocolAddress("gnars-contract");
+  if (!(await marketplaceContractStorageReady()))
+    throw marketplaceUnavailable("Gnars contract order storage is unavailable.");
+  const result = await database().query<
+    StoredOrder & { token_id: string; price_wei: string; seller: string }
+  >(
+    `SELECT id, order_hash, signed_order, status, protocol_address, token_id::text, price_wei::text, seller
+     FROM marketplace_contract_orders
+     WHERE chain_id = 8453 AND protocol_address = $1
+       AND status IN ('active', 'invalid-owner', 'unapproved') AND expires_at > $2
+       AND seller <> $3 ${maxPriceWei !== undefined ? "AND price_wei <= $4::numeric" : ""}
+     ORDER BY price_wei::numeric ASC, id ASC LIMIT 61`,
+    [
+      protocol.toLowerCase(),
+      Math.floor(Date.now() / 1000),
+      buyer.toLowerCase(),
+      ...(maxPriceWei !== undefined ? [maxPriceWei] : []),
+    ],
+  );
+  const candidates = result.rows.slice(0, 60).map((row) => {
+    const listing = validateListingStructure(row.signed_order, {
+      source: "gnars-contract",
+      allowExpired: true,
+    });
+    if (
+      row.protocol_address !== protocol.toLowerCase() ||
+      getListingOrderHash(listing.parameters).toLowerCase() !== row.order_hash.toLowerCase() ||
+      listing.parameters.offer[0].identifierOrCriteria !== row.token_id ||
+      getListingPriceWei(listing).toString() !== row.price_wei ||
+      listing.parameters.offerer.toLowerCase() !== row.seller.toLowerCase()
+    )
+      throw marketplaceUnavailable("Stored floor listing could not be verified.");
+    return listing;
+  });
+  return { candidates, truncated: result.rows.length > 60 };
+}
+
 export async function reconcileMarketplaceOrder(
   orderHash: string,
   source: LocalMarketplaceSource = "gnars",

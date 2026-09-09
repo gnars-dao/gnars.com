@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMarketplaceActions } from "@/hooks/use-marketplace-actions";
 import { Link } from "@/i18n/navigation";
+import { formatMarketplacePrice } from "@/lib/marketplace-display";
 import { MarketplaceError } from "./MarketplaceError";
 
 export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?: boolean }) {
@@ -75,7 +76,12 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
   const active =
     actions.recovery &&
     (!["idle", "complete", "failed"].includes(actions.phase) || actions.canCancelSavedListing);
-  if (!active && !(showCompleted && (actions.phase === "complete" || actions.error))) return null;
+  if (
+    !active &&
+    !actions.sweepResult &&
+    !(showCompleted && (actions.phase === "complete" || actions.error))
+  )
+    return null;
   const complete = actions.phase === "complete";
   const resumable = actions.canResume && actions.error?.retryable !== false;
   const onchain = !!actions.txStep && ["unknown", "pending", "confirming"].includes(actions.phase);
@@ -100,9 +106,11 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
           : 0;
   const collectionAddress = actions.recovery?.input?.collectionAddress;
   const recoveryTitle = actions.recovery
-    ? t(collectionAddress ? "community.recoveryTitle" : "recoveryTitle", {
-        id: actions.recovery.tokenId,
-      })
+    ? actions.recovery.sweepCount
+      ? t("sweep.recoveryTitle", { count: actions.recovery.sweepCount })
+      : t(collectionAddress ? "community.recoveryTitle" : "recoveryTitle", {
+          id: actions.recovery.tokenId,
+        })
     : t("steps.error");
   return (
     <section aria-label={recoveryTitle} className="space-y-3 border-y py-4">
@@ -115,11 +123,32 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
           ) : null}
           <h2 className="text-sm font-semibold">
             {complete
-              ? actions.listingOutcome
-                ? t("statusVerified")
-                : t(`completed.${actions.recovery.kind}`)
+              ? actions.sweepResult
+                ? t("sweep.completed", { count: actions.sweepResult.purchasedTokenIds.length })
+                : actions.listingOutcome
+                  ? t("statusVerified")
+                  : t(`completed.${actions.recovery.kind}`)
               : recoveryTitle}
           </h2>
+        </div>
+      )}
+      {complete && actions.sweepResult && (
+        <div className="space-y-2 text-sm" role="status">
+          <p className="break-words font-mono">
+            {actions.sweepResult.purchasedTokenIds.map((tokenId) => `#${tokenId}`).join(", ")}
+          </p>
+          {actions.sweepResult.skippedTokenIds.length > 0 && (
+            <p className="text-muted-foreground">
+              {t("sweep.skipped", { count: actions.sweepResult.skippedTokenIds.length })}:{" "}
+              {actions.sweepResult.skippedTokenIds.map((tokenId) => `#${tokenId}`).join(", ")}
+            </p>
+          )}
+          <p>
+            {t("sweep.spent")}:{" "}
+            <span className="font-mono">
+              {formatMarketplacePrice(actions.sweepResult.spentWei).display} ETH
+            </span>
+          </p>
         </div>
       )}
       {collectionAddress && (
@@ -175,6 +204,16 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
       )}
       {actions.error && <MarketplaceError error={actions.error} />}
       <div className="flex flex-wrap gap-2">
+        {complete && actions.sweepResult && !actions.isBusy && (
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={t("close")}
+            onClick={() => void run(actions.reset)}
+          >
+            <X className="size-4" />
+          </Button>
+        )}
         {!complete && !actions.isBusy && active && (
           <Button
             size="sm"

@@ -31,6 +31,13 @@ Mouse pointers control the sheen; touch and reduced-motion users receive a stati
 surface. Compact prices are display-only approximations; exact wei values remain
 unchanged for signing, execution and the detail view.
 
+The route has a static 1200x630 JPEG social cover (`public/marketplace-og-v1.jpg`),
+shared by Open Graph, Twitter and Farcaster embeds with a localized marketplace
+destination. It uses generated chrome-card artwork referencing Gnars #3656, #5351
+and #5423. Serving the approximately 187 KB public asset needs no runtime image
+generation. Floating TV/rewards widgets are excluded from this transaction surface
+so they cannot intercept the mobile checkout controls.
+
 ## Trading
 
 - OpenSea: server-only v2 API, `gnars-dao` collection slug, native ETH fixed-price
@@ -91,6 +98,35 @@ unchanged for signing, execution and the detail view.
   pass ERC1271. Counterfactual signatures are not accepted as EOA signatures.
 
 ## Drawer And Recovery
+
+### Own-Contract Floor Sweep
+
+The for-sale grid supports selecting up to ten native Gnars on the configured
+Gnars contract, or requesting the cheapest available listings by quantity and
+optional per-NFT ETH ceiling. Community NFTs, OpenSea and the canonical local
+Seaport book are excluded from this batch path. Selection displays the actual
+own-contract price even when another loaded offer is cheaper.
+
+`POST /api/marketplace/sweep/quote` queries numeric price order across the own-contract
+database, excluding the buyer. It validates at most sixty candidates and fails
+closed if that bound prevents confirming a requested floor. Unknown RPC failures
+are not treated as absent listings. Manual selection pins exact hashes/tokens/prices.
+Quotes expire after at most ninety seconds or the earliest order expiry.
+`POST /api/marketplace/sweep/fulfillment` revalidates those exact orders and simulates
+the full call as the buyer; it never substitutes a different NFT.
+
+One `fulfillAvailableOrders` call preserves each signed seller/fee/royalty payment.
+Orders that become unavailable before inclusion may be skipped; Seaport refunds
+unused ETH. This is a single transaction with potentially partial successful fills,
+not a promise to receive every reviewed NFT. Execution reverts if no order fills.
+Gas is additional. The client verifies exact batch calldata/value, simulates again,
+and appends the builder suffix through the existing wallet transaction helper.
+
+The account journal stores the entire signed batch and the durable unknown-send
+barrier. Recovery verifies the transaction and exact `OrderFulfilled` events,
+reports purchased/skipped IDs and actual spending, and cannot resume as a singleton
+purchase. A local Base fork test uses the deployed marketplace runtime with only
+the DAO NFT replaced by a test fixture; no mainnet transactions are sent.
 
 The for-sale view has three ordered bands: locally listed Gnars (custom contract
 and canonical Seaport book), community NFTs, then OpenSea Gnars. Each band retains

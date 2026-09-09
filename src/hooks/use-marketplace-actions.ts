@@ -77,6 +77,13 @@ import {
   type OrderComponents,
   type SignedListing,
 } from "@/lib/marketplace/seaport";
+import { getSweepFulfillment, getSweepResults, type SweepQuote } from "@/lib/marketplace/sweep";
+import {
+  validateSweepQuote,
+  validateSweepSnapshot,
+  verifySweepIntent,
+  type SweepSnapshot,
+} from "@/lib/marketplace/sweep-journal";
 import { isMarketplaceWalletRejection } from "@/lib/marketplace/wallet-request";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
@@ -121,6 +128,7 @@ type Journal = {
   input?: ListInput;
   listing?: SignedListing;
   offer?: MarketplaceOffer;
+  sweep?: SweepSnapshot;
   txHash?: Hex;
   approvalTxHash?: Hex;
   txStep?: "approval" | "buy" | "cancel";
@@ -175,6 +183,21 @@ function parseJournal(raw: string, account: Address): Journal {
   if (value.kind === "list") listingSource(value.input);
   assertMarketplaceJournalProtocol(value);
   const options = journalOptions(value);
+  if (value.sweep) {
+    const sweep = validateSweepSnapshot(value.sweep, account);
+    if (
+      value.kind !== "buy" ||
+      value.collectionAddress ||
+      value.offer?.source !== "gnars-contract" ||
+      !value.listing ||
+      value.tokenId !== sweep.listings[0].parameters.offer[0].identifierOrCriteria ||
+      getListingOrderHash(value.listing.parameters) !==
+        getListingOrderHash(sweep.listings[0].parameters) ||
+      (value.txStep !== undefined && value.txStep !== "buy")
+    )
+      throw new Error("Saved sweep identity changed");
+    if (value.transactionIntent) verifySweepIntent(sweep, value.transactionIntent);
+  }
   if (value.listing)
     validateListingStructure(value.listing, {
       allowExpired: true,
@@ -484,6 +507,14 @@ export function useMarketplaceActions() {
     return locked(owner, async () => {
       let saved = read(owner);
       if (!saved) return;
+      if (saved.sweep && !saved.transactionIntent && !saved.txHash && saved.phase !== "complete") {
+        save(entry, {
+          ...saved,
+          phase: "failed",
+          error: { code: "ORDER_CHANGED", message: "Review the sweep again before sending" },
+        });
+        return;
+      }
       // Cancellation is terminal for this exact order, independently of receipt availability.
       if (saved.kind === "cancel") {
         const orderHash = saved.listing
@@ -572,6 +603,18 @@ export function useMarketplaceActions() {
             transactionFailed: true,
             error: { code: "TRANSACTION_REVERTED", message: "Transaction reverted" },
           });
+          return;
+        }
+        if (saved.sweep) {
+          verifySweepIntent(saved.sweep, saved.transactionIntent);
+          const result = getSweepResults(saved.sweep.listings, owner, receipt.logs);
+          save(entry, {
+            ...saved,
+            sweep: { ...saved.sweep, result },
+            phase: "complete",
+            error: undefined,
+          });
+          // Catalogue reads reconcile availability; the receipt is the purchase evidence.
           return;
         }
         if (saved.txStep === "approval") {
@@ -1107,6 +1150,61 @@ export function useMarketplaceActions() {
     });
     await broadcast(entry, owner, call, kind);
   }
+  async function sweepPurchase(raw: SweepQuote) {
+    return execute(async (entry, owner) => {
+      const reviewed = validateSweepQuote(raw, owner);
+      const call = getSweepFulfillment(reviewed.listings);
+      const response = await api("/sweep/fulfillment", {
+        buyer: owner,
+        selections: reviewed.listings.map((listing) => ({
+          orderHash: getListingOrderHash(listing.parameters),
+          tokenId: listing.parameters.offer[0].identifierOrCriteria,
+          priceWei: getListingPriceWei(listing).toString(),
+        })),
+        maxTotalWei: reviewed.totalWei,
+      });
+      if (
+        response.transaction?.chainId !== 8453 ||
+        !isAddressEqual(response.transaction.to, call.to) ||
+        response.transaction.data.toLowerCase() !== call.data.toLowerCase() ||
+        response.transaction.value !== call.value.toString() ||
+        response.totalWei !== reviewed.totalWei
+      )
+        throw new Error("Sweep transaction changed; review the selection again");
+      await prepareSigner(owner);
+      validateSweepQuote(reviewed, owner);
+      await client().call({ account: owner, ...call });
+      const listing = reviewed.listings[0];
+      const orderHash = getListingOrderHash(listing.parameters);
+      await locked(owner, async () => {
+        validateSweepQuote(reviewed, owner);
+        const saved = read(owner);
+        if (saved && !canReplaceMarketplaceAttempt(saved))
+          throw new Error("Resolve the existing marketplace attempt");
+        save(entry, {
+          version: 1,
+          account: owner,
+          id: crypto.randomUUID(),
+          kind: "buy",
+          phase: "buying",
+          tokenId: listing.parameters.offer[0].identifierOrCriteria,
+          listing,
+          offer: {
+            id: `gnars-contract:${orderHash}`,
+            source: "gnars-contract",
+            protocolAddress: reviewed.protocolAddress,
+            orderHash,
+            seller: listing.parameters.offerer,
+            priceWei: getListingPriceWei(listing).toString(),
+            currency: "ETH",
+            expiresAt: Number(listing.parameters.endTime),
+          },
+          sweep: { protocolAddress: reviewed.protocolAddress, listings: reviewed.listings },
+        });
+      });
+      await broadcast(entry, owner, call, "buy");
+    });
+  }
   const visible = journal && account && isAddressEqual(journal.account, account) ? journal : null;
   return {
     phase: visible?.phase ?? "idle",
@@ -1118,6 +1216,8 @@ export function useMarketplaceActions() {
     txStep: visible?.txStep,
     list,
     quote,
+    sweep: sweepPurchase,
+    sweepResult: visible?.sweep?.result ?? null,
     canAbandonSignature: canAbandonMarketplaceSignature(visible),
     canCancelSavedListing: canCancelSavedListing(visible),
     recovery: visible
@@ -1127,10 +1227,12 @@ export function useMarketplaceActions() {
           kind: visible.kind,
           input: visible.input,
           phase: visible.phase,
+          sweepCount: visible.sweep?.listings.length,
         }
       : null,
     canResume: Boolean(
       visible &&
+        !visible.sweep &&
         canRetryMarketplacePublication(visible) &&
         (["signing", "saving"].includes(visible.phase) || canResumeMarketplacePreflight(visible)),
     ),
@@ -1148,50 +1250,52 @@ export function useMarketplaceActions() {
         });
       }),
     resume: () =>
-      visible?.kind === "list" && visible.input && !visible.listing
-        ? list(visible.input)
-        : visible?.kind === "list" && visible.listing
-          ? execute((entry) => publish(entry, visible))
-          : visible?.kind === "buy" && visible.offer && canResumeMarketplacePreflight(visible)
-            ? execute(async (entry, owner) => {
-                await locked(owner, async () => {
-                  const saved = read(owner);
-                  if (saved?.id !== visible.id || !canResumeMarketplacePreflight(saved))
-                    throw new Error("Marketplace attempt changed");
-                  save(entry, { ...saved, phase: "failed" });
-                });
-                await tradeAction(entry, owner, "buy", visible.tokenId, visible.offer!);
-              })
-            : visible &&
-                canResumeMarketplacePreflight(visible) &&
-                visible.kind !== "list" &&
-                visible.offer
+      visible?.sweep
+        ? execute((entry, owner) => reconcile(entry, owner))
+        : visible?.kind === "list" && visible.input && !visible.listing
+          ? list(visible.input)
+          : visible?.kind === "list" && visible.listing
+            ? execute((entry) => publish(entry, visible))
+            : visible?.kind === "buy" && visible.offer && canResumeMarketplacePreflight(visible)
               ? execute(async (entry, owner) => {
                   await locked(owner, async () => {
                     const saved = read(owner);
                     if (saved?.id !== visible.id || !canResumeMarketplacePreflight(saved))
                       throw new Error("Marketplace attempt changed");
-                    // Nothing has been sent: preserve the original order and retry only this call.
                     save(entry, { ...saved, phase: "failed" });
                   });
-                  const call =
-                    visible.kind === "cancel"
-                      ? visible.listing
-                        ? getListingCancellation(visible.listing, journalOptions(visible))
-                        : getOpenSeaCancellation(
-                            await api(`/opensea/orders/${visible.offer!.orderHash}`),
-                            {
-                              orderHash: visible.offer!.orderHash,
-                              seller: owner,
-                              tokenId: visible.tokenId,
-                            },
-                          )
-                      : null;
-                  if (!call) throw new Error("Review the purchase again before sending");
-                  await client().call({ account: owner, ...call });
-                  await broadcast(entry, owner, call, "cancel");
+                  await tradeAction(entry, owner, "buy", visible.tokenId, visible.offer!);
                 })
-              : execute((entry, owner) => reconcile(entry, owner)),
+              : visible &&
+                  canResumeMarketplacePreflight(visible) &&
+                  visible.kind !== "list" &&
+                  visible.offer
+                ? execute(async (entry, owner) => {
+                    await locked(owner, async () => {
+                      const saved = read(owner);
+                      if (saved?.id !== visible.id || !canResumeMarketplacePreflight(saved))
+                        throw new Error("Marketplace attempt changed");
+                      // Nothing has been sent: preserve the original order and retry only this call.
+                      save(entry, { ...saved, phase: "failed" });
+                    });
+                    const call =
+                      visible.kind === "cancel"
+                        ? visible.listing
+                          ? getListingCancellation(visible.listing, journalOptions(visible))
+                          : getOpenSeaCancellation(
+                              await api(`/opensea/orders/${visible.offer!.orderHash}`),
+                              {
+                                orderHash: visible.offer!.orderHash,
+                                seller: owner,
+                                tokenId: visible.tokenId,
+                              },
+                            )
+                        : null;
+                    if (!call) throw new Error("Review the purchase again before sending");
+                    await client().call({ account: owner, ...call });
+                    await broadcast(entry, owner, call, "cancel");
+                  })
+                : execute((entry, owner) => reconcile(entry, owner)),
     attachTransactionHash: (hash: Hex) =>
       execute(async (entry, owner) => {
         if (!/^0x[\da-fA-F]{64}$/.test(hash)) throw new Error("Invalid transaction hash");

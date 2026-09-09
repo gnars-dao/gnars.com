@@ -23,14 +23,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useMarketplace, type MarketplaceView } from "@/hooks/use-marketplace";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
-import { DAO_ADDRESSES } from "@/lib/config";
+import { DAO_ADDRESSES, getConfiguredGnarsMarketplaceAddress } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { MarketplaceItem, MarketplacePage } from "@/types/marketplace";
 import { CommunitySellerListings } from "./CommunitySellerListings";
+import { toggleSweepSelection, type MarketplaceSweepSelection } from "./marketplace-sweep-model";
 import { MarketplaceCard } from "./MarketplaceCard";
 import { MarketplaceModerationQueue } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { MarketplaceSaleBands } from "./MarketplaceSaleBands";
+import { MarketplaceSweep } from "./MarketplaceSweep";
 
 const MarketplaceDetail = dynamic(() => import("./MarketplaceDetail"), { ssr: false });
 const CommunitySubmission = dynamic(
@@ -53,6 +55,12 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   const [urlReady, setUrlReady] = useState(false);
   const selectedTrigger = useRef<HTMLButtonElement | null>(null);
   const writer = useWriteAccount();
+  const sweepContext = `${writer?.account.address.toLowerCase() ?? "guest"}:${getConfiguredGnarsMarketplaceAddress()?.toLowerCase() ?? ""}`;
+  const [sweepSelection, setSweepSelection] = useState<{
+    context: string;
+    items: MarketplaceSweepSelection[];
+  }>({ context: "", items: [] });
+  const sweepItems = sweepSelection.context === sweepContext ? sweepSelection.items : [];
   const query = useMarketplace(
     view,
     view === "owned" || view === "selling" ? writer?.account.address : undefined,
@@ -180,7 +188,12 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   }
 
   return (
-    <div className="py-8 md:py-10">
+    <div
+      className={cn(
+        "py-8 md:py-10",
+        view === "listings" && page?.capabilities.customTrading && "pb-36 md:pb-28",
+      )}
+    >
       <header className="mb-7 flex flex-wrap items-center justify-between gap-5">
         <div className="flex min-w-0 items-center gap-4">
           <Image
@@ -407,6 +420,15 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
             failed={query.isError}
             complete={sourcesComplete}
             onRetry={() => void query.refetch()}
+            sweepSelections={sweepItems}
+            sweepEnabled={!!page?.capabilities.customTrading}
+            sweepBuyer={writer?.account.address as Address | undefined}
+            onSweepSelect={(selection) =>
+              setSweepSelection({
+                context: sweepContext,
+                items: toggleSweepSelection(sweepItems, selection),
+              })
+            }
             onSelect={(item, event) => {
               selectedTrigger.current = event.currentTarget;
               setSelected(item);
@@ -493,6 +515,20 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       </section>
       {view === "selling" && <CommunitySellerListings />}
       <MarketplaceModerationQueue />
+      <MarketplaceSweep
+        key={sweepContext}
+        selections={sweepItems}
+        enabled={
+          view === "listings" && !!page?.capabilities.customTrading && !selected && !submissionOpen
+        }
+        onClear={() => setSweepSelection({ context: sweepContext, items: [] })}
+        onRemove={(id) =>
+          setSweepSelection({
+            context: sweepContext,
+            items: sweepItems.filter(({ item }) => item.tokenId !== id),
+          })
+        }
+      />
 
       {submissionOpen && (
         <CommunitySubmission

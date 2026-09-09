@@ -4,8 +4,12 @@ import type { MouseEvent } from "react";
 import { useTranslations } from "next-intl";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { ArrowDown, LoaderCircle, RefreshCw } from "lucide-react";
+import type { Address } from "viem";
 import { Button } from "@/components/ui/button";
+import { formatMarketplacePrice } from "@/lib/marketplace-display";
+import { cn } from "@/lib/utils";
 import type { CommunityMarketplacePage, MarketplaceItem } from "@/types/marketplace";
+import { selectableSweepOffer, type MarketplaceSweepSelection } from "./marketplace-sweep-model";
 import { MarketplaceCard } from "./MarketplaceCard";
 
 export function MarketplaceSaleBands({
@@ -15,6 +19,10 @@ export function MarketplaceSaleBands({
   complete,
   onRetry,
   onSelect,
+  sweepSelections = [],
+  sweepEnabled = false,
+  sweepBuyer,
+  onSweepSelect,
 }: {
   items: MarketplaceItem[];
   pending: boolean;
@@ -22,6 +30,10 @@ export function MarketplaceSaleBands({
   complete: boolean;
   onRetry: () => void;
   onSelect: (item: MarketplaceItem, event: MouseEvent<HTMLButtonElement>) => void;
+  sweepSelections?: MarketplaceSweepSelection[];
+  sweepEnabled?: boolean;
+  sweepBuyer?: Address;
+  onSweepSelect?: (selection: MarketplaceSweepSelection) => void;
 }) {
   const t = useTranslations("marketplace");
   const community = useInfiniteQuery({
@@ -118,16 +130,56 @@ export function MarketplaceSaleBands({
             </div>
           ) : group.items.length ? (
             <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">
-              {group.items.map((item) => (
-                <MarketplaceCard
-                  key={`${item.collectionAddress ?? "gnars"}:${item.tokenId}`}
-                  item={item}
-                  view="listings"
-                  exactSearch={false}
-                  sourcesComplete={group.complete}
-                  onClick={(event) => onSelect(item, event)}
-                />
-              ))}
+              {group.items.map((item) => {
+                const sweepOffer =
+                  group.key === "native" && sweepEnabled
+                    ? selectableSweepOffer(item, sweepBuyer)
+                    : undefined;
+                const selected = sweepSelections.some(
+                  (entry) => entry.item.tokenId === item.tokenId,
+                );
+                return (
+                  <div
+                    key={`${item.collectionAddress ?? "gnars"}:${item.tokenId}`}
+                    className={cn(
+                      "flex min-w-0 flex-col gap-2 rounded-lg",
+                      selected && "outline-2 outline-offset-4 outline-emerald-500",
+                    )}
+                  >
+                    <MarketplaceCard
+                      item={item}
+                      view="listings"
+                      exactSearch={false}
+                      sourcesComplete={group.complete}
+                      onClick={(event) => onSelect(item, event)}
+                    />
+                    {sweepOffer && (
+                      <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[11px]">
+                        <input
+                          type="checkbox"
+                          className="size-4 shrink-0 cursor-pointer accent-emerald-600"
+                          checked={selected}
+                          disabled={!selected && sweepSelections.length >= 10}
+                          aria-label={t("sweep.select", {
+                            id: item.tokenId,
+                            price: formatMarketplacePrice(sweepOffer.priceWei).exact,
+                          })}
+                          onChange={() => onSweepSelect?.({ item, offer: sweepOffer })}
+                        />
+                        <span className="min-w-0 flex-1 text-muted-foreground">
+                          {t("sourceNames.gnars-contract")}
+                        </span>
+                        <span
+                          className="break-all text-right font-mono"
+                          title={`${formatMarketplacePrice(sweepOffer.priceWei).exact} ETH`}
+                        >
+                          {formatMarketplacePrice(sweepOffer.priceWei).display} ETH
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             !group.failed && (

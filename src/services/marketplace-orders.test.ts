@@ -6,6 +6,7 @@ import {
   enforceMarketplaceBudget,
   enforceOpenSeaProviderBudget,
   getMarketplaceOrder,
+  getMarketplaceSweepCandidates,
   listMarketplaceOrders,
   localMarketplaceOffer,
   marketplaceContractStorageReady,
@@ -76,6 +77,59 @@ beforeEach(() => {
         rows: [{ id: "1", order_hash: hash, signed_order: listing, status: "active" }],
       };
     return { rowCount: 1, rows: [] };
+  });
+});
+
+describe("price-ordered floor candidate storage", () => {
+  const protocol = "0xC35813d40961151c11C97cB9d67D0D25CD4Cc86e";
+  function configure(rows: unknown[]) {
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol);
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("AS writable")) return { rowCount: 1, rows: [{ writable: true }] };
+      if (sql.includes("LIMIT 61")) return { rowCount: rows.length, rows };
+      return { rowCount: 0, rows: [] };
+    });
+  }
+  function row() {
+    return {
+      id: "1",
+      order_hash: hash,
+      signed_order: listing,
+      status: "active",
+      protocol_address: protocol.toLowerCase(),
+      token_id: "12",
+      price_wei: "100",
+      seller,
+    };
+  }
+  it("sorts globally by numeric price, excludes self, binds protocol, caps read work", async () => {
+    configure([row()]);
+    expect(await getMarketplaceSweepCandidates(seller, "200")).toEqual({
+      candidates: [listing],
+      truncated: false,
+    });
+    const query = mocks.query.mock.calls.find(([sql]) => sql.includes("LIMIT 61"));
+    expect(query?.[0]).toContain("ORDER BY price_wei::numeric ASC, id ASC LIMIT 61");
+    expect(query?.[0]).toContain("seller <> $3");
+    expect(query?.[0]).toContain("price_wei <= $4::numeric");
+    expect(query?.[1]).toEqual([protocol.toLowerCase(), expect.any(Number), seller, "200"]);
+  });
+  it("exposes scan truncation without returning the sentinel", async () => {
+    configure(Array.from({ length: 61 }, row));
+    const result = await getMarketplaceSweepCandidates(seller);
+    expect(result.truncated).toBe(true);
+    expect(result.candidates).toHaveLength(60);
+  });
+  it("rejects mismatched stored sort metadata rather than advertising a false floor", async () => {
+    for (const mismatch of [
+      { price_wei: "99" },
+      { token_id: "13" },
+      { seller: "0x2222222222222222222222222222222222222222" },
+      { protocol_address: seller },
+    ]) {
+      configure([{ ...row(), ...mismatch }]);
+      await expect(getMarketplaceSweepCandidates(seller)).rejects.toThrow("could not be verified");
+    }
   });
 });
 
