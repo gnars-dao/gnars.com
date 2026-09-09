@@ -7,8 +7,8 @@ using `DAO_ADDRESSES.token`. This is not the $GNARS ERC20, the primary auction,
 or a new NFT collection. Community collections, ERC1155, offers, auctions,
 cross-chain payments and collection deployment are outside this release.
 
-The initial server-rendered collection comes from the Builder subgraph. Burned
-tokens are excluded. Inventory is scoped to the actual `useWriteAccount()` owner,
+The default server-rendered view shows for-sale listings first, with NFT metadata
+from the Builder subgraph. Burned tokens are excluded from the catalogue. Inventory is scoped to the actual `useWriteAccount()` owner,
 not the member page's merged EOA/smart-account inventory. Details re-read ownership.
 The collection grid does not claim that missing price data means an NFT is unlisted.
 
@@ -20,21 +20,32 @@ Cards show the best loaded supported offer and its source. This is not a claim
 that the entire collection has been globally sorted or that every order type is
 supported.
 
+Cards use NFT artwork with a lightweight metallic reflection, never a webcam.
+Mouse pointers control the sheen; touch and reduced-motion users receive a static
+surface. Compact prices are display-only approximations; exact wei values remain
+unchanged for signing, execution and the detail view.
+
 ## Trading
 
 - OpenSea: server-only v2 API, `gnars-dao` collection slug, native ETH fixed-price
   listings on Base only. Detail requests fetch the best supported external listing.
   Sellers can approve a single Gnars NFT to OpenSea's canonical conduit, sign an order, and publish
-  directly to OpenSea without a local database. When both destinations are
-  configured, the sell form offers an explicit OpenSea/Gnars destination.
+  directly to OpenSea without a local database. The sell form explicitly chooses
+  among the configured destinations; it never changes the destination silently.
 - Gnars: PostgreSQL stores signed Seaport orders. NFTs remain in the seller wallet.
   Listing approval is per NFT, followed by EIP-712 signing and publication.
   These local orders are not automatically cross-posted to OpenSea.
-- Settlement: canonical Seaport 1.6, `0x0000000000000068F116a894984e2DB1123eB395`.
-  No custom settlement contract or additional Gnars platform fee is introduced.
+- Gnars contract (`gnars-contract`): a separately deployed, unmodified Seaport 1.6
+  instance, with its own approval address, EIP-712 verifying contract and
+  PostgreSQL order table. This third destination requires a verified deployment
+  and its own storage readiness. It is not live merely because its code exists.
+- OpenSea and Gnars (`gnars`) retain canonical Seaport 1.6,
+  `0x0000000000000068F116a894984e2DB1123eB395`. The custom destination uses only
+  `NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS`. Neither local destination adds a
+  platform fee; applicable collection royalties are still included by the app.
 - New OpenSea listings use the canonical conduit key and operator
   `0x1e0049783f008a0085193e00003d00cd54003c71`; Gnars-native listings use direct
-  Seaport approvals. Legacy zero-conduit signed orders remain readable and
+  Seaport approvals to their selected protocol address. Legacy zero-conduit signed orders remain readable and
   cancellable without modifying their signature, but cannot be republished to
   OpenSea. Old direct-Seaport approvals are not approval to the OpenSea conduit.
 - Approval, purchase and cancellation transactions retain the Gnars ERC-8021
@@ -154,6 +165,91 @@ bodies, credentials and signatures are never forwarded as diagnostic text.
    distributed public-read quota. Monitor provider quota and Vercel usage.
 5. Verify a real OpenSea API response and controlled wallet flow before announcing
    trading availability. Do not use production funds for automated tests.
+
+### Independently Deployed Contract
+
+All three destinations remain native-ETH fixed-price sales of the existing Gnars
+ERC721. Adding an independently deployed settlement address does not add offers,
+auctions, other collections or minting. Canonical Gnars and OpenSea orders remain
+on their original contracts; approval, signatures and cancellation cannot migrate
+automatically to the new address.
+
+`contracts/gnars-marketplace/upstream-lock.json` pins unmodified MIT-licensed
+`ProjectOpenSea/seaport-core` at `523097f9cee66c15d308c900c50f336b291cda08` and
+`seaport-types` at `b72493221ee1d2f2fb30ed94a3cc535a9028d09f`. Vendored source
+hashes are checked before every build. Compiler settings are Solidity
+`0.8.24+commit.e11b9ed9`, Cancun, via-IR, optimizer enabled with 4,294,967,295 runs
+and metadata bytecode hash `none`. Source licenses are preserved. No source
+changes or configurable Gnars fee hooks are introduced.
+
+From the repository root:
+
+```bash
+node scripts/custom-marketplace-build.mjs
+pnpm exec tsx scripts/custom-marketplace-fork.ts
+```
+
+The optional build flag `--fetch` refreshes the vendored sources from the two
+exact pinned upstream commits. Build outputs are
+`contracts/gnars-marketplace/artifacts/Seaport.json` (ABI, creation bytecode,
+runtime template, compiler metadata and hashes), `standard-input.json` (complete
+compiler input for explorer verification), and `runtime-manifest.json` (small
+runtime identity manifest). The official constructor takes the canonical conduit
+controller `0x00000000F9490004C11Cef243f5400493c00Ad63`.
+
+The fork script starts its own localhost-only Anvil on port 18559 at Base block
+51,021,116; its default upstream is the public Base RPC. It does not load env
+files, use real wallets or submit upstream writes. `CUSTOM_MARKETPLACE_FORK_URL`
+may explicitly override the read-only upstream. Deployment, approval, purchase
+and cancellation calldata include the builder suffix; signed salts carry builder
+provenance. The zero-fee fixture verifies that the seller receives the entire
+price, not that the app waives royalties.
+
+The verified fork deployment consumed 5,290,703 gas and returned 23,981 bytes of
+runtime. This is a gas-unit observation, not a live ETH/USD cost quote: mainnet
+fees and L1 data fees must be estimated for the actual user-signed transaction.
+The constructor deploys its own tiny TLOAD probe; its address and the EIP-712
+domain separator differ across instances, so raw runtime hashes cannot simply
+be compared between deployments.
+
+No deployment UI or automatic mainnet broadcaster is included. Mainnet deployment
+requires an explicitly reviewed creation transaction signed by the user's wallet.
+The provided verifier supports direct EOA creation, not an unreviewed factory or
+smart-account CREATE route. Do not put a deployer private key in scripts or env.
+After the user signs and the deployment confirms, run:
+
+```bash
+pnpm exec tsx scripts/custom-marketplace-verify.ts <contract-address> <creation-tx-hash>
+```
+
+This read-only check verifies Base, the successful creation receipt, exact
+creation bytecode plus constructor argument and builder suffix, runtime outside
+compiler-declared immutable slots, Seaport version, domain and controller.
+Complete explorer source verification separately with `standard-input.json`,
+compiler `v0.8.24+commit.e11b9ed9`, contract
+`vendor/seaport-core/src/Seaport.sol:Seaport`, and the ABI-encoded controller
+constructor argument. Preserve the actual compiler settings rather than guessing
+a lower optimizer count. Retain the creation hash and verification result.
+
+Only then configure the public address in both build and server environments and
+deploy the application. Runtime readiness independently checks the pinned runtime
+against canonical Base Seaport, validates every immutable constant, the exact
+domain/controller/chain and the constructor's TLOAD probe, with a 30-second cache.
+It fails closed for arbitrary addresses, incorrect deployments or unavailable
+RPC data. `customTrading` also requires the separate custom-order table and
+restricted runtime permissions. Existing `localTrading` is independent.
+
+The additive migration is `scripts/marketplace-contract-schema.sql`, applied
+separately by the administrative database operator. It creates
+`marketplace_contract_orders`, keyed by chain, protocol address and order hash,
+without rewriting existing canonical orders. It enables RLS, excludes public
+Data API roles and grants the existing `gnars_marketplace` runtime role only
+SELECT/INSERT, UPDATE of `status`/`checked_at`, and sequence USAGE. Deployment
+preparation does not apply this migration to production automatically.
+
+These checks and the upstream protocol's history are not an audit of this
+deployment or integration. Exact audit coverage of the pinned version has not
+been established; never represent a modified fork as inheriting an upstream audit.
 
 ### Supabase Connection Security
 

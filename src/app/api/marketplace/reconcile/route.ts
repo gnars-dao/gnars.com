@@ -17,12 +17,17 @@ export async function POST(request: Request) {
       limit: 10,
       windowSeconds: 60,
     });
-    const { orderHash } = parseMarketplaceInput(
-      z.object({ orderHash: marketplaceHashSchema }).strict(),
+    const { orderHash, source } = parseMarketplaceInput(
+      z
+        .object({
+          orderHash: marketplaceHashSchema,
+          source: z.enum(["gnars", "gnars-contract"]).default("gnars"),
+        })
+        .strict(),
       await readJsonBody(request, 1024),
     );
     await enforceMarketplaceBudget(request, "reconcile");
-    const { status } = await reconcileMarketplaceOrder(orderHash);
+    const { status } = await reconcileMarketplaceOrder(orderHash, source);
     revalidateTag(MARKETPLACE_ORDERS_CACHE_TAG, { expire: 0 });
     return Response.json({ status }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

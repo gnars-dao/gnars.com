@@ -40,9 +40,25 @@ for (const mobile of [false, true]) {
     await expect(
       page.getByRole("heading", { name: "Gnars Marketplace", exact: true }),
     ).toBeVisible();
-    await page.getByRole("tab", { name: "À venda", exact: true }).click();
+    await expect(page.getByRole("tab").first()).toHaveText("À venda");
+    await expect(page.getByRole("tab", { name: "À venda", exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
     await expect(page.getByRole("button", { name: "Ver Gnar #42", exact: true })).toBeVisible();
     await expect(page.getByText("0.0123 ETH", { exact: true })).toBeVisible();
+    const card = page.getByRole("button", { name: "Ver Gnar #42", exact: true });
+    await expect(card.getByText("OpenSea", { exact: true })).toBeVisible();
+    await expect(card.locator("time")).toHaveAttribute(
+      "datetime",
+      new Date(offer.expiresAt * 1000).toISOString(),
+    );
+    await expect(card.getByRole("img")).toBeVisible();
+    await page.screenshot({
+      path: `test-results/marketplace-cards-${mobile ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -93,10 +109,112 @@ test("provider failure is not rendered as an empty successful marketplace", asyn
   );
   await page.goto("/marketplace", { waitUntil: "domcontentloaded" });
   await page.getByRole("tab", { name: "For sale", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh listings", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Couldn't load" })).toBeVisible({
     timeout: 15000,
   });
   await expect(page.getByText("No active listings found.")).not.toBeVisible();
+});
+
+test("mobile cards keep exact prices and multiple sources inside their bounds", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.route("**/api/marketplace**", (route) =>
+    route.fulfill({
+      json: {
+        ...data,
+        items: [
+          {
+            ...item,
+            name: "Gnar #42 with an unusually long collection item name",
+            offers: [
+              offer,
+              {
+                ...offer,
+                id: "native-order",
+                source: "gnars",
+                orderHash: offer.orderHash,
+                priceWei: "1",
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
+  const card = page.getByRole("button", { name: "Ver Gnar #42", exact: true });
+  await expect(card.getByText("1e-18 ETH", { exact: true })).toBeVisible();
+  await expect(card.getByTitle("0.000000000000000001 ETH")).toHaveAttribute(
+    "aria-label",
+    "0.000000000000000001 ETH",
+  );
+  await expect(card.getByText("OpenSea", { exact: true })).toBeVisible();
+  await expect(card.getByText("Seaport", { exact: true })).toBeVisible();
+  await expect(card.getByTitle("2 anúncios")).toBeVisible();
+  expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("collection stays directly linkable after changing the default tab", async ({ page }) => {
+  await page.route("**/api/marketplace**", (route) => route.fulfill({ json: data }));
+  await page.goto("/pt-br/marketplace?view=catalogue", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("tab", { name: "Coleção", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(new URL(page.url()).searchParams.get("view")).toBe("catalogue");
+  await expect(page.getByRole("button", { name: "Ver Gnar #42", exact: true })).toBeVisible();
+});
+
+test("reflective cards use NFT artwork without camera access and respect reduced motion", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      value: () => {
+        document.documentElement.dataset.cameraRequested = "true";
+        return Promise.reject(new Error("Camera access forbidden in this test"));
+      },
+    });
+  });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.route("**/api/marketplace**", (route) => route.fulfill({ json: data }));
+  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
+  const card = page.getByRole("button", { name: "Ver Gnar #42", exact: true });
+  await expect(card).toBeVisible();
+  const box = (await card.boundingBox())!;
+  await card.dispatchEvent("pointermove", {
+    pointerType: "mouse",
+    clientX: box.x + 10,
+    clientY: box.y + 10,
+  });
+  await expect
+    .poll(() => card.evaluate((el) => el.style.getPropertyValue("--card-rotate-x")))
+    .not.toBe("0deg");
+  await card.dispatchEvent("pointerleave", { pointerType: "mouse" });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await card.dispatchEvent("pointermove", {
+    pointerType: "mouse",
+    clientX: box.x + 10,
+    clientY: box.y + 10,
+  });
+  expect(await card.evaluate((el) => getComputedStyle(el).transform)).toBe("none");
+  expect(await card.evaluate((el) => el.style.getPropertyValue("--card-rotate-x"))).toBe("");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await card.dispatchEvent("pointermove", {
+    pointerType: "touch",
+    clientX: box.x + 10,
+    clientY: box.y + 10,
+  });
+  expect(await card.evaluate((el) => el.style.getPropertyValue("--card-rotate-x"))).toBe("");
+  await expect(card.locator("video")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => document.documentElement.dataset.cameraRequested),
+  ).toBeUndefined();
 });
 
 test("drawer switches edges on resize and preserves the selected NFT", async ({ page }) => {
@@ -106,6 +224,7 @@ test("drawer switches edges on resize and preserves the selected NFT", async ({ 
   );
   await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
   await page.getByRole("tab", { name: "À venda", exact: true }).click();
+  await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
   await page.getByRole("button", { name: "Ver Gnar #42", exact: true }).click();
   const drawer = page.getByRole("dialog");
   await expect(drawer).toHaveAttribute("data-vaul-drawer-direction", "right");
@@ -130,6 +249,7 @@ test("mobile drawer can be dismissed by dragging its header", async ({ page }) =
   await page.route("**/api/marketplace**", (route) => route.fulfill({ json: data }));
   await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
   await page.getByRole("tab", { name: "À venda", exact: true }).click();
+  await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
   await page.getByRole("button", { name: "Ver Gnar #42", exact: true }).click();
   const drawer = page.getByRole("dialog");
   await expect(drawer).toHaveAttribute("data-vaul-drawer-direction", "bottom");
@@ -155,7 +275,7 @@ test("shared NFT links restore the drawer and closing removes only its selection
     "true",
   );
   await expect.poll(() => new URL(page.url()).searchParams.get("nft")).toBeNull();
-  expect(new URL(page.url()).searchParams.get("view")).toBe("listings");
+  expect(new URL(page.url()).searchParams.get("view")).toBeNull();
 });
 
 test("exact ID search persists in the URL and unconfigured native source is not an outage", async ({

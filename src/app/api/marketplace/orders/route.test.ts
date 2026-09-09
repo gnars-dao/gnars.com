@@ -15,6 +15,27 @@ beforeEach(() => {
 });
 
 describe("listing creation request boundaries", () => {
+  it.each(["gnars", "gnars-contract"] as const)("partitions publication by %s", async (source) => {
+    mocks.save.mockResolvedValueOnce({ id: `${source}:test` });
+    const response = await POST(
+      new Request("https://gnars.com/api/marketplace/orders", {
+        method: "POST",
+        body: JSON.stringify({ listing: {}, source }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith({}, source);
+  });
+  it("rejects arbitrary protocols at the native publishing endpoint", async () => {
+    const response = await POST(
+      new Request("https://gnars.com/api/marketplace/orders", {
+        method: "POST",
+        body: JSON.stringify({ listing: {}, source: "opensea" }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it("rejects oversized signed-order payloads before signature or RPC work", async () => {
     const response = await POST(
       new Request("https://gnars.com/api/marketplace/orders", {

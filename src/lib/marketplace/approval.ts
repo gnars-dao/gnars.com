@@ -6,7 +6,11 @@ import {
   type PublicClient,
 } from "viem";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { isSupportedListingOperator, OPENSEA_CONDUIT_ADDRESS } from "./routing";
+import {
+  getGnarsMarketplaceAddress,
+  isSupportedListingOperator,
+  OPENSEA_CONDUIT_ADDRESS,
+} from "./routing";
 import { SEAPORT_ADDRESS, type MarketplaceTransactionIntent } from "./seaport";
 
 type ApprovalClient = Pick<PublicClient, "getChainId" | "getBlockNumber" | "readContract">;
@@ -37,7 +41,8 @@ export function getListingApprovalOperator(
   account: Address,
   tokenId: string,
 ): Address | undefined {
-  return [SEAPORT_ADDRESS, OPENSEA_CONDUIT_ADDRESS].find((operator) =>
+  const custom = getGnarsMarketplaceAddress();
+  return [SEAPORT_ADDRESS, OPENSEA_CONDUIT_ADDRESS, ...(custom ? [custom] : [])].find((operator) =>
     isListingApprovalIntent(intent, account, tokenId, operator),
   );
 }

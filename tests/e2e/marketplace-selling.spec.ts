@@ -589,7 +589,8 @@ async function setupWallet(
 }
 
 async function connectAndInspect(page: Page, buying = false) {
-  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+  // Development SSR includes uncached listing-provider reads before hydration.
+  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded", timeout: 45000 });
   const owned = page.getByRole("tab", { name: "Meus Gnars", exact: true });
   await expect(async () => {
     await owned.click();
@@ -601,7 +602,10 @@ async function connectAndInspect(page: Page, buying = false) {
     .click();
   await page.getByRole("button", { name: /connect a wallet/i }).click();
   await page.getByRole("button", { name: /metamask/i }).click();
-  if (buying) await page.getByRole("tab", { name: "À venda", exact: true }).click();
+  if (buying) {
+    await page.getByRole("tab", { name: "À venda", exact: true }).click();
+    await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
+  }
   await expect(page.getByRole("button", { name: "Ver Gnar #42", exact: true })).toBeVisible({
     timeout: 30000,
   });
@@ -648,11 +652,11 @@ for (const mobile of [false, true]) {
         .locator("[data-vaul-no-drag]")
         .evaluate((el) => el.scrollWidth <= el.clientWidth),
     ).toBe(true);
-    await expect(drawer.getByRole("button", { name: "Fechar", exact: true })).toBeInViewport();
     await page.screenshot({
       path: `test-results/marketplace-sell-${mobile ? "mobile" : "desktop"}.png`,
       fullPage: false,
     });
+    await expect(drawer.getByRole("button", { name: "Fechar", exact: true })).toBeInViewport();
     await drawer.getByRole("button", { name: "Revisar e assinar anúncio", exact: true }).click();
     await expect(drawer.getByRole("button", { name: "Concluído", exact: true })).toBeVisible({
       timeout: 20000,

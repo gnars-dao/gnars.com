@@ -17,7 +17,7 @@ export function useMarketplace(
     queryKey: ["marketplace", view, owner?.toLowerCase() ?? null, tokenId ?? null],
     initialPageParam: null as string | null,
     initialData:
-      view === "catalogue" && initialPage && !tokenId
+      view === "listings" && initialPage && !tokenId
         ? { pages: [initialPage], pageParams: [null] }
         : undefined,
     queryFn: async ({ pageParam, signal }): Promise<MarketplacePage> => {

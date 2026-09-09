@@ -1,12 +1,17 @@
 import { formatEther, isAddressEqual, type Address, type PublicClient } from "viem";
 import { MarketplaceApiError } from "./errors";
-import { listingSource, savedListingOutcome } from "./listing-intent";
+import {
+  assertMarketplaceJournalProtocol,
+  listingSource,
+  savedListingOutcome,
+} from "./listing-intent";
+import { getMarketplaceProtocolAddress } from "./routing";
 import {
   getListingOrderHash,
   getListingPriceWei,
-  SEAPORT_ADDRESS,
   seaportAbi,
   validateListingStructure,
+  type ListingSourceOptions,
   type SignedListing,
 } from "./seaport";
 
@@ -30,9 +35,10 @@ export function canRetryMarketplacePublication(attempt: {
 export async function inspectSavedMarketplaceListing(
   client: Pick<PublicClient, "readContract" | "getBlock">,
   listing: SignedListing,
+  options: ListingSourceOptions = {},
 ) {
   const status = await client.readContract({
-    address: SEAPORT_ADDRESS,
+    address: getMarketplaceProtocolAddress(options.source),
     abi: seaportAbi,
     functionName: "getOrderStatus",
     args: [getListingOrderHash(listing.parameters)],
@@ -71,6 +77,7 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
   if (!value.listing)
     throw new Error("Export the saved attempt: an unresolved signature cannot be safely discarded");
   const source = listingSource(value.input ?? { source: value.offer?.source });
+  assertMarketplaceJournalProtocol({ kind: "list", input: { ...value.input, source } });
   const listing = validateListingStructure(value.listing, { source, allowExpired: true });
   if (!isAddressEqual(listing.parameters.offerer, account))
     throw new Error("Saved order does not match this wallet");
@@ -87,6 +94,7 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
     input: {
       tokenId,
       source,
+      ...(source === "gnars-contract" ? { protocolAddress: value.input.protocolAddress } : {}),
       priceEth: formatEther(priceWei),
       durationDays: Math.max(
         1,

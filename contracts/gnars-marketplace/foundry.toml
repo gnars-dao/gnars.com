@@ -1,0 +1,13 @@
+[profile.default]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+bytecode_hash = "none"
+optimizer = true
+optimizer_runs = 4_294_967_295
+src = "vendor/seaport-core/src"
+out = "out"
+cache_path = "cache"
+libs = ["vendor"]
+remappings = ["seaport-types/=vendor/seaport-types/"]
+build_info = true

@@ -9,6 +9,10 @@ export const CHAIN = {
   name: "base",
 } as const;
 
+export function getConfiguredGnarsMarketplaceAddress(): string | undefined {
+  return process.env.NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS;
+}
+
 // Core Builder DAO addresses — override via env vars to deploy for a different DAO
 export const DAO_ADDRESSES = {
   token: (process.env.NEXT_PUBLIC_TOKEN_ADDRESS ||

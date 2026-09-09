@@ -1,5 +1,5 @@
 import { zeroAddress, zeroHash, type Address, type PublicClient } from "viem";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { parseMarketplaceApiError } from "./errors";
 import { canCancelSavedListing } from "./listing-intent";
@@ -10,7 +10,9 @@ import {
   marketplaceActionError,
   repairMarketplaceJournal,
 } from "./recovery";
-import { getListingOrderHash, validateListingStructure } from "./seaport";
+import { getListingOrderHash, SEAPORT_ADDRESS, validateListingStructure } from "./seaport";
+
+afterEach(() => vi.unstubAllEnvs());
 
 const owner = "0x1111111111111111111111111111111111111111" as Address;
 const listing = {
@@ -47,6 +49,42 @@ const listing = {
   signature: "0x1234",
 };
 describe("marketplace recovery guards", () => {
+  it("inspects only the explicit protocol and never rewrites legacy source defaults", async () => {
+    const custom = "0x3333333333333333333333333333333333333333";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    const signed = validateListingStructure(listing, { allowExpired: true });
+    const reader = {
+      readContract: vi.fn().mockResolvedValue([false, true, 0n, 0n]),
+      getBlock: vi.fn(),
+    };
+    await inspectSavedMarketplaceListing(reader, signed, { source: "gnars-contract" });
+    expect(reader.readContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({ address: custom }),
+    );
+    await inspectSavedMarketplaceListing(reader, signed);
+    expect(reader.readContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({ address: SEAPORT_ADDRESS }),
+    );
+    const raw = JSON.stringify({ account: owner, listing });
+    expect(JSON.parse(repairMarketplaceJournal(raw, owner)).input.source).toBe("gnars");
+    const customRaw = JSON.stringify({
+      account: owner,
+      listing,
+      input: { source: "gnars-contract", protocolAddress: custom },
+    });
+    expect(JSON.parse(repairMarketplaceJournal(customRaw, owner)).input.source).toBe(
+      "gnars-contract",
+    );
+    expect(JSON.parse(repairMarketplaceJournal(customRaw, owner)).input.protocolAddress).toBe(
+      custom,
+    );
+    expect(() =>
+      repairMarketplaceJournal(
+        JSON.stringify({ account: owner, listing, input: { source: "gnars-contract" } }),
+        owner,
+      ),
+    ).toThrow("Saved listing protocol");
+  });
   it("allows only explicit retryable publication failures to be retried", () => {
     expect(canRetryMarketplacePublication({})).toBe(true);
     expect(canRetryMarketplacePublication({ error: { retryable: true } })).toBe(true);

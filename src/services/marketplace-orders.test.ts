@@ -4,6 +4,8 @@ import {
   enforceOpenSeaProviderBudget,
   getMarketplaceOrder,
   listMarketplaceOrders,
+  localMarketplaceOffer,
+  marketplaceContractStorageReady,
   marketplaceStorageReady,
   reconcileMarketplaceOrder,
   saveMarketplaceOrder,
@@ -20,7 +22,9 @@ const mocks = vi.hoisted(() => ({
   chain: vi.fn(),
   block: vi.fn(),
   multicall: vi.fn(),
+  contractReady: vi.fn(),
 }));
+vi.mock("./marketplace-contract", () => ({ marketplaceContractReady: mocks.contractReady }));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
 vi.mock("pg", () => ({
   Pool: vi.fn(function () {
@@ -50,11 +54,13 @@ const listing = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("MARKETPLACE_DATABASE_URL", "postgres://localhost/test-only");
+  vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", "");
   mocks.connect.mockResolvedValue({ query: mocks.query, release: mocks.release });
   mocks.structure.mockImplementation((raw) => raw);
   mocks.hash.mockReturnValue(hash);
   mocks.validate.mockResolvedValue({ orderHash: hash });
   mocks.status.mockResolvedValue("active");
+  mocks.contractReady.mockResolvedValue(true);
   mocks.chain.mockResolvedValue(8453);
   mocks.block.mockResolvedValue({ number: 123n, timestamp: BigInt(Math.floor(Date.now() / 1000)) });
   mocks.query.mockImplementation(async (sql: string) => {
@@ -211,6 +217,7 @@ describe("durable marketplace orders", () => {
     await saveMarketplaceOrder(listing);
     expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), listing, {
       requireApproval: true,
+      source: "gnars",
     });
     expect(mocks.query.mock.calls.some(([sql]) => sql.includes("pg_advisory_xact_lock"))).toBe(
       true,
@@ -267,6 +274,166 @@ describe("durable marketplace orders", () => {
     mocks.status.mockRejectedValueOnce(new Error("RPC unavailable"));
     await expect(reconcileMarketplaceOrder(hash)).rejects.toThrow("RPC unavailable");
     expect(mocks.query.mock.calls.some(([sql]) => sql.startsWith("UPDATE"))).toBe(false);
+  });
+});
+
+describe("isolated Gnars contract order storage", () => {
+  const protocol = "0x3333333333333333333333333333333333333333";
+  function configureStoredProtocol(storedProtocol = protocol) {
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol);
+    const original = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, ...args) => {
+      const result = await original(sql, ...args);
+      if (
+        sql.startsWith("SELECT id, order_hash") &&
+        sql.includes("FROM marketplace_contract_orders")
+      )
+        return {
+          ...result,
+          rows: result.rows.map((row: object) => ({ ...row, protocol_address: storedProtocol })),
+        };
+      return result;
+    });
+  }
+  it("keeps legacy ready when no custom deployment or custom table is available", async () => {
+    expect(await marketplaceContractStorageReady()).toBe(false);
+    expect(await marketplaceStorageReady()).toBe(true);
+    configureStoredProtocol();
+    const original = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, ...args) => {
+      if (sql.includes("marketplace_contract_orders LIMIT 0"))
+        throw new Error("missing custom schema");
+      return original(sql, ...args);
+    });
+    expect(await marketplaceContractStorageReady()).toBe(false);
+    expect(await marketplaceStorageReady()).toBe(true);
+  });
+  it("blocks every custom storage path when the deployed runtime is not verified", async () => {
+    configureStoredProtocol();
+    mocks.contractReady.mockResolvedValue(false);
+    expect(await marketplaceContractStorageReady()).toBe(false);
+    await expect(saveMarketplaceOrder(listing, "gnars-contract")).rejects.toThrow("unavailable");
+    await expect(getMarketplaceOrder(hash, "gnars-contract")).rejects.toThrow("unavailable");
+    await expect(reconcileMarketplaceOrder(hash, "gnars-contract")).rejects.toThrow("unavailable");
+    await expect(
+      listMarketplaceOrders(undefined, undefined, undefined, "gnars-contract"),
+    ).rejects.toThrow("unavailable");
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.validate).not.toHaveBeenCalled();
+    expect(mocks.status).not.toHaveBeenCalled();
+  });
+  it("requires only status/snapshot update privileges, never permission to rewrite signed terms", async () => {
+    configureStoredProtocol();
+    expect(await marketplaceContractStorageReady()).toBe(true);
+    const permissionSql = mocks.query.mock.calls.find(([sql]) =>
+      sql.includes("has_column_privilege"),
+    )?.[0];
+    expect(permissionSql).toContain("'status', 'UPDATE'");
+    expect(permissionSql).toContain("'checked_at', 'UPDATE'");
+    expect(permissionSql).not.toContain("'signed_order', 'UPDATE'");
+  });
+  it("stores custom signatures under their protocol without writing the canonical order table", async () => {
+    configureStoredProtocol();
+    const offer = await saveMarketplaceOrder(listing, "gnars-contract");
+    expect(offer).toMatchObject({
+      source: "gnars-contract",
+      protocolAddress: protocol,
+      id: `gnars-contract:${hash}`,
+    });
+    expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), listing, {
+      requireApproval: true,
+      source: "gnars-contract",
+    });
+    const insert = mocks.query.mock.calls.find(([sql]) =>
+      sql.startsWith("INSERT INTO marketplace_contract_orders"),
+    )!;
+    expect(insert[0]).toContain("ON CONFLICT (chain_id, protocol_address, order_hash)");
+    expect(insert[1]).toEqual([
+      hash,
+      "12",
+      seller,
+      "100",
+      2000000000,
+      JSON.stringify(listing),
+      protocol,
+    ]);
+    expect(
+      mocks.query.mock.calls.some(([sql]) => sql.startsWith("INSERT INTO marketplace_orders")),
+    ).toBe(false);
+    expect(localMarketplaceOffer(listing as never).source).toBe("gnars");
+  });
+  it("scopes hash lookup and chain reconciliation to the configured protocol", async () => {
+    configureStoredProtocol();
+    await getMarketplaceOrder(hash, "gnars-contract");
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining("AND protocol_address = $2"), [
+      hash,
+      protocol,
+    ]);
+    await reconcileMarketplaceOrder(hash, "gnars-contract");
+    expect(mocks.status).toHaveBeenCalledWith(expect.anything(), listing, {
+      source: "gnars-contract",
+    });
+    expect(mocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE marketplace_contract_orders"),
+      [hash, "active", protocol],
+    );
+  });
+  it("rejects stored protocol mismatches even if the order hash is identical", async () => {
+    configureStoredProtocol("0x4444444444444444444444444444444444444444");
+    await expect(getMarketplaceOrder(hash, "gnars-contract")).rejects.toThrow(
+      "protocol could not be verified",
+    );
+  });
+  it("uses bound protocol filters with every catalogue filter and custom-only RPC targets", async () => {
+    configureStoredProtocol();
+    const original = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, ...args) => {
+      if (sql.includes("ROW_NUMBER()"))
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              id: "1",
+              order_hash: hash,
+              protocol_address: protocol,
+              status: "active",
+              checked_at: new Date(0),
+              signed_order: {
+                ...listing,
+                parameters: { ...listing.parameters, startTime: "1", counter: "0" },
+              },
+            },
+          ],
+        };
+      return original(sql, ...args);
+    });
+    mocks.multicall.mockResolvedValue(
+      [[false, false, 0n, 0n], 0n, seller, protocol, false].map((result) => ({
+        status: "success",
+        result,
+      })),
+    );
+    const result = await listMarketplaceOrders("99", ["12"], seller, "gnars-contract");
+    expect(result.offers[0]?.offer.protocolAddress).toBe(protocol);
+    const query = mocks.query.mock.calls.find(([sql]) => sql.includes("ROW_NUMBER()"))!;
+    expect(query[0]).toContain("AND protocol_address = $5");
+    expect(query[1]).toEqual([expect.any(Number), "99", ["12"], seller, protocol]);
+    const calls = mocks.multicall.mock.calls[0][0].contracts;
+    expect(calls[0].address).toBe(protocol);
+    expect(calls[1].address).toBe(protocol);
+    expect(calls[4].args).toEqual([seller, protocol]);
+    expect(mocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("AND orders.protocol_address = $3"),
+      [[hash], ["active"], protocol],
+    );
+  });
+  it("fails closed on custom operations without a configured target", async () => {
+    await expect(saveMarketplaceOrder(listing, "gnars-contract")).rejects.toThrow("not configured");
+    await expect(getMarketplaceOrder(hash, "gnars-contract")).rejects.toThrow("not configured");
+    await expect(
+      listMarketplaceOrders(undefined, undefined, undefined, "gnars-contract"),
+    ).rejects.toThrow("not configured");
+    expect(mocks.query).not.toHaveBeenCalled();
   });
 });
 

@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
   configured: vi.fn(),
   ready: vi.fn(),
   owner: vi.fn(),
+  customAddress: vi.fn(),
+  customReady: vi.fn(),
 }));
+vi.mock("@/lib/marketplace/routing", () => ({ getGnarsMarketplaceAddress: mocks.customAddress }));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
 vi.mock("@/services/marketplace-catalogue", () => ({
   getMarketplaceCatalogue: mocks.catalogue,
@@ -30,6 +33,7 @@ vi.mock("@/services/marketplace-orders", () => ({
   listMarketplaceOrders: mocks.local,
   marketplaceStorageConfigured: mocks.configured,
   marketplaceStorageReady: mocks.ready,
+  marketplaceContractStorageReady: mocks.customReady,
 }));
 vi.mock("viem", async (original) => ({
   ...(await original<typeof import("viem")>()),
@@ -43,6 +47,8 @@ beforeEach(() => {
   mocks.key.mockReturnValue(false);
   mocks.configured.mockReturnValue(false);
   mocks.ready.mockResolvedValue(false);
+  mocks.customAddress.mockReturnValue(null);
+  mocks.customReady.mockResolvedValue(false);
   mocks.catalogue.mockResolvedValue({ items: [structuredClone(nft)], nextCursor: null });
   mocks.metadata.mockImplementation(async () => [structuredClone(nft)]);
   mocks.owner.mockResolvedValue(owner);
@@ -53,6 +59,43 @@ beforeEach(() => {
 });
 
 describe("marketplace source availability", () => {
+  it("requires both a configured custom deployment and its storage before enabling trading", async () => {
+    mocks.ready.mockResolvedValue(true);
+    mocks.customReady.mockResolvedValue(true);
+    expect((await getMarketplaceReadiness()).capabilities.customTrading).toBe(false);
+    mocks.customAddress.mockReturnValue("0x3333333333333333333333333333333333333333");
+    expect((await getMarketplaceReadiness()).capabilities.customTrading).toBe(true);
+    mocks.customReady.mockResolvedValue(false);
+    expect((await getMarketplaceReadiness()).capabilities.customTrading).toBe(false);
+  });
+  it("aggregates custom listings without repointing legacy Seaport orders", async () => {
+    mocks.ready.mockResolvedValue(true);
+    mocks.customAddress.mockReturnValue("0x3333333333333333333333333333333333333333");
+    mocks.customReady.mockResolvedValue(true);
+    const customOffer = {
+      id: "gnars-contract:test",
+      source: "gnars-contract",
+      seller: owner,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    };
+    mocks.local
+      .mockResolvedValueOnce({ offers: [], nextCursor: null })
+      .mockResolvedValueOnce({ offers: [{ tokenId: "12", offer: customOffer }], nextCursor: "10" });
+    const page = await loadMarketplacePage({ view: "listings" });
+    expect(page.items[0].offers).toEqual([customOffer]);
+    expect(mocks.local).toHaveBeenNthCalledWith(1, undefined);
+    expect(mocks.local).toHaveBeenNthCalledWith(
+      2,
+      undefined,
+      undefined,
+      undefined,
+      "gnars-contract",
+    );
+    expect(JSON.parse(Buffer.from(page.nextCursor!, "base64url").toString())).toMatchObject({
+      gnars: null,
+      "gnars-contract": "10",
+    });
+  });
   it("keeps catalogue usable without pretending missing providers have no listings", async () => {
     const page = await loadMarketplacePage({ view: "catalogue" });
     expect(page.items).toHaveLength(1);
@@ -60,12 +103,14 @@ describe("marketplace source availability", () => {
       catalogue: { available: true },
       opensea: { available: false, error: "not_configured" },
       gnars: { available: false, error: "not_configured" },
+      "gnars-contract": { available: false, error: "not_configured" },
     });
     expect(page.capabilities).toEqual({
       openseaBuy: false,
       openseaSell: false,
       openseaCancel: false,
       localTrading: false,
+      customTrading: false,
     });
     expect(mocks.external).not.toHaveBeenCalled();
   });
@@ -228,7 +273,12 @@ describe("marketplace source availability", () => {
     ).toString("base64url");
     const page = await loadMarketplacePage({ view: "listings", cursor });
     const next = JSON.parse(Buffer.from(page.nextCursor!, "base64url").toString());
-    expect(next).toEqual({ view: "listings", opensea: "retry-me", gnars: "24" });
+    expect(next).toEqual({
+      view: "listings",
+      opensea: "retry-me",
+      gnars: "24",
+      "gnars-contract": null,
+    });
     await loadMarketplacePage({ view: "listings", cursor: page.nextCursor! });
     expect(mocks.external).toHaveBeenLastCalledWith("retry-me");
   });

@@ -105,12 +105,24 @@ describe("just-in-time OpenSea fulfillment", () => {
   });
 });
 describe("just-in-time local fulfillment", () => {
+  it("carries the custom source through storage, validation and calldata construction", async () => {
+    await prepareMarketplaceFulfillment({ ...input, source: "gnars-contract" });
+    expect(mocks.order).toHaveBeenCalledWith(hash, "gnars-contract");
+    expect(mocks.offer).toHaveBeenCalledWith(expect.anything(), "gnars-contract");
+    expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      requireApproval: true,
+      source: "gnars-contract",
+    });
+    expect(mocks.encode).toHaveBeenCalledWith(expect.anything(), { source: "gnars-contract" });
+    expect(mocks.externalPayload).not.toHaveBeenCalled();
+  });
   it("revalidates on-chain state and simulates exact buyer calldata/value", async () => {
     expect(await prepareMarketplaceFulfillment(input)).toMatchObject({
       transaction: { chainId: 8453, value: "100" },
     });
     expect(mocks.validate).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
       requireApproval: true,
+      source: "gnars",
     });
     expect(mocks.simulate).toHaveBeenCalledWith(
       expect.objectContaining({ account: buyer, data: "0x1234", value: 100n }),
@@ -138,7 +150,7 @@ describe("just-in-time local fulfillment", () => {
 });
 
 describe("actionable fulfillment failures", () => {
-  it.each(["gnars", "opensea"] as const)(
+  it.each(["gnars", "opensea", "gnars-contract"] as const)(
     "returns a typed price change and already-owned error for %s",
     async (source) => {
       await expect(

@@ -1,13 +1,9 @@
-import { isAddressEqual, type Address } from "viem";
+import { isAddress, isAddressEqual, type Address } from "viem";
 import { z } from "zod";
 import type { MarketplaceOffer, MarketplaceSource } from "@/types/marketplace";
 import { buildOpenSeaListingQuote, type OpenSeaListingQuote } from "./opensea-listing";
-import {
-  getListingOrderHash,
-  getListingPriceWei,
-  SEAPORT_ADDRESS,
-  type SignedListing,
-} from "./seaport";
+import { getMarketplaceProtocolAddress } from "./routing";
+import { getListingOrderHash, getListingPriceWei, type SignedListing } from "./seaport";
 
 export type MarketplaceListingQuote = OpenSeaListingQuote & {
   source: MarketplaceSource;
@@ -47,8 +43,26 @@ export function savedListingOutcome(
 // Missing source belongs to the pre-OpenSea journal format, never a new default destination.
 export function listingSource(input?: { source?: unknown }): MarketplaceSource {
   const source = input?.source ?? "gnars";
-  if (source !== "gnars" && source !== "opensea") throw new Error("Invalid listing destination");
+  if (source !== "gnars" && source !== "opensea" && source !== "gnars-contract")
+    throw new Error("Invalid listing destination");
   return source;
+}
+
+/** A signed order's domain cannot follow a later deployment configuration change. */
+export function assertMarketplaceJournalProtocol(attempt: {
+  kind?: string;
+  input?: { source?: unknown; protocolAddress?: unknown };
+  offer?: { source?: unknown; protocolAddress?: unknown };
+}): void {
+  const identity = attempt.kind === "list" ? attempt.input : attempt.offer;
+  if (listingSource(identity) !== "gnars-contract") return;
+  const protocol = identity?.protocolAddress;
+  if (
+    typeof protocol !== "string" ||
+    !isAddress(protocol, { strict: false }) ||
+    !isAddressEqual(protocol, getMarketplaceProtocolAddress("gnars-contract"))
+  )
+    throw new Error("Saved listing protocol does not match the configured Gnars contract");
 }
 
 export function parseOpenSeaQuote(raw: unknown, priceWei: string): MarketplaceListingQuote {
@@ -118,7 +132,7 @@ export function assertPublishedListing(
   if (
     offer.source !== source ||
     offer.currency !== "ETH" ||
-    !isAddressEqual(offer.protocolAddress, SEAPORT_ADDRESS) ||
+    !isAddressEqual(offer.protocolAddress, getMarketplaceProtocolAddress(source)) ||
     offer.orderHash.toLowerCase() !== getListingOrderHash(listing.parameters).toLowerCase() ||
     !isAddressEqual(offer.seller, listing.parameters.offerer) ||
     offer.priceWei !== getListingPriceWei(listing).toString() ||

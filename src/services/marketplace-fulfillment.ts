@@ -21,7 +21,7 @@ import type { MarketplaceFulfillment } from "@/types/marketplace";
 
 export const marketplaceFulfillmentSchema = z
   .object({
-    source: z.enum(["gnars", "opensea"]),
+    source: z.enum(["gnars", "opensea", "gnars-contract"]),
     orderHash: marketplaceHashSchema,
     tokenId: marketplaceUintSchema,
     buyer: marketplaceAddressSchema,
@@ -96,8 +96,8 @@ export async function prepareMarketplaceFulfillment(
       transaction: { chainId: 8453, ...transaction, value: transaction.value.toString() },
     };
   }
-  const listing = await getMarketplaceOrder(input.orderHash);
-  const offer = localMarketplaceOffer(listing);
+  const listing = await getMarketplaceOrder(input.orderHash, input.source);
+  const offer = localMarketplaceOffer(listing, input.source);
   if (
     listing.parameters.offer[0].identifierOrCriteria !== input.tokenId ||
     offer.orderHash.toLowerCase() !== input.orderHash.toLowerCase()
@@ -124,7 +124,10 @@ export async function prepareMarketplaceFulfillment(
       false,
     );
   try {
-    await validateListingOnchain(marketplaceClient, listing, { requireApproval: true });
+    await validateListingOnchain(marketplaceClient, listing, {
+      requireApproval: true,
+      source: input.source,
+    });
   } catch (error) {
     if (
       error instanceof Error &&
@@ -140,7 +143,7 @@ export async function prepareMarketplaceFulfillment(
       );
     throw error;
   }
-  const transaction = getListingFulfillment(listing);
+  const transaction = getListingFulfillment(listing, { source: input.source });
   // Simulate the exact value/calldata for this buyer after revalidating the order.
   await marketplaceClient
     .call({ account: input.buyer as Address, ...transaction })

@@ -87,6 +87,13 @@ export default function MarketplaceDetail({
   });
   const item = detail.data?.items[0] ?? initialItem;
   const capabilities = detail.data?.capabilities ?? initialCapabilities;
+  const nativeTrading = (source: MarketplaceSource) =>
+    source === "gnars-contract" ? !!capabilities.customTrading : capabilities.localTrading;
+  const sourceName = (source: MarketplaceSource) =>
+    source === "opensea" ? "OpenSea" : source === "gnars" ? "Seaport" : t("customContract");
+  const destinations = (["opensea", "gnars", "gnars-contract"] as const).filter((source) =>
+    source === "opensea" ? capabilities.openseaSell : nativeTrading(source),
+  );
   const isOwner = !!writer && item.owner?.toLowerCase() === writer.account.address.toLowerCase();
   const priceWei = parseMarketplacePrice(price);
   useEffect(() => {
@@ -127,7 +134,7 @@ export default function MarketplaceDetail({
     !quote.isFetching &&
     !quote.isError;
   const canList =
-    listingDestination === "opensea" ? capabilities.openseaSell : capabilities.localTrading;
+    listingDestination === "opensea" ? capabilities.openseaSell : nativeTrading(listingDestination);
 
   async function execute() {
     setSubmitted(true);
@@ -153,7 +160,7 @@ export default function MarketplaceDetail({
     setPriceTouched(false);
     setOffer(listing ?? null);
     setMode(next);
-    if (next === "sell") setListingDestination(capabilities.openseaSell ? "opensea" : "gnars");
+    if (next === "sell") setListingDestination(destinations[0] ?? "gnars");
     scrollRef.current?.scrollTo({ top: 0 });
   }
 
@@ -309,7 +316,7 @@ export default function MarketplaceDetail({
                     <p className="text-xs text-muted-foreground">
                       {t(
                         detail.data &&
-                          [detail.data.sources.opensea, detail.data.sources.gnars].every(
+                          Object.values(detail.data.sources).every(
                             (source) =>
                               (source.available && !source.partial) ||
                               source.error === "not_configured",
@@ -326,7 +333,7 @@ export default function MarketplaceDetail({
                           {formatEther(BigInt(listing.priceWei))} ETH
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {listing.source === "opensea" ? "OpenSea" : "Gnars"}
+                          {sourceName(listing.source)}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -347,7 +354,7 @@ export default function MarketplaceDetail({
                             !verifiedDetail ||
                             !(listing.source === "opensea"
                               ? capabilities.openseaCancel
-                              : capabilities.localTrading)
+                              : nativeTrading(listing.source))
                           }
                           className="w-full cursor-pointer"
                         >
@@ -364,7 +371,7 @@ export default function MarketplaceDetail({
                             !verifiedDetail ||
                             !(listing.source === "opensea"
                               ? capabilities.openseaBuy
-                              : capabilities.localTrading)
+                              : nativeTrading(listing.source))
                           }
                           className="w-full cursor-pointer"
                         >
@@ -382,18 +389,13 @@ export default function MarketplaceDetail({
                     <Button
                       variant="default"
                       onClick={() => choose("sell")}
-                      disabled={
-                        busy ||
-                        unresolved ||
-                        !verifiedDetail ||
-                        !(capabilities.openseaSell || capabilities.localTrading)
-                      }
+                      disabled={busy || unresolved || !verifiedDetail || destinations.length === 0}
                       className="w-full cursor-pointer"
                     >
                       <Tag className="size-4" />
                       {t("sell")}
                     </Button>
-                    {!(capabilities.openseaSell || capabilities.localTrading) && (
+                    {destinations.length === 0 && (
                       <p role="status" className="text-xs text-muted-foreground">
                         {t("listingUnavailable")}
                       </p>
@@ -410,7 +412,7 @@ export default function MarketplaceDetail({
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="market-destination">{t("source")}</Label>
-                      {capabilities.openseaSell && capabilities.localTrading ? (
+                      {destinations.length > 1 ? (
                         <select
                           id="market-destination"
                           value={listingDestination}
@@ -420,12 +422,15 @@ export default function MarketplaceDetail({
                           disabled={busy || success || unresolved}
                           className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                         >
-                          <option value="opensea">OpenSea</option>
-                          <option value="gnars">Gnars</option>
+                          {destinations.map((source) => (
+                            <option key={source} value={source}>
+                              {sourceName(source)}
+                            </option>
+                          ))}
                         </select>
                       ) : (
                         <p id="market-destination" className="text-sm font-medium">
-                          {listingDestination === "opensea" ? "OpenSea" : "Gnars"}
+                          {sourceName(listingDestination)}
                         </p>
                       )}
                     </div>
@@ -584,7 +589,7 @@ export default function MarketplaceDetail({
                         ? !(mode === "cancel"
                             ? capabilities.openseaCancel
                             : capabilities.openseaBuy)
-                        : !capabilities.localTrading)
+                        : !nativeTrading(offer?.source ?? "gnars"))
                   }
                   onClick={() => void execute()}
                   variant={mode === "cancel" ? "destructive" : "default"}

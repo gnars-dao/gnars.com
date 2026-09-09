@@ -1,7 +1,8 @@
 import { zeroAddress, zeroHash, type Address } from "viem";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
 import {
+  assertMarketplaceJournalProtocol,
   assertPublishedListing,
   canCancelSavedListing,
   listingSource,
@@ -18,8 +19,53 @@ const rawQuote = {
   sellerWei: "9900",
   fees: [{ recipient, basisPoints: 100, amountWei: "100" }],
 };
+afterEach(() => vi.unstubAllEnvs());
 
 describe("listing destination and confirmed quote", () => {
+  it("pins custom journal domains across reloads and deployment changes, preserving legacy attempts", () => {
+    const custom = "0x3333333333333333333333333333333333333333";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    expect(() => assertMarketplaceJournalProtocol({ kind: "list", input: {} })).not.toThrow();
+    expect(() =>
+      assertMarketplaceJournalProtocol({ kind: "buy", offer: { source: "gnars" } }),
+    ).not.toThrow();
+    expect(() =>
+      assertMarketplaceJournalProtocol({
+        kind: "list",
+        input: { source: "gnars-contract", protocolAddress: custom },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertMarketplaceJournalProtocol({
+        kind: "cancel",
+        offer: { source: "gnars-contract", protocolAddress: custom },
+      }),
+    ).not.toThrow();
+    for (const protocolAddress of [undefined, "bad", SEAPORT_ADDRESS]) {
+      expect(() =>
+        assertMarketplaceJournalProtocol({
+          kind: "list",
+          input: { source: "gnars-contract", protocolAddress },
+        }),
+      ).toThrow("Saved listing protocol");
+      expect(() =>
+        assertMarketplaceJournalProtocol({
+          kind: "buy",
+          offer: { source: "gnars-contract", protocolAddress },
+        }),
+      ).toThrow("Saved listing protocol");
+    }
+    vi.stubEnv(
+      "NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS",
+      "0x4444444444444444444444444444444444444444",
+    );
+    expect(() =>
+      assertMarketplaceJournalProtocol({
+        kind: "list",
+        input: { source: "gnars-contract", protocolAddress: custom },
+      }),
+    ).toThrow("Saved listing protocol");
+  });
   it("only permits cancellation recovery for a settled saved signature", () => {
     const saved = { kind: "list", phase: "saving", listing: {} };
     expect(canCancelSavedListing(saved)).toBe(true);
@@ -40,6 +86,7 @@ describe("listing destination and confirmed quote", () => {
     expect(listingSource()).toBe("gnars");
     expect(listingSource({})).toBe("gnars");
     expect(listingSource({ source: "opensea" })).toBe("opensea");
+    expect(listingSource({ source: "gnars-contract" })).toBe("gnars-contract");
     expect(() => listingSource({ source: "other" })).toThrow();
   });
   it("checks fee arithmetic before showing or signing the quote", () => {

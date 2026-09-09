@@ -1,0 +1,128 @@
+{
+  "version": "1.6",
+  "conduitController": "0x00000000F9490004C11Cef243f5400493c00Ad63",
+  "runtimeBytes": 23981,
+  "maskedRuntimeKeccak256": "0x5e28ee299328fa1e92f53ac4f6b90bab00d16db6bf0a42dd28c379f9274219cc",
+  "immutableReferences": {
+    "_NAME_HASH": [
+      {
+        "start": 15504,
+        "length": 32
+      }
+    ],
+    "_VERSION_HASH": [
+      {
+        "start": 15540,
+        "length": 32
+      }
+    ],
+    "_EIP_712_DOMAIN_TYPEHASH": [
+      {
+        "start": 15469,
+        "length": 32
+      }
+    ],
+    "_OFFER_ITEM_TYPEHASH": [
+      {
+        "start": 4690,
+        "length": 32
+      },
+      {
+        "start": 8207,
+        "length": 32
+      }
+    ],
+    "_CONSIDERATION_ITEM_TYPEHASH": [
+      {
+        "start": 4768,
+        "length": 32
+      },
+      {
+        "start": 7866,
+        "length": 32
+      }
+    ],
+    "_ORDER_TYPEHASH": [
+      {
+        "start": 4875,
+        "length": 32
+      },
+      {
+        "start": 8324,
+        "length": 32
+      }
+    ],
+    "_CHAIN_ID": [
+      {
+        "start": 15389,
+        "length": 32
+      }
+    ],
+    "_DOMAIN_SEPARATOR": [
+      {
+        "start": 15427,
+        "length": 32
+      }
+    ],
+    "_CONDUIT_CONTROLLER": [
+      {
+        "start": 3862,
+        "length": 32
+      },
+      {
+        "start": 9365,
+        "length": 32
+      },
+      {
+        "start": 17045,
+        "length": 32
+      }
+    ],
+    "_CONDUIT_CREATION_CODE_HASH": [
+      {
+        "start": 9427,
+        "length": 32
+      },
+      {
+        "start": 17107,
+        "length": 32
+      }
+    ],
+    "_tstoreInitialSupport": [
+      {
+        "start": 1229,
+        "length": 32
+      },
+      {
+        "start": 7655,
+        "length": 32
+      },
+      {
+        "start": 10007,
+        "length": 32
+      },
+      {
+        "start": 10076,
+        "length": 32
+      },
+      {
+        "start": 12452,
+        "length": 32
+      },
+      {
+        "start": 12545,
+        "length": 32
+      },
+      {
+        "start": 12638,
+        "length": 32
+      }
+    ],
+    "_tloadTestContract": [
+      {
+        "start": 1279,
+        "length": 32
+      }
+    ]
+  }
+}

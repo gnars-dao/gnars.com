@@ -25,6 +25,7 @@ import {
 import { generateMarketplaceSalt } from "@/lib/marketplace/attribution";
 import { parseMarketplaceApiError } from "@/lib/marketplace/errors";
 import {
+  assertMarketplaceJournalProtocol,
   assertPublishedListing,
   canCancelSavedListing,
   listingSource,
@@ -44,7 +45,11 @@ import {
   marketplaceActionError,
   repairMarketplaceJournal,
 } from "@/lib/marketplace/recovery";
-import { getConduitOperator, getListingConduitKey } from "@/lib/marketplace/routing";
+import {
+  getConduitOperator,
+  getListingConduitKey,
+  getMarketplaceProtocolAddress,
+} from "@/lib/marketplace/routing";
 import {
   canAbandonMarketplaceSignature,
   canAcceptMarketplaceSignature,
@@ -92,6 +97,7 @@ type ListInput = {
   durationDays: number;
   expectedRoyaltyWei?: string;
   source?: MarketplaceSource;
+  protocolAddress?: Address;
   expectedQuote?: MarketplaceListingQuote;
 };
 type Journal = {
@@ -137,6 +143,7 @@ function parseJournal(raw: string, account: Address): Journal {
   )
     throw new Error("Invalid saved marketplace attempt");
   if (value.kind === "list") listingSource(value.input);
+  assertMarketplaceJournalProtocol(value);
   if (value.listing)
     validateListingStructure(value.listing, {
       allowExpired: true,
@@ -450,7 +457,7 @@ export function useMarketplaceActions() {
         if (!orderHash || !seller || !isAddressEqual(seller, owner))
           throw new Error("Saved cancellation does not match the connected owner");
         const status = await client().readContract({
-          address: SEAPORT_ADDRESS,
+          address: getMarketplaceProtocolAddress(saved.offer?.source ?? listingSource(saved.input)),
           abi: seaportAbi,
           functionName: "getOrderStatus",
           args: [orderHash],
@@ -464,6 +471,7 @@ export function useMarketplaceActions() {
           });
           await api(saved.offer?.source === "opensea" ? "/opensea/reconcile" : "/reconcile", {
             orderHash,
+            ...(saved.offer?.source === "gnars-contract" ? { source: "gnars-contract" } : {}),
           }).catch(() => {});
           return;
         }
@@ -541,7 +549,9 @@ export function useMarketplaceActions() {
             : saved.offer?.orderHash;
           if (!orderHash) throw new Error("Missing saved order");
           const chainStatus = await client().readContract({
-            address: SEAPORT_ADDRESS,
+            address: getMarketplaceProtocolAddress(
+              saved.offer?.source ?? listingSource(saved.input),
+            ),
             abi: seaportAbi,
             functionName: "getOrderStatus",
             args: [orderHash],
@@ -562,12 +572,15 @@ export function useMarketplaceActions() {
           save(entry, { ...saved, phase: "complete", error: undefined });
           await api(saved.offer?.source === "opensea" ? "/opensea/reconcile" : "/reconcile", {
             orderHash,
+            ...(saved.offer?.source === "gnars-contract" ? { source: "gnars-contract" } : {}),
           }).catch(() => {});
           return;
         }
       }
       if (saved.kind === "list" && saved.listing) {
-        const outcome = await inspectSavedMarketplaceListing(client(), saved.listing);
+        const outcome = await inspectSavedMarketplaceListing(client(), saved.listing, {
+          source: listingSource(saved.input),
+        });
         if (outcome)
           save(entry, { ...saved, phase: "complete", listingOutcome: outcome, error: undefined });
         else {
@@ -586,7 +599,9 @@ export function useMarketplaceActions() {
       const current = read(saved.account);
       if (current?.id !== saved.id) return;
       if (!current.listing) throw new Error("Missing signed marketplace order");
-      const outcome = await inspectSavedMarketplaceListing(client(), current.listing);
+      const outcome = await inspectSavedMarketplaceListing(client(), current.listing, {
+        source: listingSource(current.input),
+      });
       if (outcome) {
         save(entry, { ...current, phase: "complete", listingOutcome: outcome, error: undefined });
         return;
@@ -596,6 +611,7 @@ export function useMarketplaceActions() {
       const source = listingSource(current.input);
       const response = await api(source === "opensea" ? "/opensea/orders" : "/orders", {
         listing: current.listing,
+        ...(source === "gnars-contract" ? { source } : {}),
       });
       assertPublishedListing(response.offer, current.listing, source);
       const latest = read(saved.account);
@@ -639,7 +655,11 @@ export function useMarketplaceActions() {
       );
       const ready = await api("/readiness");
       if (
-        !(source === "opensea" ? ready.capabilities?.openseaSell : ready.capabilities?.localTrading)
+        !(source === "opensea"
+          ? ready.capabilities?.openseaSell
+          : source === "gnars-contract"
+            ? ready.capabilities?.customTrading
+            : ready.capabilities?.localTrading)
       )
         throw new Error("Marketplace listing service is unavailable");
       if (saved && !canReplaceMarketplaceAttempt(saved)) {
@@ -672,7 +692,12 @@ export function useMarketplaceActions() {
             kind: "list",
             phase: "approving",
             tokenId: input.tokenId,
-            input,
+            input: {
+              ...input,
+              ...(source === "gnars-contract"
+                ? { protocolAddress: getMarketplaceProtocolAddress(source) }
+                : {}),
+            },
           });
         });
         saved = entry.journal!;
@@ -698,7 +723,7 @@ export function useMarketplaceActions() {
       if (fixed.expectedRoyaltyWei !== undefined && fixed.expectedRoyaltyWei !== amounts.royaltyWei)
         throw new Error("The collection royalty changed; review the price again");
       const conduitKey = getListingConduitKey(source);
-      const approvalOperator = getConduitOperator(conduitKey);
+      const approvalOperator = getConduitOperator(conduitKey, source);
       if (
         !(await hasConfirmedMarketplaceApproval(client(), owner, saved.tokenId, approvalOperator))
       ) {
@@ -720,7 +745,7 @@ export function useMarketplaceActions() {
       }
       const now = Number((await client().getBlock()).timestamp);
       const counter = await client().readContract({
-        address: SEAPORT_ADDRESS,
+        address: getMarketplaceProtocolAddress(source),
         abi: seaportAbi,
         functionName: "getCounter",
         args: [owner],
@@ -771,7 +796,7 @@ export function useMarketplaceActions() {
         save(entry, { ...entry.journal!, phase: "unknown", signatureRequestSettled: false });
       });
       const pending = signer(owner)
-        .account.signTypedData(getListingTypedData(parameters))
+        .account.signTypedData(getListingTypedData(parameters, { source }))
         .then(async (signature) => {
           const listing = validateListingStructure({ parameters, signature }, { source });
           if (source === "opensea") validateOpenSeaListingFees(listing, amounts);
@@ -819,7 +844,12 @@ export function useMarketplaceActions() {
     offer: MarketplaceOffer,
   ) {
     const ready = await api("/readiness");
-    if (offer.source !== "opensea" && !ready.capabilities?.localTrading)
+    if (
+      offer.source !== "opensea" &&
+      !(offer.source === "gnars-contract"
+        ? ready.capabilities?.customTrading
+        : ready.capabilities?.localTrading)
+    )
       throw new Error("Marketplace trading is unavailable");
     if (offer.source === "opensea") {
       if (kind === "cancel") {
@@ -884,8 +914,15 @@ export function useMarketplaceActions() {
       await broadcast(entry, owner, tx, "buy");
       return;
     }
-    const { listing: raw } = await api(`/orders/${offer.orderHash}`);
-    const listing = validateListingStructure(raw, { allowExpired: kind === "cancel" });
+    const { listing: raw } = await api(
+      `/orders/${offer.orderHash}${offer.source === "gnars-contract" ? "?source=gnars-contract" : ""}`,
+    );
+    const listing = validateListingStructure(raw, {
+      allowExpired: kind === "cancel",
+      source: offer.source,
+    });
+    if (!isAddressEqual(offer.protocolAddress, getMarketplaceProtocolAddress(offer.source)))
+      throw new Error("Marketplace protocol changed");
     if (!tokenId) tokenId = listing.parameters.offer[0].identifierOrCriteria;
     if (
       getListingOrderHash(listing.parameters).toLowerCase() !== offer.orderHash.toLowerCase() ||
@@ -895,11 +932,14 @@ export function useMarketplaceActions() {
     if (kind === "cancel" && !isAddressEqual(owner, listing.parameters.offerer))
       throw new Error("Only the listing owner can cancel");
     if (kind === "buy") {
-      await validateListingOnchain(client(), listing);
+      await validateListingOnchain(client(), listing, { source: offer.source });
       if (isAddressEqual(owner, listing.parameters.offerer))
         throw new Error("The seller cannot buy their own listing");
     }
-    const call = kind === "buy" ? getListingFulfillment(listing) : getListingCancellation(listing);
+    const call =
+      kind === "buy"
+        ? getListingFulfillment(listing, { source: offer.source })
+        : getListingCancellation(listing, { source: offer.source });
     if (kind === "buy" && call.value.toString() !== offer.priceWei)
       throw new Error("Marketplace price changed");
     if (kind === "buy") {
@@ -1073,7 +1113,7 @@ export function useMarketplaceActions() {
               id: `${source}:${orderHash}`,
               source,
               orderHash,
-              protocolAddress: SEAPORT_ADDRESS,
+              protocolAddress: getMarketplaceProtocolAddress(source),
               seller: owner,
               priceWei: getListingPriceWei(listing).toString(),
               currency: "ETH",

@@ -17,7 +17,8 @@ import {
 import { entryPoint06Abi } from "viem/account-abstraction";
 import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
-import { getConduitOperator, OPENSEA_CONDUIT_KEY, SEAPORT_ADDRESS } from "./routing";
+import type { MarketplaceSource } from "@/types/marketplace";
+import { getConduitOperator, getMarketplaceProtocolAddress, OPENSEA_CONDUIT_KEY } from "./routing";
 
 export { SEAPORT_ADDRESS } from "./routing";
 type SignatureAttempt = {
@@ -232,7 +233,7 @@ export const listingSchema = z
   .strict();
 export type SignedListing = z.infer<typeof listingSchema>;
 export type OrderComponents = SignedListing["parameters"];
-export type ListingSourceOptions = { source?: "gnars" | "opensea" };
+export type ListingSourceOptions = { source?: MarketplaceSource };
 const openSeaListingSchema = listingSchema.extend({
   parameters: listingSchema.shape.parameters.extend({
     consideration: z
@@ -254,6 +255,7 @@ export function validateListingStructure(
   raw: unknown,
   options: ListingSourceOptions & { now?: number; allowExpired?: boolean } = {},
 ): SignedListing {
+  getMarketplaceProtocolAddress(options.source);
   const listing = (options.source === "opensea" ? openSeaListingSchema : listingSchema).parse(raw),
     p = listing.parameters,
     nft = p.offer[0];
@@ -317,9 +319,17 @@ export function orderValues(p: OrderComponents) {
     counter: BigInt(p.counter),
   };
 }
-export function getListingTypedData(parameters: OrderComponents) {
+export function getListingTypedData(
+  parameters: OrderComponents,
+  options: ListingSourceOptions = {},
+) {
   return {
-    domain: { name: "Seaport", version: "1.6", chainId: 8453, verifyingContract: SEAPORT_ADDRESS },
+    domain: {
+      name: "Seaport",
+      version: "1.6",
+      chainId: 8453,
+      verifyingContract: getMarketplaceProtocolAddress(options.source),
+    },
     types: orderTypes,
     primaryType: "OrderComponents" as const,
     message: orderValues(parameters),
@@ -362,8 +372,9 @@ export async function getListingStatus(
   if ((await client.getChainId()) !== 8453) throw new Error("Base chain required");
   const p = listing.parameters,
     hash = getListingOrderHash(p);
+  const protocol = getMarketplaceProtocolAddress(options.source);
   const [, cancelled, filled] = await client.readContract({
-    address: SEAPORT_ADDRESS,
+    address: protocol,
     abi: seaportAbi,
     functionName: "getOrderStatus",
     args: [hash],
@@ -374,7 +385,7 @@ export async function getListingStatus(
   if (BigInt(p.endTime) <= block.timestamp) return "expired";
   if (BigInt(p.startTime) > block.timestamp) throw new Error("Listing has not started");
   const counter = await client.readContract({
-    address: SEAPORT_ADDRESS,
+    address: protocol,
     abi: seaportAbi,
     functionName: "getCounter",
     args: [p.offerer],
@@ -394,7 +405,7 @@ export async function getListingStatus(
     functionName: "getApproved",
     args: [tokenId],
   });
-  const operator = getConduitOperator(p.conduitKey);
+  const operator = getConduitOperator(p.conduitKey, options.source);
   if (
     !isAddressEqual(approved, operator) &&
     !(await client.readContract({
@@ -419,14 +430,14 @@ export async function validateListingOnchain(
     throw new Error(`Listing is ${status}`);
   const orderHash = getListingOrderHash(p);
   const chainHash = await client.readContract({
-    address: SEAPORT_ADDRESS,
+    address: getMarketplaceProtocolAddress(options.source),
     abi: seaportAbi,
     functionName: "getOrderHash",
     args: [orderValues(p)],
   });
   if (chainHash !== orderHash) throw new Error("Seaport order hash mismatch");
   const code = await client.getCode({ address: p.offerer });
-  const typed = getListingTypedData(p);
+  const typed = getListingTypedData(p, options);
   if (code && code !== "0x") {
     const magic = await client.readContract({
       address: p.offerer,
@@ -466,7 +477,7 @@ export function getListingFulfillment(listing: SignedListing, options: ListingSo
   validateListingStructure(listing, options);
   const p = orderValues(listing.parameters);
   return {
-    to: SEAPORT_ADDRESS,
+    to: getMarketplaceProtocolAddress(options.source),
     data: encodeFunctionData({
       abi: seaportAbi,
       functionName: "fulfillOrder",
@@ -484,7 +495,7 @@ export function getListingFulfillment(listing: SignedListing, options: ListingSo
 export function getListingCancellation(listing: SignedListing, options: ListingSourceOptions = {}) {
   validateListingStructure(listing, { ...options, allowExpired: true });
   return {
-    to: SEAPORT_ADDRESS,
+    to: getMarketplaceProtocolAddress(options.source),
     data: encodeFunctionData({
       abi: seaportAbi,
       functionName: "cancel",

@@ -3,6 +3,7 @@ import {
   encodeAbiParameters,
   encodeEventTopics,
   encodeFunctionData,
+  hashTypedData,
   parseAbi,
   zeroAddress,
   zeroHash,
@@ -10,7 +11,7 @@ import {
 } from "viem";
 import { entryPoint06Abi } from "viem/account-abstraction";
 import { privateKeyToAccount } from "viem/accounts";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
 import { OPENSEA_CONDUIT_ADDRESS, OPENSEA_CONDUIT_KEY } from "./routing";
 import {
@@ -35,6 +36,7 @@ import {
 const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const royaltyRecipient = "0x2222222222222222222222222222222222222222" as Address;
 const now = Math.floor(Date.now() / 1000);
+afterEach(() => vi.unstubAllEnvs());
 function listing(): SignedListing {
   return {
     parameters: {
@@ -94,6 +96,60 @@ function client(order: SignedListing, overrides: Record<string, unknown> = {}) {
 }
 
 describe("canonical Gnars Seaport orders", () => {
+  it("separates custom signature domain, reads, approvals and transaction targets", async () => {
+    const custom = "0x3333333333333333333333333333333333333333";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    const order = listing();
+    const options = { source: "gnars-contract" as const };
+    const typed = getListingTypedData(order.parameters, options);
+    expect(typed.domain.verifyingContract).toBe(custom);
+    expect(hashTypedData(typed)).not.toBe(hashTypedData(getListingTypedData(order.parameters)));
+    order.signature = await account.signTypedData(typed);
+    const reader = client(order, { getApproved: custom });
+    await expect(validateListingOnchain(reader, order, options)).resolves.toEqual({
+      orderHash: getListingOrderHash(order.parameters),
+    });
+    for (const [call] of vi.mocked(reader.readContract).mock.calls) {
+      if (["getOrderStatus", "getCounter", "getOrderHash"].includes(call.functionName))
+        expect(call.address).toBe(custom);
+    }
+    expect(getListingFulfillment(order, options).to).toBe(custom);
+    expect(getListingCancellation(order, options).to).toBe(custom);
+    expect(getListingCancellation(order).to).toBe(SEAPORT_ADDRESS);
+    await expect(getListingStatus(client(order), order, options)).resolves.toBe("unapproved");
+    await expect(validateListingOnchain(client(order), order)).rejects.toThrow(
+      "Invalid owner signature",
+    );
+    order.signature = await account.signTypedData(getListingTypedData(order.parameters));
+    await expect(
+      validateListingOnchain(client(order, { getApproved: custom }), order, options),
+    ).rejects.toThrow("Invalid owner signature");
+  });
+  it("cannot create custom typed data or transactions without the configured deployment", () => {
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", "");
+    const options = { source: "gnars-contract" as const };
+    expect(() => getListingTypedData(listing().parameters, options)).toThrow("not configured");
+    expect(() => getListingFulfillment(listing(), options)).toThrow("not configured");
+    expect(() => getListingCancellation(listing(), options)).toThrow("not configured");
+  });
+  it("passes the custom deployment domain digest to EIP-1271 smart wallets", async () => {
+    const custom = "0x3333333333333333333333333333333333333333";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    const order = listing();
+    const reader = client(order, { getApproved: custom, isValidSignature: "0x1626ba7e" });
+    vi.mocked(reader.getCode).mockResolvedValue("0x1234");
+    await validateListingOnchain(reader, order, { source: "gnars-contract" });
+    expect(reader.readContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: account.address,
+        functionName: "isValidSignature",
+        args: [
+          hashTypedData(getListingTypedData(order.parameters, { source: "gnars-contract" })),
+          order.signature,
+        ],
+      }),
+    );
+  });
   it("allows explicit signature-only discard and rejects late results for discarded ids", () => {
     const attempt = { id: "old", kind: "list", phase: "unknown" };
     expect(canAbandonMarketplaceSignature(attempt)).toBe(true);

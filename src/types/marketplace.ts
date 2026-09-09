@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-export type MarketplaceSource = "opensea" | "gnars";
+export type MarketplaceSource = "opensea" | "gnars" | "gnars-contract";
 export type MarketplaceOffer = {
   id: string;
   source: MarketplaceSource;
@@ -34,12 +34,14 @@ export type MarketplacePage = {
     catalogue: MarketplaceAvailability;
     opensea: MarketplaceAvailability;
     gnars: MarketplaceAvailability;
+    "gnars-contract"?: MarketplaceAvailability;
   };
   capabilities: {
     openseaBuy: boolean;
     openseaSell: boolean;
     openseaCancel: boolean;
     localTrading: boolean;
+    customTrading?: boolean;
   };
 };
 

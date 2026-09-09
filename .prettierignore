@@ -2,6 +2,7 @@
 node_modules
 build
 out
+contracts/**/cache
 public
 references
 .claude
@@ -12,4 +13,3 @@ references
 package-lock.json
 pnpm-lock.yaml
 *.log
-

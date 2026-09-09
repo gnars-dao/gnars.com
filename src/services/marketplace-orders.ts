@@ -5,10 +5,13 @@ import { Pool } from "pg";
 import { erc721Abi, isAddressEqual, type Address, type Hex } from "viem";
 import { DAO_ADDRESSES } from "@/lib/config";
 import {
+  getGnarsMarketplaceAddress,
+  getMarketplaceProtocolAddress,
+} from "@/lib/marketplace/routing";
+import {
   getListingOrderHash,
   getListingPriceWei,
   getListingStatus,
-  SEAPORT_ADDRESS,
   seaportAbi,
   validateListingOnchain,
   validateListingStructure,
@@ -23,8 +26,19 @@ import {
   marketplaceUnavailable,
 } from "@/services/marketplace-common";
 import type { MarketplaceOffer } from "@/types/marketplace";
+import { marketplaceContractReady } from "./marketplace-contract";
 
 let pool: Pool | undefined;
+export type LocalMarketplaceSource = "gnars" | "gnars-contract";
+function orderStorage(source: LocalMarketplaceSource) {
+  if (source !== "gnars" && source !== "gnars-contract")
+    throw new Error("Invalid local marketplace source");
+  return {
+    table: source === "gnars-contract" ? "marketplace_contract_orders" : "marketplace_orders",
+    custom: source === "gnars-contract",
+    protocol: getMarketplaceProtocolAddress(source),
+  };
+}
 function databaseUrl() {
   return (
     process.env.MARKETPLACE_DATABASE_URL ||
@@ -79,6 +93,39 @@ export const marketplaceStorageReady = unstable_cache(
   ["marketplace-storage-ready-v1"],
   { revalidate: 60 },
 );
+
+export const marketplaceContractStorageReady = unstable_cache(
+  async () => {
+    if (
+      !getGnarsMarketplaceAddress() ||
+      !(await marketplaceContractReady()) ||
+      !(await marketplaceStorageReady())
+    )
+      return false;
+    try {
+      await database().query(
+        "SELECT id, chain_id, protocol_address, order_hash, token_id, seller, price_wei, expires_at, signed_order, status, checked_at FROM marketplace_contract_orders LIMIT 0",
+      );
+      const permissions = await database().query<{ writable: boolean }>(`SELECT
+        has_table_privilege(current_user, 'marketplace_contract_orders', 'SELECT') AND
+        has_table_privilege(current_user, 'marketplace_contract_orders', 'INSERT') AND
+        has_column_privilege(current_user, 'marketplace_contract_orders', 'status', 'UPDATE') AND
+        has_column_privilege(current_user, 'marketplace_contract_orders', 'checked_at', 'UPDATE') AND
+        has_sequence_privilege(current_user, pg_get_serial_sequence('marketplace_contract_orders', 'id'), 'USAGE') AS writable`);
+      return permissions.rows[0]?.writable === true;
+    } catch {
+      return false;
+    }
+  },
+  ["marketplace-contract-storage-ready-v1"],
+  { revalidate: 60 },
+);
+
+function storageReady(source: LocalMarketplaceSource) {
+  return source === "gnars-contract"
+    ? marketplaceContractStorageReady()
+    : marketplaceStorageReady();
+}
 
 /** Durable budgets protect paid/RPC work across every serverless instance. */
 export async function enforceMarketplaceBudget(
@@ -140,15 +187,19 @@ type StoredOrder = {
   status: string;
   checked_at?: Date | string;
   candidate_count?: string;
+  protocol_address?: string;
 };
 
-export function localMarketplaceOffer(listing: SignedListing): MarketplaceOffer {
+export function localMarketplaceOffer(
+  listing: SignedListing,
+  source: LocalMarketplaceSource = "gnars",
+): MarketplaceOffer {
   const orderHash = getListingOrderHash(listing.parameters);
   return {
-    id: `gnars:${orderHash}`,
-    source: "gnars",
+    id: `${source}:${orderHash}`,
+    source,
     orderHash,
-    protocolAddress: SEAPORT_ADDRESS,
+    protocolAddress: orderStorage(source).protocol,
     seller: listing.parameters.offerer,
     priceWei: getListingPriceWei(listing).toString(),
     currency: "ETH",
@@ -156,14 +207,16 @@ export function localMarketplaceOffer(listing: SignedListing): MarketplaceOffer 
   };
 }
 
-export async function saveMarketplaceOrder(raw: unknown) {
-  if (!(await marketplaceStorageReady()))
+export async function saveMarketplaceOrder(raw: unknown, source: LocalMarketplaceSource = "gnars") {
+  const { table, custom, protocol } = orderStorage(source);
+  if (!(await storageReady(source)))
     throw marketplaceUnavailable("Marketplace order storage is unavailable.");
-  const listing = validateListingStructure(raw);
+  const listing = validateListingStructure(raw, { source });
   const { orderHash } = await validateListingOnchain(marketplaceClient, listing, {
     requireApproval: true,
+    source,
   });
-  const offer = localMarketplaceOffer(listing);
+  const offer = localMarketplaceOffer(listing, source);
   const client = await database().connect();
   try {
     await client.query("BEGIN");
@@ -172,19 +225,19 @@ export async function saveMarketplaceOrder(raw: unknown) {
       listing.parameters.offerer.toLowerCase(),
     ]);
     const existing = await client.query(
-      "SELECT order_hash FROM marketplace_orders WHERE chain_id = 8453 AND order_hash = $1",
-      [orderHash.toLowerCase()],
+      `SELECT order_hash FROM ${table} WHERE chain_id = 8453 AND order_hash = $1${custom ? " AND protocol_address = $2" : ""}`,
+      [orderHash.toLowerCase(), ...(custom ? [protocol.toLowerCase()] : [])],
     );
     if (existing.rowCount === 0) {
       const count = await client.query<{ count: string }>(
-        "SELECT count(*) FROM marketplace_orders WHERE seller = $1 AND status IN ('active', 'invalid-owner', 'unapproved') AND expires_at > $2",
+        `SELECT count(*) FROM ${table} WHERE seller = $1 AND status IN ('active', 'invalid-owner', 'unapproved') AND expires_at > $2`,
         [listing.parameters.offerer.toLowerCase(), Math.floor(Date.now() / 1000)],
       );
       if (Number(count.rows[0].count) >= 25)
         throw new RequestSecurityError(429, "Active listing limit reached.");
       await client.query(
-        `INSERT INTO marketplace_orders (chain_id, order_hash, token_id, seller, price_wei, expires_at, signed_order)
-         VALUES (8453, $1, $2, $3, $4, $5, $6::jsonb) ON CONFLICT (chain_id, order_hash) DO NOTHING`,
+        `INSERT INTO ${table} (chain_id, order_hash, token_id, seller, price_wei, expires_at, signed_order${custom ? ", protocol_address" : ""})
+         VALUES (8453, $1, $2, $3, $4, $5, $6::jsonb${custom ? ", $7" : ""}) ON CONFLICT (chain_id, ${custom ? "protocol_address, " : ""}order_hash) DO NOTHING`,
         [
           orderHash.toLowerCase(),
           listing.parameters.offer[0].identifierOrCriteria,
@@ -192,6 +245,7 @@ export async function saveMarketplaceOrder(raw: unknown) {
           offer.priceWei,
           offer.expiresAt,
           JSON.stringify(listing),
+          ...(custom ? [protocol.toLowerCase()] : []),
         ],
       );
     }
@@ -205,26 +259,41 @@ export async function saveMarketplaceOrder(raw: unknown) {
   }
 }
 
-export async function getMarketplaceOrder(orderHash: string): Promise<SignedListing> {
+export async function getMarketplaceOrder(
+  orderHash: string,
+  source: LocalMarketplaceSource = "gnars",
+): Promise<SignedListing> {
+  const { table, custom, protocol } = orderStorage(source);
+  if (custom && !(await marketplaceContractStorageReady()))
+    throw marketplaceUnavailable("Gnars contract order storage is unavailable.");
   const result = await database().query<StoredOrder>(
-    "SELECT id, order_hash, signed_order, status FROM marketplace_orders WHERE chain_id = 8453 AND order_hash = $1",
-    [orderHash.toLowerCase()],
+    `SELECT id, order_hash, signed_order, status${custom ? ", protocol_address" : ""} FROM ${table} WHERE chain_id = 8453 AND order_hash = $1${custom ? " AND protocol_address = $2" : ""}`,
+    [orderHash.toLowerCase(), ...(custom ? [protocol.toLowerCase()] : [])],
   );
   if (!result.rows[0]) throw new RequestSecurityError(404, "Listing was not found.");
-  const listing = validateListingStructure(result.rows[0].signed_order, { allowExpired: true });
+  if (custom && result.rows[0].protocol_address !== protocol.toLowerCase())
+    throw marketplaceUnavailable("Stored listing protocol could not be verified.");
+  const listing = validateListingStructure(result.rows[0].signed_order, {
+    allowExpired: true,
+    source,
+  });
   if (getListingOrderHash(listing.parameters).toLowerCase() !== orderHash.toLowerCase()) {
     throw marketplaceUnavailable("Stored listing could not be verified.");
   }
   return listing;
 }
 
-export async function reconcileMarketplaceOrder(orderHash: string) {
-  const listing = await getMarketplaceOrder(orderHash);
+export async function reconcileMarketplaceOrder(
+  orderHash: string,
+  source: LocalMarketplaceSource = "gnars",
+) {
+  const { table, custom, protocol } = orderStorage(source);
+  const listing = await getMarketplaceOrder(orderHash, source);
   // No client-supplied status or transaction claim can cancel/fill an order.
-  const status = await getListingStatus(marketplaceClient, listing);
+  const status = await getListingStatus(marketplaceClient, listing, { source });
   await database().query(
-    "UPDATE marketplace_orders SET status = $2, checked_at = NOW() WHERE chain_id = 8453 AND order_hash = $1",
-    [orderHash.toLowerCase(), status],
+    `UPDATE ${table} SET status = $2, checked_at = NOW() WHERE chain_id = 8453 AND order_hash = $1${custom ? " AND protocol_address = $3" : ""}`,
+    [orderHash.toLowerCase(), status, ...(custom ? [protocol.toLowerCase()] : [])],
   );
   return { listing, status };
 }
@@ -233,24 +302,28 @@ export async function listMarketplaceOrders(
   before?: string,
   tokenIds?: string[],
   seller?: Address,
+  source: LocalMarketplaceSource = "gnars",
 ) {
-  if (!(await marketplaceStorageReady()))
+  const { table, custom, protocol } = orderStorage(source);
+  if (!(await storageReady(source)))
     throw marketplaceUnavailable("Marketplace order storage is unavailable.");
   const result = await database().query<StoredOrder>(
     `${tokenIds ? "WITH candidates AS (" : ""}
-     SELECT id, order_hash, signed_order, status, checked_at
+     SELECT id, order_hash, signed_order, status, checked_at${custom ? ", protocol_address" : ""}
      ${tokenIds ? ", ROW_NUMBER() OVER (PARTITION BY token_id ORDER BY price_wei, id DESC) AS rank, COUNT(*) OVER (PARTITION BY token_id) AS candidate_count" : ""}
-     FROM marketplace_orders
+     FROM ${table}
      WHERE chain_id = 8453 AND status IN ('active', 'invalid-owner', 'unapproved') AND expires_at > $1
      ${before ? "AND id < $2" : ""}
      ${tokenIds ? `AND token_id = ANY($${before ? 3 : 2}::numeric[])` : ""}
      ${seller ? `AND seller = $${2 + Number(Boolean(before)) + Number(Boolean(tokenIds))}` : ""}
-     ${tokenIds ? ") SELECT id, order_hash, signed_order, status, checked_at, candidate_count FROM candidates WHERE rank <= 25 ORDER BY id DESC" : `ORDER BY id DESC LIMIT ${MARKETPLACE_PAGE_SIZE}`}`,
+     ${custom ? `AND protocol_address = $${2 + Number(Boolean(before)) + Number(Boolean(tokenIds)) + Number(Boolean(seller))}` : ""}
+     ${tokenIds ? `) SELECT id, order_hash, signed_order, status, checked_at, candidate_count${custom ? ", protocol_address" : ""} FROM candidates WHERE rank <= 25 ORDER BY id DESC` : `ORDER BY id DESC LIMIT ${MARKETPLACE_PAGE_SIZE}`}`,
     [
       Math.floor(Date.now() / 1000),
       ...(before ? [before] : []),
       ...(tokenIds ? [tokenIds] : []),
       ...(seller ? [seller.toLowerCase()] : []),
+      ...(custom ? [protocol.toLowerCase()] : []),
     ],
   );
   const offers: Array<{ tokenId: string; offer: MarketplaceOffer }> = [];
@@ -259,7 +332,9 @@ export async function listMarketplaceOrders(
   const now = Date.now();
   for (const row of result.rows) {
     try {
-      const listing = validateListingStructure(row.signed_order, { allowExpired: true });
+      if (custom && row.protocol_address !== protocol.toLowerCase())
+        throw new Error("Stored order protocol mismatch");
+      const listing = validateListingStructure(row.signed_order, { allowExpired: true, source });
       if (getListingOrderHash(listing.parameters).toLowerCase() !== row.order_hash.toLowerCase())
         throw new Error("Stored order identity mismatch");
       if (BigInt(listing.parameters.endTime) <= BigInt(Math.floor(now / 1000))) continue;
@@ -268,7 +343,7 @@ export async function listMarketplaceOrders(
         if (row.status === "active")
           offers.push({
             tokenId: listing.parameters.offer[0].identifierOrCriteria,
-            offer: localMarketplaceOffer(listing),
+            offer: localMarketplaceOffer(listing, source),
           });
       } else stale.push({ row, listing });
     } catch {
@@ -293,13 +368,13 @@ export async function listMarketplaceOrders(
           blockNumber: block.number,
           contracts: batch.flatMap(({ listing, row }) => [
             {
-              address: SEAPORT_ADDRESS,
+              address: protocol,
               abi: seaportAbi,
               functionName: "getOrderStatus",
               args: [row.order_hash],
             },
             {
-              address: SEAPORT_ADDRESS,
+              address: protocol,
               abi: seaportAbi,
               functionName: "getCounter",
               args: [listing.parameters.offerer],
@@ -320,7 +395,7 @@ export async function listMarketplaceOrders(
               address: DAO_ADDRESSES.token,
               abi: erc721Abi,
               functionName: "isApprovedForAll",
-              args: [listing.parameters.offerer, SEAPORT_ADDRESS],
+              args: [listing.parameters.offerer, protocol],
             },
           ]),
         })
@@ -355,7 +430,7 @@ export async function listMarketplaceOrders(
                 ? "invalid-counter"
                 : !isAddressEqual(owner, p.offerer)
                   ? "invalid-owner"
-                  : !isAddressEqual(approval, SEAPORT_ADDRESS) && !approvedAll
+                  : !isAddressEqual(approval, protocol) && !approvedAll
                     ? "unapproved"
                     : "active";
         if (BigInt(p.startTime) > block.timestamp) {
@@ -366,17 +441,21 @@ export async function listMarketplaceOrders(
         if (status === "active")
           offers.push({
             tokenId: p.offer[0].identifierOrCriteria,
-            offer: localMarketplaceOffer(listing),
+            offer: localMarketplaceOffer(listing, source),
           });
       }
     }
     if (updates.length > 0) {
       try {
         await database().query(
-          `UPDATE marketplace_orders AS orders SET status = checked.status, checked_at = NOW()
+          `UPDATE ${table} AS orders SET status = checked.status, checked_at = NOW()
            FROM UNNEST($1::text[], $2::text[]) AS checked(order_hash, status)
-           WHERE orders.chain_id = 8453 AND orders.order_hash = checked.order_hash`,
-          [updates.map((update) => update.hash), updates.map((update) => update.status)],
+           WHERE orders.chain_id = 8453 AND orders.order_hash = checked.order_hash${custom ? " AND orders.protocol_address = $3" : ""}`,
+          [
+            updates.map((update) => update.hash),
+            updates.map((update) => update.status),
+            ...(custom ? [protocol.toLowerCase()] : []),
+          ],
         );
       } catch {
         // Already verified offers remain readable if persisting their snapshot fails.

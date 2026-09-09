@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import { erc721Abi, type Address } from "viem";
 import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
+import { getGnarsMarketplaceAddress } from "@/lib/marketplace/routing";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import { getMarketplaceCatalogue, getMarketplaceMetadata } from "@/services/marketplace-catalogue";
 import {
@@ -20,6 +21,7 @@ import {
 } from "@/services/marketplace-opensea";
 import {
   listMarketplaceOrders,
+  marketplaceContractStorageReady,
   marketplaceStorageConfigured,
   marketplaceStorageReady,
 } from "@/services/marketplace-orders";
@@ -36,6 +38,7 @@ const cursorSchema = z
     owner: z.string().optional(),
     opensea: z.string().max(1024).nullable().optional(),
     gnars: marketplaceUintSchema.nullable().optional(),
+    "gnars-contract": marketplaceUintSchema.nullable().optional(),
     catalogue: marketplaceUintSchema.optional(),
   })
   .strict();
@@ -60,13 +63,20 @@ function encodeCursor(cursor: z.infer<typeof cursorSchema>) {
 export async function getMarketplaceReadiness() {
   const opensea = marketplaceOpenSeaConfigured();
   const local = await marketplaceStorageReady();
-  const sources: Pick<MarketplacePage["sources"], "opensea" | "gnars"> = {
+  const custom = !!getGnarsMarketplaceAddress() && (await marketplaceContractStorageReady());
+  const sources: Omit<MarketplacePage["sources"], "catalogue"> = {
     opensea: opensea ? { available: true } : { available: false, error: "not_configured" },
     gnars: local
       ? { available: true }
       : {
           available: false,
           error: marketplaceStorageConfigured() ? "unavailable" : "not_configured",
+        },
+    "gnars-contract": custom
+      ? { available: true }
+      : {
+          available: false,
+          error: getGnarsMarketplaceAddress() ? "unavailable" : "not_configured",
         },
   };
   return {
@@ -76,6 +86,7 @@ export async function getMarketplaceReadiness() {
       openseaSell: opensea,
       openseaCancel: opensea,
       localTrading: local,
+      customTrading: custom,
     },
   };
 }
@@ -118,17 +129,21 @@ export async function loadMarketplacePage({
     } catch {
       sources.catalogue = { available: false, error: "unavailable" };
     }
-    if (sources.gnars.available && items.length > 0) {
-      try {
-        const { offers, partial } = await cachedLocalOrders(
-          undefined,
-          items.map((item) => item.tokenId),
-        );
-        for (const row of offers)
-          items.find((item) => item.tokenId === row.tokenId)?.offers.push(row.offer);
-        if (partial) sources.gnars.partial = true;
-      } catch {
-        sources.gnars = { available: false, error: "unavailable" };
+    for (const source of ["gnars", "gnars-contract"] as const) {
+      if (sources[source]?.available && items.length > 0) {
+        try {
+          const { offers, partial } = await cachedLocalOrders(
+            undefined,
+            items.map((item) => item.tokenId),
+            undefined,
+            source,
+          );
+          for (const row of offers)
+            items.find((item) => item.tokenId === row.tokenId)?.offers.push(row.offer);
+          if (partial) sources[source]!.partial = true;
+        } catch {
+          sources[source] = { available: false, error: "unavailable" };
+        }
       }
     }
     if (sources.opensea.available && items.length > 0 && view === "owned" && owner) {
@@ -164,11 +179,26 @@ export async function loadMarketplacePage({
             return null;
           })
         : null;
-    const offers = [...(local?.offers ?? []), ...(external?.offers ?? [])].filter(
-      (row) => row.offer.expiresAt > Date.now() / 1000,
-    );
+    const custom =
+      sources["gnars-contract"]?.available && cursor["gnars-contract"] !== null
+        ? await cachedLocalOrders(
+            cursor["gnars-contract"],
+            undefined,
+            view === "selling" ? owner : undefined,
+            "gnars-contract",
+          ).catch(() => {
+            sources["gnars-contract"] = { available: false, error: "unavailable" };
+            return null;
+          })
+        : null;
+    const offers = [
+      ...(local?.offers ?? []),
+      ...(custom?.offers ?? []),
+      ...(external?.offers ?? []),
+    ].filter((row) => row.offer.expiresAt > Date.now() / 1000);
     if (external?.partial) sources.opensea.partial = true;
     if (local?.partial) sources.gnars.partial = true;
+    if (custom?.partial) sources["gnars-contract"]!.partial = true;
     const tokens = [...new Set(offers.map((row) => row.tokenId))];
     try {
       items = await getMarketplaceMetadata(tokens);
@@ -189,7 +219,7 @@ export async function loadMarketplacePage({
     }
     // The indexer orders metadata by token ID; preserve the orderbook's ordering.
     items = tokens.map((tokenId) => byId.get(tokenId)!);
-    if (external?.nextCursor || local?.nextCursor)
+    if (external?.nextCursor || local?.nextCursor || custom?.nextCursor)
       nextCursor = encodeCursor({
         view,
         ...(view === "selling" ? { owner: owner!.toLowerCase() } : {}),
@@ -197,6 +227,10 @@ export async function loadMarketplacePage({
         opensea:
           sources.opensea.error === "unavailable" ? cursor.opensea : (external?.nextCursor ?? null),
         gnars: sources.gnars.error === "unavailable" ? cursor.gnars : (local?.nextCursor ?? null),
+        "gnars-contract":
+          sources["gnars-contract"]?.error === "unavailable"
+            ? cursor["gnars-contract"]
+            : (custom?.nextCursor ?? null),
       });
   }
 
@@ -210,6 +244,8 @@ export async function loadMarketplacePage({
       openseaSell: readiness.capabilities.openseaSell,
       openseaCancel: readiness.capabilities.openseaCancel,
       localTrading: readiness.capabilities.localTrading && !unavailable(sources.gnars),
+      customTrading:
+        readiness.capabilities.customTrading && sources["gnars-contract"]?.available === true,
     },
   };
 }
@@ -248,13 +284,20 @@ export async function loadMarketplaceToken(tokenId: string): Promise<Marketplace
       sources.opensea = { available: false, error: "unavailable" };
     }
   }
-  if (sources.gnars.available) {
-    try {
-      const { offers, partial } = await cachedLocalOrders(undefined, [tokenId]);
-      item.offers.push(...offers.map((row) => row.offer));
-      if (partial) sources.gnars.partial = true;
-    } catch {
-      sources.gnars = { available: false, error: "unavailable" };
+  for (const source of ["gnars", "gnars-contract"] as const) {
+    if (sources[source]?.available) {
+      try {
+        const { offers, partial } = await cachedLocalOrders(
+          undefined,
+          [tokenId],
+          undefined,
+          source,
+        );
+        item.offers.push(...offers.map((row) => row.offer));
+        if (partial) sources[source]!.partial = true;
+      } catch {
+        sources[source] = { available: false, error: "unavailable" };
+      }
     }
   }
   return {
@@ -267,6 +310,8 @@ export async function loadMarketplaceToken(tokenId: string): Promise<Marketplace
       openseaSell: readiness.capabilities.openseaSell,
       openseaCancel: readiness.capabilities.openseaCancel,
       localTrading: readiness.capabilities.localTrading && sources.gnars.available,
+      customTrading:
+        readiness.capabilities.customTrading && sources["gnars-contract"]?.available === true,
     },
   };
 }

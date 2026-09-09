@@ -14,7 +14,6 @@ import {
   ShoppingBag,
   X,
 } from "lucide-react";
-import { formatEther } from "viem";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
 import Image from "@/components/ui/content-image";
@@ -26,15 +25,15 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { MarketplaceItem, MarketplacePage } from "@/types/marketplace";
+import { MarketplaceCard } from "./MarketplaceCard";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
-import { NftArtwork } from "./NftArtwork";
 
 const MarketplaceDetail = dynamic(() => import("./MarketplaceDetail"), { ssr: false });
-const views: MarketplaceView[] = ["catalogue", "listings", "owned", "selling"];
+const views: MarketplaceView[] = ["listings", "catalogue", "owned", "selling"];
 
 export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) {
   const t = useTranslations("marketplace");
-  const [view, setView] = useState<MarketplaceView>("catalogue");
+  const [view, setView] = useState<MarketplaceView>("listings");
   const [selected, setSelected] = useState<MarketplaceItem | null>(null);
   const [search, setSearch] = useState("");
   const [tokenId, setTokenId] = useState<string | undefined>();
@@ -71,7 +70,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       setView(
         views.includes(restoredView as MarketplaceView)
           ? (restoredView as MarketplaceView)
-          : "catalogue",
+          : "listings",
       );
       setTokenId(
         restoredId && /^\d{1,20}$/.test(restoredId) ? BigInt(restoredId).toString() : undefined,
@@ -92,7 +91,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   useEffect(() => {
     if (!urlReady) return;
     const url = new URL(window.location.href);
-    if (view === "catalogue") url.searchParams.delete("view");
+    if (view === "listings") url.searchParams.delete("view");
     else url.searchParams.set("view", view);
     if (tokenId) url.searchParams.set("q", tokenId);
     else url.searchParams.delete("q");
@@ -111,7 +110,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       ...item,
       offers: [
         ...new Map(
-          [...(previous?.offers ?? []), ...item.offers].map((offer) => [offer.orderHash, offer]),
+          [...(previous?.offers ?? []), ...item.offers].map((offer) => [
+            `${offer.source}:${offer.protocolAddress.toLowerCase()}:${offer.orderHash.toLowerCase()}`,
+            offer,
+          ]),
         ).values(),
       ],
     });
@@ -121,8 +123,9 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   const sourcesComplete =
     pages.length > 0 &&
     pages.every((current) =>
-      [current.sources.opensea, current.sources.gnars].every(
-        (source) => (source.available && !source.partial) || source.error === "not_configured",
+      [current.sources.opensea, current.sources.gnars, current.sources["gnars-contract"]].every(
+        (source) =>
+          !source || (source.available && !source.partial) || source.error === "not_configured",
       ),
     );
 
@@ -194,7 +197,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
         >
           <TabsList
             aria-label={t("title")}
-            className="h-auto max-w-full justify-start gap-4 overflow-x-auto rounded-none bg-transparent p-0"
+            className="h-auto max-w-full justify-start gap-3 overflow-x-auto rounded-none bg-transparent p-0 sm:gap-4"
           >
             {views.map((option) => (
               <TabsTrigger
@@ -203,7 +206,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
                 disabled={!urlReady}
                 id={`market-tab-${option}`}
                 aria-controls="market-panel"
-                className="h-auto shrink-0 cursor-pointer rounded-none border-0 border-b-2 border-transparent px-0.5 py-3 text-sm font-medium text-muted-foreground data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:bg-transparent"
+                className="h-auto min-h-11 shrink-0 cursor-pointer rounded-none border-0 border-b-2 border-transparent px-0.5 py-3 text-xs font-medium text-muted-foreground data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:text-sm dark:data-[state=active]:bg-transparent"
               >
                 {t(`views.${option}`)}
               </TabsTrigger>
@@ -311,13 +314,16 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       <section id="market-panel" role="tabpanel" aria-labelledby={`market-tab-${view}`}>
         {!disconnected && page && (
           <div className="mb-5 space-y-2">
-            {(["opensea", "gnars"] as const)
+            {(["opensea", "gnars", "gnars-contract"] as const)
               .filter((source) =>
-                pages.some(
-                  (current) =>
-                    (!current.sources[source].available || current.sources[source].partial) &&
-                    current.sources[source].error !== "not_configured",
-                ),
+                pages.some((current) => {
+                  const availability = current.sources[source];
+                  return (
+                    availability &&
+                    (!availability.available || availability.partial) &&
+                    availability.error !== "not_configured"
+                  );
+                }),
               )
               .map((source) => (
                 <p
@@ -326,7 +332,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
                   className="flex items-start gap-2 text-sm text-muted-foreground"
                 >
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  {t("sourceUnavailable", { source: source === "opensea" ? "OpenSea" : "Gnars" })}
+                  {t("sourceUnavailable", { source: t(`sourceNames.${source}`) })}
                 </p>
               ))}
             {!page.sources.catalogue.available && (
@@ -399,74 +405,20 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">
-            {items.map((item) => {
-              const best = [...item.offers].sort((a, b) =>
-                BigInt(a.priceWei) < BigInt(b.priceWei)
-                  ? -1
-                  : BigInt(a.priceWei) > BigInt(b.priceWei)
-                    ? 1
-                    : 0,
-              )[0];
-              return (
-                <button
-                  key={item.tokenId}
-                  onClick={(event) => {
-                    selectedTrigger.current = event.currentTarget;
-                    setSelected(item);
-                    setSelectedId(item.tokenId);
-                  }}
-                  aria-label={t("details", { id: item.tokenId })}
-                  className="group min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/50 focus-visible:outline-2 focus-visible:outline-offset-4"
-                >
-                  <NftArtwork
-                    item={item}
-                    sizes="(max-width: 767px) 50vw, (max-width: 1023px) 33vw, 280px"
-                  />
-                  <div className="space-y-3 p-3 md:p-4">
-                    <div className="flex min-w-0 items-center justify-between gap-2">
-                      <h2 className="truncate text-sm font-semibold">{item.name}</h2>
-                      {(view === "owned" || view === "selling") && (
-                        <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
-                          {t("yours")}
-                        </span>
-                      )}
-                    </div>
-                    <div className="min-h-10">
-                      {best ? (
-                        <>
-                          <p className="break-all font-mono text-base font-semibold tabular-nums">
-                            {formatEther(BigInt(best.priceWei))} ETH
-                          </p>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted-foreground">
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className="size-1.5 rounded-full bg-emerald-500" />
-                              {t("listed")}
-                            </span>
-                            <span>{best.source === "opensea" ? "OpenSea" : "Gnars"}</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-xs text-muted-foreground">
-                            {view === "catalogue" && !tokenId
-                              ? t("viewListings")
-                              : sourcesComplete
-                                ? t("notListed")
-                                : t("availabilityUnknown")}
-                          </p>
-                          {view === "owned" && (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium">
-                              {t("sell")}
-                              <ArrowUpRight className="size-3" />
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+            {items.map((item) => (
+              <MarketplaceCard
+                key={item.tokenId}
+                item={item}
+                view={view}
+                sourcesComplete={sourcesComplete}
+                exactSearch={!!tokenId}
+                onClick={(event) => {
+                  selectedTrigger.current = event.currentTarget;
+                  setSelected(item);
+                  setSelectedId(item.tokenId);
+                }}
+              />
+            ))}
           </div>
         )}
 

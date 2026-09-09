@@ -1,5 +1,5 @@
 import { encodeFunctionData, erc721Abi, zeroAddress, type Address } from "viem";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DAO_ADDRESSES } from "@/lib/config";
 import {
   getListingApprovalOperator,
@@ -10,6 +10,7 @@ import { OPENSEA_CONDUIT_ADDRESS } from "./routing";
 import { SEAPORT_ADDRESS } from "./seaport";
 
 const account = "0x1111111111111111111111111111111111111111" as Address;
+afterEach(() => vi.unstubAllEnvs());
 function fixture(owner: Address = account, approved: Address = SEAPORT_ADDRESS) {
   return {
     getChainId: vi.fn().mockResolvedValue(8453),
@@ -18,6 +19,27 @@ function fixture(owner: Address = account, approved: Address = SEAPORT_ADDRESS) 
   };
 }
 describe("confirmed listing approval recovery", () => {
+  it("recovers only the configured custom contract and does not mistake canonical approval for it", async () => {
+    const custom = "0x3333333333333333333333333333333333333333";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", custom);
+    const intent = {
+      account,
+      to: DAO_ADDRESSES.token,
+      value: "0",
+      startedBlock: "100",
+      data: encodeFunctionData({ abi: erc721Abi, functionName: "approve", args: [custom, 5423n] }),
+    };
+    expect(getListingApprovalOperator(intent, account, "5423")).toBe(custom);
+    expect(await hasConfirmedMarketplaceApproval(fixture(), account, "5423", custom)).toBe(false);
+    expect(
+      await hasConfirmedMarketplaceApproval(fixture(account, custom), account, "5423", custom),
+    ).toBe(true);
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", "");
+    expect(getListingApprovalOperator(intent, account, "5423")).toBeUndefined();
+    await expect(
+      hasConfirmedMarketplaceApproval(fixture(account, custom), account, "5423", custom),
+    ).rejects.toThrow("Unsupported NFT approval operator");
+  });
   it("recovers the exact allowlisted operator from saved approval calldata", () => {
     const intent = {
       account,

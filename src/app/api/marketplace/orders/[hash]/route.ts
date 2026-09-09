@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { enforceRateLimit } from "@/lib/server/request-security";
 import {
   marketplaceErrorResponse,
@@ -11,8 +12,12 @@ export async function GET(request: Request, context: { params: Promise<{ hash: s
   try {
     await enforceRateLimit(request, { scope: "marketplace-read", limit: 60, windowSeconds: 60 });
     const hash = parseMarketplaceInput(marketplaceHashSchema, (await context.params).hash);
+    const source = parseMarketplaceInput(
+      z.enum(["gnars", "gnars-contract"]),
+      new URL(request.url).searchParams.get("source") ?? "gnars",
+    );
     return Response.json(
-      { listing: await getMarketplaceOrder(hash) },
+      { listing: await getMarketplaceOrder(hash, source) },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
