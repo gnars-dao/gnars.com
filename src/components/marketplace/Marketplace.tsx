@@ -203,15 +203,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
             height={64}
             className="size-14 shrink-0 rounded-lg object-contain md:size-16"
           />
-          <div className="min-w-0">
-            <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <span className="size-2 rounded-full bg-blue-600" />
-              {t("network")}
-              <span aria-hidden="true">/</span>
-              <span>{t("collection")}</span>
-            </div>
-            <h1 className="text-2xl font-bold md:text-3xl">{t("title")}</h1>
-          </div>
+          <h1 className="min-w-0 text-2xl font-bold md:text-3xl">{t("title")}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button

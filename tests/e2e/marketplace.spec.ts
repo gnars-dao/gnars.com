@@ -45,6 +45,12 @@ for (const mobile of [false, true]) {
     await expect(
       page.getByRole("heading", { name: "Gnars Marketplace", exact: true }),
     ).toBeVisible();
+    const marketplaceHeader = page.locator("header").filter({
+      has: page.getByRole("heading", { name: "Gnars Marketplace", exact: true }),
+    });
+    await expect(marketplaceHeader.getByText("Base", { exact: true })).toHaveCount(0);
+    await expect(marketplaceHeader.getByText("Gnars DAO", { exact: true })).toHaveCount(0);
+    await expect(marketplaceHeader.locator('img[src*="gnars.webp"]')).toBeVisible();
     await expect(page.getByRole("tab").first()).toHaveText("À venda");
     await expect(page.getByRole("tab", { name: "À venda", exact: true })).toHaveAttribute(
       "aria-selected",
