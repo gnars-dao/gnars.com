@@ -216,6 +216,7 @@ async function openWizard(page: Page) {
 
 async function lookup(page: Page) {
   const drawer = page.getByRole("dialog");
+  await drawer.getByText("Inserir contrato e ID do token", { exact: true }).click();
   await drawer.getByLabel("Endereço do contrato NFT").fill(collection);
   await drawer.getByLabel("ID do token", { exact: true }).fill("42");
   await drawer.getByRole("button", { name: "Buscar NFT", exact: true }).click();
@@ -224,6 +225,76 @@ async function lookup(page: Page) {
 
 test.beforeEach(({ page }) => page.setDefaultTimeout(15000));
 test.setTimeout(90000);
+
+for (const mobile of [false, true]) {
+  test(`wallet NFT picker paginates, retries and verifies selection ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(
+      mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+    );
+    const state = await setup(page);
+    let failNextPage = true;
+    const owners: string[] = [];
+    await page.route("**/api/marketplace/community/wallet?**", async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      owners.push(params.get("owner")!);
+      const cursor = params.get("cursor");
+      if (cursor && failNextPage) {
+        await route.fulfill({ status: 503, json: { error: "unavailable" } });
+        return;
+      }
+      await route.fulfill({
+        json: {
+          items: cursor
+            ? [
+                {
+                  collectionAddress: collection,
+                  tokenId: "42",
+                  name: longName,
+                  collectionName: "Community Collection",
+                  image: "/gnars.webp",
+                  owner,
+                  offers: [],
+                },
+              ]
+            : [],
+          nextCursor: cursor ? null : "next-page",
+        },
+      });
+    });
+    const drawer = await openWizard(page);
+    await expect(drawer.getByRole("heading", { name: "Seus NFTs na Base" })).toBeVisible();
+    await expect(
+      drawer.getByText("Nenhum NFT compatível encontrado nesta carteira."),
+    ).not.toBeVisible();
+    await drawer.getByRole("button", { name: "Carregar mais NFTs" }).click();
+    await expect(drawer.getByRole("alert")).toContainText("Não foi possível carregar os NFTs");
+    failNextPage = false;
+    await drawer.getByRole("button", { name: "Tentar novamente", exact: true }).click();
+    const card = drawer.getByRole("button", { name: `Selecionar ${longName}`, exact: true });
+    await expect(card).toBeVisible();
+    await card.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() => card.locator("img").evaluate((img) => (img as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    expect(
+      await drawer
+        .locator("[data-vaul-no-drag]")
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    await page.screenshot({
+      path: `test-results/marketplace-wallet-picker-${mobile ? "mobile" : "desktop"}.png`,
+    });
+    await card.click();
+    await expect(drawer.getByRole("heading", { name: longName })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "Continuar", exact: true })).toBeEnabled();
+    await drawer.getByRole("button", { name: "Continuar", exact: true }).click();
+    await expect(drawer.getByLabel("Preço (ETH)")).toBeVisible();
+    expect(owners.every((address) => address.toLowerCase() === owner)).toBe(true);
+    expect(state.writes).toHaveLength(0);
+  });
+}
 
 test("community submission requires six Gnars and fails closed below the threshold", async ({
   page,

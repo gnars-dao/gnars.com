@@ -35,6 +35,11 @@ for (const mobile of [false, true]) {
     page,
   }) => {
     await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 });
+    await page.route("**/api/ens?address=*", (route) =>
+      route.fulfill({
+        json: { ens: { address: seller, name: "gnar.eth", avatar: "/gnars.webp" } },
+      }),
+    );
     await page.route("**/api/marketplace**", (route) => route.fulfill({ json: data }));
     await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
     await expect(
@@ -79,10 +84,18 @@ for (const mobile of [false, true]) {
       "href",
       /opensea\.io\/item\/base\/0x880fb3cf5c6cc2d7dfc13a993e839a9411200c17\/42/i,
     );
-    await expect(dialog.getByRole("link", { name: seller })).toHaveAttribute(
+    await expect(dialog.getByRole("link", { name: "Avatar gnar.eth" })).toHaveAttribute(
       "href",
       `/pt-br/members/${seller}`,
     );
+    await expect(dialog.getByRole("link", { name: "Avatar gnar.eth" })).toHaveAttribute(
+      "title",
+      seller,
+    );
+    await page.screenshot({
+      path: `test-results/marketplace-owner-${mobile ? "mobile" : "desktop"}.png`,
+      fullPage: true,
+    });
     expect(
       await dialog
         .locator("[data-vaul-no-drag]")

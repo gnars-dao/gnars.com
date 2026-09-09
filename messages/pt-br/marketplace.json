@@ -18,6 +18,16 @@
     "feeUnconfigured": "A taxa dos anúncios da comunidade não foi configurada. Publicação indisponível.",
     "collectionAddress": "Endereço do contrato NFT",
     "findNft": "Buscar NFT",
+    "wallet": {
+      "title": "Seus NFTs na Base",
+      "loading": "Carregando seus NFTs...",
+      "empty": "Nenhum NFT compatível encontrado nesta carteira.",
+      "error": "Não foi possível carregar os NFTs da carteira. Tente novamente.",
+      "select": "Selecionar {name}",
+      "loadMore": "Carregar mais NFTs",
+      "manual": "Inserir contrato e ID do token",
+      "change": "Escolher outro NFT"
+    },
     "invalidAsset": "Informe um contrato válido na Base e um ID numérico do token.",
     "assetError": "Não foi possível verificar este NFT. Confira o contrato, o ID e a rede.",
     "notOwner": "Esta carteira não possui o NFT selecionado.",

@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { formatEther } from "viem";
+import { AddressDisplay } from "@/components/ui/address-display";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
 import {
@@ -299,9 +300,20 @@ export default function MarketplaceDetail({
                   {item.owner ? (
                     <Link
                       href={`/members/${item.owner}`}
-                      className="mt-1 block break-all font-mono text-xs underline underline-offset-4"
+                      prefetch={false}
+                      title={item.owner}
+                      className="mt-2 block w-fit max-w-full rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      {item.owner}
+                      <AddressDisplay
+                        key={item.owner}
+                        address={item.owner}
+                        variant="compact"
+                        avatarSize="sm"
+                        showCopy={false}
+                        showExplorer={false}
+                        onAddressClick={() => {}}
+                        className="max-w-full min-w-0 [&>span.font-mono]:min-w-0 [&>span.font-mono]:break-all"
+                      />
                     </Link>
                   ) : (
                     <span className="text-sm">{t("availabilityUnknown")}</span>

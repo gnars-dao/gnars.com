@@ -36,6 +36,7 @@ import { parseMarketplacePrice } from "@/lib/marketplace-display";
 import type { MarketplaceEligibility, MarketplacePage } from "@/types/marketplace";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { NftArtwork } from "./NftArtwork";
+import { WalletNftPicker } from "./WalletNftPicker";
 
 type Props = { open: boolean; onClose: () => void; onPublished?: () => void };
 type Selection = { collectionAddress: Address; tokenId: string };
@@ -67,6 +68,7 @@ function SubmissionDrawer({ open, onClose, onPublished, owner }: Props & { owner
   const [collection, setCollection] = useState("");
   const [token, setToken] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
   const [invalidSelection, setInvalidSelection] = useState(false);
   const [price, setPrice] = useState("");
   const [debouncedPrice, setDebouncedPrice] = useState("");
@@ -375,62 +377,94 @@ function SubmissionDrawer({ open, onClose, onPublished, owner }: Props & { owner
                   >
                     {step === 0 && (
                       <>
-                        <form onSubmit={findAsset} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="community-collection">
-                              {t("community.collectionAddress")}
-                            </Label>
-                            <Input
-                              id="community-collection"
-                              value={collection}
-                              placeholder="0x..."
-                              spellCheck={false}
-                              autoCapitalize="off"
-                              autoComplete="off"
-                              disabled={!canEdit}
-                              onChange={(event) => {
-                                setCollection(event.target.value);
-                                setSelection(null);
-                                setInvalidSelection(false);
-                              }}
-                              className="font-mono text-xs"
-                            />
-                          </div>
-                          <div className="flex items-end gap-3">
-                            <div className="min-w-0 flex-1 space-y-2">
-                              <Label htmlFor="community-token">{t("tokenId")}</Label>
+                        {!manualOpen && !selection && (
+                          <WalletNftPicker
+                            owner={owner}
+                            disabled={!canEdit}
+                            onSelect={(nft) => {
+                              if (!canEdit) return;
+                              setCollection(nft.collectionAddress);
+                              setToken(nft.tokenId);
+                              setInvalidSelection(false);
+                              setSelection(nft);
+                            }}
+                          />
+                        )}
+                        {selection && !manualOpen && (
+                          <Button
+                            variant="ghost"
+                            disabled={!canEdit}
+                            onClick={() => setSelection(null)}
+                          >
+                            <ArrowLeft className="size-4" />
+                            {t("community.wallet.change")}
+                          </Button>
+                        )}
+                        <details
+                          open={manualOpen}
+                          className="border-t pt-4"
+                          onToggle={(event) => setManualOpen(event.currentTarget.open)}
+                        >
+                          <summary className="mb-4 cursor-pointer text-sm text-muted-foreground hover:text-foreground">
+                            {t("community.wallet.manual")}
+                          </summary>
+                          <form onSubmit={findAsset} className="space-y-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="community-collection">
+                                {t("community.collectionAddress")}
+                              </Label>
                               <Input
-                                id="community-token"
-                                inputMode="numeric"
-                                value={token}
-                                placeholder="42"
+                                id="community-collection"
+                                value={collection}
+                                placeholder="0x..."
+                                spellCheck={false}
+                                autoCapitalize="off"
+                                autoComplete="off"
                                 disabled={!canEdit}
                                 onChange={(event) => {
-                                  setToken(event.target.value);
+                                  setCollection(event.target.value);
                                   setSelection(null);
                                   setInvalidSelection(false);
                                 }}
+                                className="font-mono text-xs"
                               />
                             </div>
-                            <Button
-                              type="submit"
-                              variant="outline"
-                              disabled={!canEdit || asset.isFetching || !collection || !token}
-                            >
-                              {asset.isFetching ? (
-                                <LoaderCircle className="size-4 animate-spin" />
-                              ) : (
-                                <ImagePlus className="size-4" />
-                              )}
-                              {t("community.findNft")}
-                            </Button>
-                          </div>
-                          {invalidSelection && (
-                            <p role="alert" className="text-xs text-destructive">
-                              {t("community.invalidAsset")}
-                            </p>
-                          )}
-                        </form>
+                            <div className="flex items-end gap-3">
+                              <div className="min-w-0 flex-1 space-y-2">
+                                <Label htmlFor="community-token">{t("tokenId")}</Label>
+                                <Input
+                                  id="community-token"
+                                  inputMode="numeric"
+                                  value={token}
+                                  placeholder="42"
+                                  disabled={!canEdit}
+                                  onChange={(event) => {
+                                    setToken(event.target.value);
+                                    setSelection(null);
+                                    setInvalidSelection(false);
+                                  }}
+                                />
+                              </div>
+                              <Button
+                                type="submit"
+                                variant="outline"
+                                disabled={!canEdit || asset.isFetching || !collection || !token}
+                              >
+                                {asset.isFetching ? (
+                                  <LoaderCircle className="size-4 animate-spin" />
+                                ) : (
+                                  <ImagePlus className="size-4" />
+                                )}
+                                {t("community.findNft")}
+                              </Button>
+                            </div>
+                            {invalidSelection && (
+                              <p role="alert" className="text-xs text-destructive">
+                                {t("community.invalidAsset")}
+                              </p>
+                            )}
+                          </form>
+                        </details>
                         {asset.isError && (
                           <div role="alert" className="space-y-3 text-sm">
                             <p>{t("community.assetError")}</p>

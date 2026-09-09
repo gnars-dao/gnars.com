@@ -19,6 +19,9 @@ The URL preserves `view`, `q` (token ID) and `nft` (selected NFT); browser navig
 restores them. Community NFT links also include `collection`, so identical token
 IDs from different collections never share a drawer or query identity.
 Wallet-scoped views always use the connected write account.
+The NFT owner uses the profiles' cached ENS name/avatar resolver and links to the
+actual owner address. EOA and smart-wallet addresses are resolved identically;
+an unnamed account keeps its shortened address, not an inferred administrator's identity.
 Cards show the best loaded supported offer and its source. This is not a claim
 that the entire collection has been globally sorted or that every order type is
 supported.
@@ -94,6 +97,12 @@ The animated submission drawer has asset, terms and publication steps. Only the
 actual signer holding at least six Gnars may submit a new community listing.
 The server rechecks `balanceOf(offerer)` on Base; the client gate is not authority.
 The holder requirement does not restrict buyers or seller cancellation.
+The asset step offers a paginated Base ERC721 wallet picker, scoped to the active
+write account, with manual contract/token entry as a fallback. Discovery uses
+server-side Alchemy metadata; selecting a card still requires fresh onchain
+ownership verification. EOA and smart-wallet inventories are never merged.
+Media-to-NFT creation requires a separate verified mint contract and is not part
+of this existing-token picker.
 Collection/token identity, ERC721 support, ownership, approval, signature, exact
 fee consideration and royalties are validated before publication. Metadata comes
 from a bounded Alchemy request, not an arbitrary caller-supplied URL.

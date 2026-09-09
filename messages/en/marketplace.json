@@ -18,6 +18,16 @@
     "feeUnconfigured": "The community listing fee has not been configured. Publishing is unavailable.",
     "collectionAddress": "NFT contract address",
     "findNft": "Find NFT",
+    "wallet": {
+      "title": "Your NFTs on Base",
+      "loading": "Loading your NFTs...",
+      "empty": "No eligible NFTs found in this wallet.",
+      "error": "Could not load your wallet NFTs. Try again.",
+      "select": "Select {name}",
+      "loadMore": "Load more NFTs",
+      "manual": "Enter contract and token ID",
+      "change": "Choose another NFT"
+    },
     "invalidAsset": "Enter a valid Base contract address and numeric token ID.",
     "assetError": "This NFT could not be verified. Check its contract, token ID and network.",
     "notOwner": "This wallet does not own the selected NFT.",
