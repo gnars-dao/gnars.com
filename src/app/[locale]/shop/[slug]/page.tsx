@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { notFound } from "next/navigation";
 import { ShopDetail, ShopDetailSkeleton } from "@/components/shop/ShopDetail";
 import { getShopItemBySlug } from "@/services/shop";
 import type { ShopItem } from "@/types/shop";
@@ -69,17 +70,12 @@ export async function generateMetadata({ params }: ShopItemPageProps): Promise<M
 export default async function ShopItemPage({ params }: ShopItemPageProps) {
   const { slug, locale } = await params;
   setRequestLocale(locale);
-  const t = await getTranslations({ locale, namespace: "shop" });
   const item = await fetchShopItem(slug);
 
-  if (!item) {
-    return (
-      <div className="py-8 text-center">
-        <h2 className="text-2xl font-bold text-muted-foreground">{t("notFound.title")}</h2>
-        <p className="mt-2 text-muted-foreground">{t("notFound.description")}</p>
-      </div>
-    );
-  }
+  // Retiring a slug has to return a real 404. Rendering the message inline
+  // answered 200 with full OpenGraph tags, so a delisted product stayed
+  // indexable and looked alive to anything that reads status codes.
+  if (!item) notFound();
 
   return (
     <div className="py-8">

@@ -1,25 +1,30 @@
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
+import { cn } from "@/lib/utils";
 import type { ShopItem } from "@/types/shop";
-import { formatPrice, type ShopCardLabels } from "./shared";
+import { COVER_SHADOW_LG, formatPrice, isDirectBuyLink, type ShopCardLabels } from "./shared";
 
 function FeaturedCard({ item, labels }: { item: ShopItem; labels: ShopCardLabels }) {
   const cover = item.images[0];
   const price = formatPrice(item.priceUSD);
-  const isExternal = item.type === "affiliate";
+  const isExternal = isDirectBuyLink(item);
+  const isComingSoon = item.status === "coming-soon";
 
   const content = (
     <div className="group flex h-full flex-col">
       <div className="relative aspect-[4/3] w-full">
-        <div className="pointer-events-none absolute inset-0 hidden dark:block [background:radial-gradient(circle_at_center,rgba(255,255,255,0.10),transparent_65%)]" />
         {cover && (
           <Image
             src={cover}
             alt={item.title}
             fill
             sizes="(max-width: 768px) 100vw, 33vw"
-            className="object-contain p-4 drop-shadow-md transition-transform duration-500 ease-out group-hover:-translate-y-1.5 group-hover:scale-105"
+            className={cn(
+              "object-contain p-4 transition-transform duration-500 ease-out group-hover:-translate-y-1.5 group-hover:scale-105",
+              COVER_SHADOW_LG,
+              isComingSoon && "grayscale",
+            )}
           />
         )}
         <span className="absolute left-1 top-1 inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary-foreground">
@@ -39,7 +44,7 @@ function FeaturedCard({ item, labels }: { item: ShopItem; labels: ShopCardLabels
         </h3>
         <div className="mt-3 flex items-center justify-between">
           {price && <span className="text-lg font-bold">{price}</span>}
-          <span className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors group-hover:text-primary">
+          <span className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors group-hover:text-primary">
             {isExternal ? labels.shopNow : labels.viewDetails}
             <ArrowUpRight className="h-3.5 w-3.5" />
           </span>
@@ -48,7 +53,7 @@ function FeaturedCard({ item, labels }: { item: ShopItem; labels: ShopCardLabels
     </div>
   );
 
-  if (isExternal && item.externalUrl) {
+  if (isExternal) {
     return (
       <a
         href={item.externalUrl}
