@@ -60,7 +60,7 @@
       "slug": "nogenta-noggles-tee-white",
       "title": "Nogenta Noggles Tee (White)",
       "description": "White Nogenta tee — oval script logo and pixel-block noggles across the front chest.",
-      "currency": "USD",
+      "currency": "BRL",
       "images": ["/store/nogenta-noggles-tee-white.webp"],
       "category": "Apparel",
       "brand": "Nogenta",
@@ -68,14 +68,16 @@
       "fulfillmentProvider": "external",
       "fulfillmentSku": "NOGENTA-NOGGLES-WHITE",
       "externalProductUrl": "mailto:nogentaskate@gmail.com?subject=Nogenta%20Noggles%20Tee%20(White)%20-%20Purchase%20Inquiry",
-      "metaCatalogEligible": false
+      "metaCatalogEligible": false,
+      "price": 140,
+      "shippingNote": "nogenta"
     },
     {
       "id": "nogenta-noggles-tee-black",
       "slug": "nogenta-noggles-tee-black",
       "title": "Nogenta Noggles Tee (Black)",
       "description": "Black Nogenta tee — oval script logo and pixel-block noggles across the front chest.",
-      "currency": "USD",
+      "currency": "BRL",
       "images": ["/store/nogenta-noggles-tee-black.webp"],
       "category": "Apparel",
       "brand": "Nogenta",
@@ -83,14 +85,16 @@
       "fulfillmentProvider": "external",
       "fulfillmentSku": "NOGENTA-NOGGLES-BLACK",
       "externalProductUrl": "mailto:nogentaskate@gmail.com?subject=Nogenta%20Noggles%20Tee%20(Black)%20-%20Purchase%20Inquiry",
-      "metaCatalogEligible": false
+      "metaCatalogEligible": false,
+      "price": 140,
+      "shippingNote": "nogenta"
     },
     {
       "id": "nogenta-pixel-noggles-tee-white",
       "slug": "nogenta-pixel-noggles-tee-white",
       "title": "Nogenta Pixel Noggles Tee (White)",
       "description": "White Nogenta tee with the Gnars noggles rendered as a color pixel block at center chest.",
-      "currency": "USD",
+      "currency": "BRL",
       "images": ["/store/nogenta-pixel-noggles-tee-white.webp"],
       "category": "Apparel",
       "brand": "Nogenta",
@@ -98,14 +102,16 @@
       "fulfillmentProvider": "external",
       "fulfillmentSku": "NOGENTA-PIXEL-NOGGLES-WHITE",
       "externalProductUrl": "mailto:nogentaskate@gmail.com?subject=Nogenta%20Pixel%20Noggles%20Tee%20(White)%20-%20Purchase%20Inquiry",
-      "metaCatalogEligible": false
+      "metaCatalogEligible": false,
+      "price": 140,
+      "shippingNote": "nogenta"
     },
     {
       "id": "nogenta-ngnt-tee-white",
       "slug": "nogenta-ngnt-tee-white",
       "title": "Nogenta NGNT Tee (White)",
       "description": "White Nogenta tee — faded pixel-block noggles at center chest with an NGNT graffiti tag at the hem.",
-      "currency": "USD",
+      "currency": "BRL",
       "images": ["/store/nogenta-ngnt-tee-white.webp"],
       "category": "Apparel",
       "brand": "Nogenta",
@@ -113,14 +119,16 @@
       "fulfillmentProvider": "external",
       "fulfillmentSku": "NOGENTA-NGNT-WHITE",
       "externalProductUrl": "mailto:nogentaskate@gmail.com?subject=Nogenta%20NGNT%20Tee%20(White)%20-%20Purchase%20Inquiry",
-      "metaCatalogEligible": false
+      "metaCatalogEligible": false,
+      "price": 140,
+      "shippingNote": "nogenta"
     },
     {
       "id": "nogenta-logo-tee-black",
       "slug": "nogenta-logo-tee-black",
       "title": "Nogenta Logo Tee (Black)",
       "description": "Black Nogenta tee with the oval script logo at center chest.",
-      "currency": "USD",
+      "currency": "BRL",
       "images": ["/store/nogenta-logo-tee-black.webp"],
       "category": "Apparel",
       "brand": "Nogenta",
@@ -128,14 +136,16 @@
       "fulfillmentProvider": "external",
       "fulfillmentSku": "NOGENTA-LOGO-BLACK",
       "externalProductUrl": "mailto:nogentaskate@gmail.com?subject=Nogenta%20Logo%20Tee%20(Black)%20-%20Purchase%20Inquiry",
-      "metaCatalogEligible": false
+      "metaCatalogEligible": false,
+      "price": 140,
+      "shippingNote": "nogenta"
     },
     {
       "id": "nogenta-logo-tee-blue",
       "slug": "nogenta-logo-tee-blue",
       "title": "Nogenta Logo Tee (Blue)",
       "description": "Light blue Nogenta tee with the oval script logo at center chest.",
-      "currency": "USD",
+      "currency": "BRL",
       "images": ["/store/nogenta-logo-tee-blue.webp"],
       "category": "Apparel",
       "brand": "Nogenta",
@@ -143,14 +153,16 @@
       "fulfillmentProvider": "external",
       "fulfillmentSku": "NOGENTA-LOGO-BLUE",
       "externalProductUrl": "mailto:nogentaskate@gmail.com?subject=Nogenta%20Logo%20Tee%20(Blue)%20-%20Purchase%20Inquiry",
-      "metaCatalogEligible": false
+      "metaCatalogEligible": false,
+      "price": 140,
+      "shippingNote": "nogenta"
     },
     {
       "id": "nogenta-jersey-rio",
       "slug": "nogenta-jersey-rio",
       "title": "Nogenta Rio de Janeiro Jersey",
       "description": "Nogenta football jersey, Rio de Janeiro edition. Black with a white collar and trim — NGNT script and pixel-block noggles on the front, GNARLY 13 on the back.",
-      "currency": "USD",
+      "currency": "BRL",
       "images": ["/store/nogenta-jersey-rio-front.webp", "/store/nogenta-jersey-rio-back.webp"],
       "category": "Apparel",
       "brand": "Nogenta",
@@ -158,7 +170,9 @@
       "fulfillmentProvider": "external",
       "fulfillmentSku": "NOGENTA-RIO-JERSEY",
       "externalProductUrl": "mailto:nogentaskate@gmail.com?subject=Nogenta%20Rio%20de%20Janeiro%20Jersey%20-%20Purchase%20Inquiry",
-      "metaCatalogEligible": false
+      "metaCatalogEligible": false,
+      "price": 240,
+      "shippingNote": "nogenta"
     }
   ],
   "meta": {

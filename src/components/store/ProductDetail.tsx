@@ -71,6 +71,9 @@ function PurchaseActions({ product, soldOut }: { product: Product; soldOut: bool
       <p className="mt-4 text-xs text-muted-foreground">
         {t("detail.fulfilledBy", { brand: product.brand })}
       </p>
+      {product.shippingNote === "nogenta" && (
+        <p className="mt-1 text-xs text-muted-foreground">{t("detail.nogentaShipping")}</p>
+      )}
     </>
   );
 }

@@ -37,7 +37,8 @@
     "emailToBuy": "Comprar por e-mail",
     "buyNow": "Comprar agora",
     "viewOnBrand": "Ver na {brand}",
-    "fulfilledBy": "Enviado pela {brand}."
+    "fulfilledBy": "Enviado pela {brand}.",
+    "nogentaShipping": "O frete é calculado separadamente. Frete grátis para o Brasil."
   },
   "checkout": {
     "title": "Finalizar compra",

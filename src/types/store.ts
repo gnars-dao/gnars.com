@@ -62,6 +62,8 @@ export interface Product {
   /** Price in major currency units (e.g. dollars, not cents). Optional for inquiry-only products. */
   price?: number;
   currency: Currency;
+  /** Optional shipping note shown on the product detail page. */
+  shippingNote?: "nogenta";
   /** Ordered image URLs. The first entry is used as the cover. */
   images: string[];
   category: string;
