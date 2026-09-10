@@ -2,7 +2,7 @@
 
 ## Status
 
-Basic Base ERC-721 creation is implemented. No production NFT creation address is assumed or deployed by this change. `/create-nft` disables minting until a configured contract passes runtime and immutable configuration verification. It is separate from the deployed Gnars marketplace settlement contract.
+Basic Base ERC-721 creation uses the user-deployed collection `0x8baf2693b2a277FbEE39e3f6055E9331c1E6b975` on Base mainnet (8453). Read-only verification confirmed matching runtime bytecode, a six-Gnars minimum, and an immutable 250 BPS (2.5%) royalty to `0x15E69fD67DcC17E061Ceeb93DaC791e0f5aF0Eae`. The production address environment variable is configured; application deployments must include it. `/create-nft` enables minting only after its status API verifies the contract. This NFT collection is separate from the Gnars marketplace settlement contract. No mint was submitted during activation verification.
 
 ## Contract
 
