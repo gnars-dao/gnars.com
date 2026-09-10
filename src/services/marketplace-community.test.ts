@@ -664,6 +664,87 @@ describe("freshly minted community metadata", () => {
       expect.objectContaining({ redirect: "error", signal: expect.any(AbortSignal) }),
     );
   });
+  it("reads an MP4 animation with a separate image cover from onchain metadata", async () => {
+    const fetch = mocks.fetch.getMockImplementation()!;
+    mocks.fetch.mockImplementation(async (url, options) =>
+      String(url).includes("alchemy.com")
+        ? fetch(url, options)
+        : Response.json({
+            name: "Video NFT",
+            image,
+            animation_url: `ipfs://${cid}`,
+            animation_details: { type: "video/mp4" },
+          }),
+    );
+    const result = await getCommunityToken(collection, "12");
+    expect(result.items[0]).toMatchObject({
+      name: "Video NFT",
+      image: expect.stringContaining("bafkrei"),
+      animationUrl: `https://magic.decentralized-content.com/ipfs/${cid}`,
+    });
+  });
+  it("preserves indexed MP4 animation metadata through publication and listing projection", async () => {
+    mocks.fetch.mockImplementation(async () =>
+      Response.json({
+        tokenId: "12",
+        name: "Indexed video",
+        contract: { address: collection, name: "Community" },
+        image: { cachedUrl: "https://example.com/cover.png" },
+        raw: {
+          metadata: { animation_url: `ipfs://${cid}`, animation_details: { type: "video/mp4" } },
+        },
+      }),
+    );
+    await publishCommunityOrder(listing());
+    const insert = mocks.query.mock.calls.find(([sql]) =>
+      String(sql).startsWith("INSERT INTO public.marketplace_community_orders"),
+    )!;
+    const metadata = JSON.parse(String(insert[1][9]));
+    expect(metadata).toMatchObject({
+      image: "https://example.com/cover.png",
+      animationUrl: `https://magic.decentralized-content.com/ipfs/${cid}`,
+    });
+    records = [{ ...row(), metadata }];
+    expect((await listCommunityMarketplace()).items[0].animationUrl).toBe(metadata.animationUrl);
+  });
+  it("reads our minted video's tokenURI when the indexer already has a cover but no animation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_GNARS_COMMUNITY_NFT_ADDRESS", collection);
+    mocks.fetch.mockImplementation(async (url) =>
+      String(url).includes("alchemy.com")
+        ? Response.json({
+            tokenId: "12",
+            name: "Video NFT",
+            contract: { address: collection },
+            image: { cachedUrl: "https://example.com/cover.png" },
+          })
+        : Response.json({
+            name: "Video NFT",
+            image,
+            animation_url: "https://media.example/clip.mp4",
+          }),
+    );
+    expect((await getCommunityToken(collection, "12")).items[0].animationUrl).toBe(
+      "https://media.example/clip.mp4",
+    );
+    records = [row()];
+    expect((await listCommunityMarketplace()).items[0].animationUrl).toBe(
+      "https://media.example/clip.mp4",
+    );
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE"))).toBe(false);
+  });
+  it("keeps the image available when animation metadata is not playable video", async () => {
+    const fetch = mocks.fetch.getMockImplementation()!;
+    mocks.fetch.mockImplementation(async (url, options) =>
+      String(url).includes("alchemy.com")
+        ? fetch(url, options)
+        : Response.json({ name: "Artwork", image, animation_url: "javascript:alert(1)" }),
+    );
+    expect((await getCommunityToken(collection, "12")).items[0]).toMatchObject({
+      name: "Artwork",
+      image: expect.stringContaining("bafkrei"),
+      animationUrl: null,
+    });
+  });
   it("falls back to Pinata when the first trusted gateway fails", async () => {
     const fetch = mocks.fetch.getMockImplementation()!;
     mocks.fetch.mockImplementation(async (url, options) =>

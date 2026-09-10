@@ -23,6 +23,7 @@ export type MarketplaceItem = {
   tokenId: string;
   name: string;
   image: string | null;
+  animationUrl?: string | null;
   owner: Address | null;
   offers: MarketplaceOffer[];
 };

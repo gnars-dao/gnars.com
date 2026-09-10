@@ -48,6 +48,21 @@ afterEach(() => {
 });
 
 describe("NFT metadata upload authorization", () => {
+  it("pins signed video metadata with its separate cover and creator", async () => {
+    const video = {
+      ...metadata,
+      animation_url: `ipfs://${"b".repeat(46)}`,
+      animation_details: { type: "video/mp4" },
+    };
+    const response = await POST(request({ metadata: video, authorization: authorization() }));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).pinataContent).toEqual({
+      ...video,
+      external_url: "https://www.gnars.com/marketplace",
+      attributes: [{ trait_type: "Creator", value: wallet }],
+    });
+    expect(mocks.signature.mock.calls[0][1].message).toContain("/api/create-nft/metadata");
+  });
   it("pins only validated metadata and verified creator attribution", async () => {
     const response = await POST(request());
     expect(response.status).toBe(200);
@@ -130,6 +145,22 @@ describe("NFT metadata upload authorization", () => {
     { metadata: { ...metadata, image: "https://evil.example/image" } },
     { metadata: { ...metadata, name: " " } },
     { metadata: { ...metadata, attributes: [] } },
+    { metadata: { ...metadata, animation_url: `ipfs://${cid}` } },
+    {
+      metadata: {
+        ...metadata,
+        animation_url: `ipfs://${cid}`,
+        animation_details: { type: "text/html" },
+      },
+    },
+    {
+      metadata: {
+        ...metadata,
+        image: undefined,
+        animation_url: `ipfs://${cid}`,
+        animation_details: { type: "video/mp4" },
+      },
+    },
   ])("rejects malformed metadata or envelope %j", async (payload) => {
     const response = await POST(request(payload));
     expect(response.status).toBe(400);

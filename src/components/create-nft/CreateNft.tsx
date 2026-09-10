@@ -19,6 +19,7 @@ import { ConnectButton } from "@/components/ui/ConnectButton";
 import { Input } from "@/components/ui/input";
 import { useCreateNft } from "@/hooks/use-create-nft";
 import { Link, useRouter } from "@/i18n/navigation";
+import { isNftImageFile, isNftMediaFile } from "@/lib/create-nft";
 
 export function CreateNft() {
   const t = useTranslations("createNft");
@@ -55,20 +56,39 @@ export function CreateNft() {
     router.push(`/marketplace?createCollection=${mint.contract}&createTokenId=${mint.tokenId}`);
   }, [actions.confirmedMint, actions.busy, actions.journal, actions.writer, router]);
   const [file, setFile] = useState<File>();
-  const [preview, setPreview] = useState("");
+  const [mediaPreview, setMediaPreview] = useState<{ file: File; url: string }>();
+  const [cover, setCover] = useState<File>();
+  const [coverObjectUrl, setCoverObjectUrl] = useState<{ file: File; url: string }>();
+  const [decodedMedia, setDecodedMedia] = useState<File>();
+  const [decodedCover, setDecodedCover] = useState<File>();
+  const [coverError, setCoverError] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rights, setRights] = useState(false);
   const [mediaError, setMediaError] = useState(false);
   useEffect(() => {
     if (!file) {
-      setPreview("");
+      setMediaPreview(undefined);
       return;
     }
     const url = URL.createObjectURL(file);
-    setPreview(url);
+    setMediaPreview({ file, url });
     return () => URL.revokeObjectURL(url);
   }, [file]);
+  useEffect(() => {
+    if (!cover) {
+      setCoverObjectUrl(undefined);
+      return;
+    }
+    const url = URL.createObjectURL(cover);
+    setCoverObjectUrl({ file: cover, url });
+    return () => URL.revokeObjectURL(url);
+  }, [cover]);
+  const preview = file && mediaPreview?.file === file ? mediaPreview.url : "";
+  const coverPreview = cover && coverObjectUrl?.file === cover ? coverObjectUrl.url : "";
+  const mediaReady = !!file && decodedMedia === file;
+  const coverReady = !!cover && decodedCover === cover;
+  const isVideo = file?.type === "video/mp4";
   const saved = actions.journal;
   const blocked = actions.busy || !!saved;
   return (
@@ -96,18 +116,44 @@ export function CreateNft() {
         <>
           <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <section className="min-w-0">
-              <label
-                htmlFor="nft-artwork"
-                className="relative flex aspect-square w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed bg-muted/20 transition-colors hover:border-foreground/50"
-              >
-                {preview ? (
+              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-dashed bg-muted/20">
+                {preview && isVideo ? (
+                  <video
+                    key={preview}
+                    src={preview}
+                    controls
+                    playsInline
+                    preload="auto"
+                    aria-label={name || t("videoPreview")}
+                    className="size-full object-contain"
+                    onLoadedData={(event) => {
+                      const video = event.currentTarget;
+                      if (video.videoWidth > 0 && video.videoHeight > 0) {
+                        setDecodedMedia(file);
+                      } else {
+                        setDecodedMedia(undefined);
+                        setMediaError(true);
+                      }
+                    }}
+                    onError={() => {
+                      setDecodedMedia(undefined);
+                      setMediaError(true);
+                    }}
+                  />
+                ) : preview ? (
                   <Image
+                    key={preview}
                     unoptimized
                     width={1024}
                     height={1024}
                     src={preview}
                     alt={name || t("media")}
                     className="size-full object-contain"
+                    onLoad={() => setDecodedMedia(file)}
+                    onError={() => {
+                      setDecodedMedia(undefined);
+                      setMediaError(true);
+                    }}
                   />
                 ) : (
                   <span className="flex flex-col items-center gap-3">
@@ -115,22 +161,27 @@ export function CreateNft() {
                     {t("chooseMedia")}
                   </span>
                 )}
+              </div>
+              <label htmlFor="nft-artwork" className="mt-3 block text-sm">
+                {t("chooseMedia")}
               </label>
               <input
                 id="nft-artwork"
                 type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
+                accept="image/png,image/jpeg,image/gif,image/webp,video/mp4"
                 disabled={blocked}
                 className="mt-3 w-full text-sm"
                 onChange={(event) => {
                   const value = event.target.files?.[0];
                   if (!value) return;
-                  if (
-                    !["image/png", "image/jpeg", "image/gif", "image/webp"].includes(value.type) ||
-                    value.size > 20 * 1024 * 1024 ||
-                    !value.size
-                  ) {
+                  setDecodedMedia(undefined);
+                  setCover(undefined);
+                  setDecodedCover(undefined);
+                  setCoverError(false);
+                  if (!isNftMediaFile(value)) {
+                    setFile(undefined);
                     setMediaError(true);
+                    event.target.value = "";
                     return;
                   }
                   setMediaError(false);
@@ -142,6 +193,56 @@ export function CreateNft() {
                 <p role="alert" className="mt-2 text-sm text-destructive">
                   {t("invalidMedia")}
                 </p>
+              )}
+              {isVideo && (
+                <div className="mt-6 space-y-3 border-t pt-5">
+                  <label htmlFor="nft-cover" className="block text-sm font-medium">
+                    {t("cover")}
+                  </label>
+                  {coverPreview && (
+                    <div className="relative aspect-square w-32 overflow-hidden rounded-md border bg-muted/20">
+                      <Image
+                        key={coverPreview}
+                        unoptimized
+                        fill
+                        src={coverPreview}
+                        alt={t("coverPreview")}
+                        className="object-contain"
+                        onLoad={() => setDecodedCover(cover)}
+                        onError={() => {
+                          setDecodedCover(undefined);
+                          setCoverError(true);
+                        }}
+                      />
+                    </div>
+                  )}
+                  <input
+                    id="nft-cover"
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    disabled={blocked}
+                    className="w-full text-sm"
+                    onChange={(event) => {
+                      const value = event.target.files?.[0];
+                      if (!value) return;
+                      setDecodedCover(undefined);
+                      if (!isNftImageFile(value)) {
+                        setCover(undefined);
+                        setCoverError(true);
+                        event.target.value = "";
+                        return;
+                      }
+                      setCoverError(false);
+                      setCover(value);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("coverTypes")}</p>
+                  {coverError && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {t("invalidCover")}
+                    </p>
+                  )}
+                </div>
               )}
             </section>
             <section className="min-w-0 space-y-5">
@@ -185,12 +286,18 @@ export function CreateNft() {
                   disabled={
                     blocked ||
                     !file ||
+                    !mediaReady ||
+                    mediaError ||
+                    (isVideo && (!cover || !coverReady || coverError)) ||
                     !name.trim() ||
                     !rights ||
                     !actions.writer ||
                     !actions.storageReady
                   }
-                  onClick={() => file && void actions.create(file, name, description)}
+                  onClick={() =>
+                    file &&
+                    void actions.create(file, name, description, isVideo ? cover : undefined)
+                  }
                 >
                   {actions.busy ? (
                     <Loader2 className="size-4 animate-spin" />
@@ -199,6 +306,20 @@ export function CreateNft() {
                   )}
                   {t(actions.busy ? actions.step : "mint")}
                 </Button>
+              )}
+              {actions.busy && actions.step === "upload" && actions.uploadProgress !== null && (
+                <div className="space-y-2" role="status">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span>{t("upload")}</span>
+                    <span className="font-mono">{actions.uploadProgress}%</span>
+                  </div>
+                  <progress
+                    className="h-2 w-full accent-foreground"
+                    aria-label={t("upload")}
+                    value={actions.uploadProgress}
+                    max={100}
+                  />
+                </div>
               )}
             </section>
           </div>

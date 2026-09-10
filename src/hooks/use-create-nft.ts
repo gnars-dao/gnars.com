@@ -10,12 +10,14 @@ import { prepareContractCall } from "@/lib/builder-code";
 import { DAO_ADDRESSES } from "@/lib/config";
 import {
   communityNftAbi,
+  isNftImageFile,
+  isNftMediaFile,
   nftCreationJournalSchema,
   nftCreationStorageKey,
   type NftCreationJournal,
 } from "@/lib/create-nft";
 import { isNftWalletRejection } from "@/lib/create-nft-deployment";
-import { uploadToPinata } from "@/lib/pinata";
+import { uploadNftMedia } from "@/lib/create-nft-media";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain } from "@/lib/thirdweb-tx";
 import { signWalletRequest } from "@/lib/wallet-authorization";
@@ -34,6 +36,7 @@ export function useCreateNft(contractAddress: Address | undefined) {
   const [step, setStep] = useState<"idle" | "upload" | "metadata" | "wallet" | "confirm">("idle");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [storageReady, setStorageReady] = useState(false);
   const [confirmedMint, setConfirmedMint] = useState<NftCreationJournal | null>(null);
   const sessionRef = useRef({ key });
@@ -159,13 +162,16 @@ export function useCreateNft(contractAddress: Address | undefined) {
     };
   }, [journal, verify]);
 
-  async function create(file: File, name: string, description: string) {
+  async function create(file: File, name: string, description: string, cover?: File) {
     if (!key || !contractAddress || !writer || !client || busy || !storageReady) return;
     const signer = writer;
     const address = signer.account.address as Address;
     setBusy(true);
     setError("");
     try {
+      const video = file.type === "video/mp4";
+      if (!isNftMediaFile(file) || (video && (!cover || !isNftImageFile(cover))))
+        throw new Error("invalidMedia");
       await navigator.locks.request(key, async () => {
         if (localStorage.getItem(key)) throw new Error("pending");
         const checkAccount = () => {
@@ -181,16 +187,18 @@ export function useCreateNft(contractAddress: Address | undefined) {
           })) < 6n
         )
           throw new Error("membership");
-        setStep("upload");
-        const media = await uploadToPinata(signer.account, file, file.name);
-        if (!media.success || !media.data) throw new Error("uploadError");
         checkAccount();
+        setStep("upload");
+        const metadata = await uploadNftMedia({
+          account: signer.account,
+          file,
+          cover,
+          name,
+          description,
+          checkAccount,
+          onProgress: setUploadProgress,
+        });
         setStep("metadata");
-        const metadata = {
-          name: name.trim(),
-          description: description.trim(),
-          image: media.data.ipfsUrl,
-        };
         const authorization = await signWalletRequest(signer.account, {
           method: "POST",
           path: "/api/create-nft/metadata",
@@ -247,12 +255,20 @@ export function useCreateNft(contractAddress: Address | undefined) {
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "failed";
       setError(
-        ["membership", "accountChanged", "uploadError", "pending", "rejected"].includes(message)
+        [
+          "membership",
+          "accountChanged",
+          "uploadError",
+          "invalidMedia",
+          "pending",
+          "rejected",
+        ].includes(message)
           ? message
           : "failed",
       );
     } finally {
       setBusy(false);
+      setUploadProgress(null);
       setStep("idle");
     }
   }
@@ -280,5 +296,17 @@ export function useCreateNft(contractAddress: Address | undefined) {
     });
   }
 
-  return { writer, journal, confirmedMint, step, error, busy, storageReady, create, check, reset };
+  return {
+    writer,
+    journal,
+    confirmedMint,
+    step,
+    error,
+    busy,
+    uploadProgress,
+    storageReady,
+    create,
+    check,
+    reset,
+  };
 }

@@ -1,4 +1,6 @@
 {
+  "nftVideo": "Video: {name}",
+  "videoUnavailable": "The video could not be played. The cover is still available.",
   "share": {
     "openNft": "View NFT",
     "openMarketplace": "Open marketplace",

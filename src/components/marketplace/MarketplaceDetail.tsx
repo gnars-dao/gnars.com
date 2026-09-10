@@ -55,6 +55,7 @@ import { MarketplaceModeration } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { MarketplaceSourceLogo } from "./MarketplaceSourceLogo";
 import { NftArtwork } from "./NftArtwork";
+import { NftVideo } from "./NftVideo";
 
 type Mode = "details" | "buy" | "sell" | "cancel" | "edit";
 
@@ -292,7 +293,11 @@ export default function MarketplaceDetail({
                 mode === "details" ? "w-[min(100%,36dvh)] md:w-full" : "w-24",
               )}
             >
-              <NftArtwork key={item.image} item={item} sizes="(max-width: 767px) 36vh, 512px" />
+              {mode === "details" && item.animationUrl ? (
+                <NftVideo key={item.animationUrl} item={item} />
+              ) : (
+                <NftArtwork key={item.image} item={item} sizes="(max-width: 767px) 36vh, 512px" />
+              )}
             </div>
             <a
               href={`https://opensea.io/item/base/${collectionAddress}/${item.tokenId}`}

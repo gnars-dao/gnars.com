@@ -42,6 +42,7 @@ import {
   validateListingStructure,
   type SignedListing,
 } from "@/lib/marketplace/seaport";
+import { nftVideoUrl } from "@/lib/marketplace/video";
 import { marketplaceDatabaseConnection } from "@/lib/server/marketplace-database";
 import { RequestSecurityError, verifyWalletAuthorization } from "@/lib/server/request-security";
 import {
@@ -233,6 +234,18 @@ const metadataSchema = z.object({
   tokenId: z.string().max(80),
   name: z.string().nullish(),
   contract: z.object({ address: marketplaceAddressSchema, name: z.string().nullish() }),
+  raw: z
+    .object({
+      metadata: z
+        .object({
+          animation_url: z.unknown().optional(),
+          animation_details: z.object({ type: z.unknown().optional() }).nullish().catch(null),
+        })
+        .nullish()
+        .catch(null),
+    })
+    .nullish()
+    .catch(null),
   image: z
     .object({
       cachedUrl: z.string().nullish(),
@@ -270,9 +283,13 @@ const indexedNftMetadata = unstable_cache(
         safeImage(metadata.image?.cachedUrl) ??
         safeImage(metadata.image?.thumbnailUrl) ??
         safeImage(metadata.image?.originalUrl),
+      animationUrl: nftVideoUrl(
+        metadata.raw?.metadata?.animation_url,
+        metadata.raw?.metadata?.animation_details?.type,
+      ),
     };
   },
-  ["marketplace-community-metadata-v1"],
+  ["marketplace-community-metadata-v2"],
   { revalidate: 300, tags: [COMMUNITY_CACHE_TAG] },
 );
 
@@ -319,13 +336,19 @@ const onchainNftMetadata = unstable_cache(
           signal: AbortSignal.timeout(2000),
         });
         const metadata = z
-          .object({ name: z.string().nullish(), image: z.string().nullish() })
+          .object({
+            name: z.string().nullish(),
+            image: z.string().nullish(),
+            animation_url: z.unknown().optional(),
+            animation_details: z.object({ type: z.unknown().optional() }).nullish().catch(null),
+          })
           .parse(await boundedMetadata(response));
         const image = safeImage(metadata.image);
         if (!image) continue;
         return {
           name: metadata.name?.trim().slice(0, 200) || null,
           image,
+          animationUrl: nftVideoUrl(metadata.animation_url, metadata.animation_details?.type),
           collectionName:
             typeof collectionName === "string" ? collectionName.trim().slice(0, 120) : null,
         };
@@ -335,9 +358,15 @@ const onchainNftMetadata = unstable_cache(
     }
     throw marketplaceUnavailable("NFT IPFS metadata is unavailable.");
   },
-  ["marketplace-community-token-uri-v1"],
+  ["marketplace-community-token-uri-v2"],
   { revalidate: 300, tags: [COMMUNITY_CACHE_TAG] },
 );
+
+function isCreatedCollection(collection: Address) {
+  return (
+    collection.toLowerCase() === process.env.NEXT_PUBLIC_GNARS_COMMUNITY_NFT_ADDRESS?.toLowerCase()
+  );
+}
 
 async function nftMetadata(collection: Address, tokenId: string) {
   let indexed: Awaited<ReturnType<typeof indexedNftMetadata>> | undefined;
@@ -347,12 +376,18 @@ async function nftMetadata(collection: Address, tokenId: string) {
   } catch (error) {
     providerError = error;
   }
-  if (indexed?.image && !genericNftName(indexed.name, tokenId)) return indexed;
+  if (
+    indexed?.image &&
+    !genericNftName(indexed.name, tokenId) &&
+    (!isCreatedCollection(collection) || indexed.animationUrl)
+  )
+    return indexed;
   try {
     const metadata = await onchainNftMetadata(collection, tokenId);
     return {
       name: metadata.name || indexed?.name || `NFT #${tokenId}`,
       image: metadata.image,
+      animationUrl: metadata.animationUrl ?? indexed?.animationUrl ?? null,
       collectionName:
         metadata.collectionName ||
         indexed?.collectionName ||
@@ -405,6 +440,7 @@ const storedMetadata = z.object({
   name: z.string().max(200),
   collectionName: z.string().max(120),
   image: z.string().max(8192).nullable(),
+  animationUrl: z.string().max(8192).nullish(),
 });
 const storedComment = z.object({
   listingComment: communityListingCommentSchema.optional(),
@@ -768,6 +804,9 @@ async function itemsFromRows(
     const item = items.get(identity) ?? {
       ...metadata,
       image: safeImage(metadata.image),
+      ...(metadata.animationUrl !== undefined
+        ? { animationUrl: nftVideoUrl(metadata.animationUrl, "video/mp4") }
+        : {}),
       collectionAddress: decoded.collection,
       tokenId: row.token_id,
       owner: decoded.listing.parameters.offerer,
@@ -905,10 +944,16 @@ async function itemsFromRows(
   // Repair old indexer placeholders at read time, without rewriting signed orders or comments.
   await Promise.all(
     projected.map(async (item) => {
-      if (item.image && !genericNftName(item.name, item.tokenId)) return;
+      if (
+        item.image &&
+        !genericNftName(item.name, item.tokenId) &&
+        (!isCreatedCollection(item.collectionAddress!) || item.animationUrl !== undefined)
+      )
+        return;
       try {
         const metadata = await nftMetadata(item.collectionAddress!, item.tokenId);
         if (metadata.image) item.image = metadata.image;
+        item.animationUrl = metadata.animationUrl;
         if (!genericNftName(metadata.name, item.tokenId)) item.name = metadata.name;
         if (metadata.collectionName) item.collectionName = metadata.collectionName;
       } catch {

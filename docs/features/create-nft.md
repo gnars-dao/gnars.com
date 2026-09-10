@@ -27,10 +27,16 @@ After verification set `NEXT_PUBLIC_GNARS_COMMUNITY_NFT_ADDRESS` locally and in 
 
 ## Media and Recovery
 
-The initial UI accepts PNG/JPEG/GIF/WebP up to 20 MB. Media uploads reuse the authenticated, rate-limited browser-to-Pinata presigned upload used by droposals. Metadata uses a separate authenticated, membership-checked and rate-limited JSON endpoint. Pinata credentials stay server-side.
+The UI accepts PNG/JPEG/GIF/WebP up to 20 MiB, or MP4 video up to 200 MiB with a required image cover (20 MiB maximum). The browser must decode the selected media and cover before minting is enabled; MP4 must contain a video track, not only audio. No new contract is needed for video. Media uploads reuse the authenticated, rate-limited browser-to-Pinata presigned upload used by droposals, with byte-weighted progress. The video and cover upload separately; metadata signing and minting do not proceed if either upload fails or the active account changes. A failed upload can leave an unused IPFS pin, but never causes an automatic mint.
+
+Metadata uses a separate authenticated, membership-checked and rate-limited JSON endpoint. Image NFTs retain `image` only; video NFTs use the cover in `image`, the video CID in `animation_url`, and `animation_details.type: "video/mp4"`. Both URIs must be immutable IPFS CIDs. Pinata credentials stay server-side. This flow pins through Pinata; availability through the SkateHive gateway does not establish a separate SkateHive pin.
+
+Marketplace metadata readers retain validated MP4 URLs from indexed or onchain metadata and store them with listing metadata. Created-collection details fall back to onchain metadata when the indexer has only a cover. Cards and Farcaster miniapp images remain static covers; the NFT detail drawer has an explicit-play video player. Playback failure preserves the cover and sale information. HTML animations, audio-only NFTs, automatic transcoding, editions, and ERC-1155 creation are not included.
 
 Mint requests are persisted before the wallet prompt and scoped by collection plus actual signing account. Bounded read-only polling recovers by the contract's request mapping and checks creator plus immutable URI. No polling sends a transaction or signature. Explicit wallet rejection or a verified reverted receipt permits a new attempt. Unknown outcomes do not. A newly confirmed mint, including pending recovery, opens the community listing form for that NFT. Restoring an already completed journal does not redirect again. Minting itself never signs a sale. The creation form omits the royalty/address summary; contract royalty verification and settlement remain unchanged.
 
 Fresh NFT previews fall back from incomplete indexer results to onchain `tokenURI` and bounded public IPFS gateway reads. Existing listing rows with missing artwork or placeholder names are enriched at read time without modifying their signed terms, comments, or published casts.
 
-References: [OpenZeppelin ERC-721](https://docs.openzeppelin.com/contracts/5.x/erc721), [ERC-2981](https://docs.openzeppelin.com/contracts/5.x/api/token/common).
+Tests include bounded video metadata, failure of either upload, wallet changes between uploads, metadata authorization, indexed/onchain/listing media persistence, decoded MP4/cover readiness, and desktop/mobile playback with static-card and error fallbacks. `tests/fixtures/nft-preview.mp4` is a generated FFmpeg `testsrc2` H.264 fixture; tests do not submit real mints or paid uploads.
+
+References: [OpenZeppelin ERC-721](https://docs.openzeppelin.com/contracts/5.x/erc721), [ERC-2981](https://docs.openzeppelin.com/contracts/5.x/api/token/common), [OpenSea media metadata](https://docs.opensea.io/docs/media-and-traits).
