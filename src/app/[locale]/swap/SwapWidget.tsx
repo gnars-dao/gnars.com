@@ -76,7 +76,7 @@ function formatTokenAmount(raw: string | undefined, decimals: number): string {
   }
 }
 
-export function SwapWidget() {
+export function SwapWidget({ showTokenCards = true }: { showTokenCards?: boolean } = {}) {
   const t = useTranslations("swap");
   const { chain } = useSwapChain();
   const { address, isConnected } = useUserAddress();
@@ -631,24 +631,31 @@ export function SwapWidget() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-y-4 @2xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] @2xl:gap-y-0">
-          <div className="min-w-0 @2xl:pr-7">
-            <SwapTokenCard
-              token={sellToken}
-              counterpart={buyToken}
-              side="sell"
-              chainId={chain.id}
-            />
+        {showTokenCards && (
+          <div className="grid grid-cols-1 gap-y-4 @2xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] @2xl:gap-y-0">
+            <div className="min-w-0 @2xl:pr-7">
+              <SwapTokenCard
+                token={sellToken}
+                counterpart={buyToken}
+                side="sell"
+                chainId={chain.id}
+              />
+            </div>
+            {/* The same width as the flip arrow above, so each card sits exactly
+                under its own token — invisible, never interactive. */}
+            <div aria-hidden className="invisible hidden p-2 @2xl:block">
+              <ArrowRight className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 @2xl:pl-7">
+              <SwapTokenCard
+                token={buyToken}
+                counterpart={sellToken}
+                side="buy"
+                chainId={chain.id}
+              />
+            </div>
           </div>
-          {/* The same width as the flip arrow above, so each card sits exactly
-              under its own token — invisible, never interactive. */}
-          <div aria-hidden className="invisible hidden p-2 @2xl:block">
-            <ArrowRight className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 @2xl:pl-7">
-            <SwapTokenCard token={buyToken} counterpart={sellToken} side="buy" chainId={chain.id} />
-          </div>
-        </div>
+        )}
 
         {/* Hairline divider */}
         <div className="h-px bg-border" />
