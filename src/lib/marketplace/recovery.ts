@@ -1,4 +1,5 @@
 import { formatEther, isAddressEqual, type Address, type PublicClient } from "viem";
+import { communityListingCommentSchema } from "./community-comment";
 import { getCommunityFeeWei, validateCommunityFeePolicy } from "./community-policy";
 import { MarketplaceApiError } from "./errors";
 import {
@@ -81,6 +82,12 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
   const source = listingSource(value.input ?? { source: value.offer?.source });
   assertMarketplaceJournalProtocol({ kind: "list", input: { ...value.input, source } });
   const collectionAddress = value.input?.collectionAddress ?? value.offer?.collectionAddress;
+  const listingComment =
+    value.input?.listingComment === undefined
+      ? undefined
+      : communityListingCommentSchema.parse(value.input.listingComment);
+  if (listingComment !== undefined && (!collectionAddress || source !== "gnars-contract"))
+    throw new Error("Comments require a community listing");
   const savedFeePolicy = value.input?.expectedQuote?.feePolicy ?? value.offer?.feePolicy;
   const feePolicy =
     collectionAddress || savedFeePolicy !== undefined
@@ -122,6 +129,7 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
     ...(collectionAddress ? { collectionAddress } : {}),
     listing,
     input: {
+      ...(listingComment !== undefined ? { listingComment } : {}),
       tokenId,
       source,
       ...(collectionAddress ? { collectionAddress } : {}),

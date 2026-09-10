@@ -121,6 +121,7 @@ describe("marketplace recovery guards", () => {
       listing: community,
       input: {
         source: "gnars-contract",
+        listingComment: "A collector's note",
         protocolAddress: custom,
         collectionAddress,
         expectedQuote: { feePolicy },
@@ -130,6 +131,7 @@ describe("marketplace recovery guards", () => {
     expect(repaired.listing).toEqual(community);
     expect(repaired.collectionAddress).toBe(collectionAddress);
     expect(repaired.input.collectionAddress).toBe(collectionAddress);
+    expect(repaired.input.listingComment).toBe("A collector's note");
     expect(repaired.input.expectedQuote.feePolicy).toEqual(feePolicy);
     expect(repaired.input.expectedQuote.sellerWei).toBe("19500000000000000");
     expect(() =>

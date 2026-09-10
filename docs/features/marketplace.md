@@ -155,6 +155,15 @@ The animated submission drawer has asset, terms and publication steps. Only the
 actual signer holding at least six Gnars may submit a new community listing.
 The server rechecks `balanceOf(offerer)` on Base; the client gate is not authority.
 The holder requirement does not restrict buyers or seller cancellation.
+Community listings may include an optional plain-text seller comment (280 UTF-16
+code units). A separate wallet authorization binds that comment to the Base chain,
+Gnars marketplace protocol, and exact Seaport order hash; only the order's seller
+can authorize it. It does not alter the Seaport signature, price, fees or royalties.
+Comment and authorization are stored once in the existing order metadata JSONB;
+no database migration is required. Same-order retries preserve the original text,
+and changed comments require a new order. Public offers expose only the comment,
+never its authorization. Listing journals retain the comment across retries and
+repair; retrying publication may request another message signature, not a transaction.
 The asset step offers a paginated Base ERC721 wallet picker, scoped to the active
 write account, with manual contract/token entry as a fallback. Discovery uses
 server-side Alchemy metadata; selecting a card still requires fresh onchain

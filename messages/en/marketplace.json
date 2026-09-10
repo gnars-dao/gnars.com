@@ -1,5 +1,11 @@
 {
   "title": "Gnars Marketplace",
+  "listingNote": {
+    "label": "Seller note",
+    "optional": "Comment (optional)",
+    "showNote": "Show seller note",
+    "showArtwork": "Show NFT artwork"
+  },
   "sections": { "native": "Gnars listings", "community": "Community", "opensea": "On OpenSea" },
   "community": {
     "createFromMedia": "Create NFT from media",

@@ -1,8 +1,10 @@
 import { zeroAddress, zeroHash, type Address } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILDER_CODE, DAO_ADDRESSES } from "@/lib/config";
+import { communityCommentPayload } from "@/lib/marketplace/community-comment";
 import { COMMUNITY_FEE_RECIPIENT } from "@/lib/marketplace/community-policy";
 import { getListingOrderHash, type SignedListing } from "@/lib/marketplace/seaport";
+import { RequestSecurityError } from "@/lib/server/request-security";
 import {
   communityMarketplaceReady,
   communityModerationSchema,
@@ -108,7 +110,7 @@ function listing(address = collection): SignedListing {
     signature: "0xabcd",
   };
 }
-function row(address = collection) {
+function row(address = collection, listingComment?: string) {
   const signed = listing(address);
   return {
     id: "1",
@@ -120,6 +122,7 @@ function row(address = collection) {
     signed_order: signed,
     fee_policy: policy,
     metadata: {
+      ...(listingComment !== undefined ? { listingComment } : {}),
       name: "Community #12",
       collectionName: "Community",
       image: "https://example.com/nft.png",
@@ -164,13 +167,18 @@ beforeEach(() => {
       image: { cachedUrl: "https://example.com/nft.png" },
     }),
   );
-  mocks.query.mockImplementation(async (sql: string) => {
+  mocks.query.mockImplementation(async (sql: string, values?: unknown[]) => {
     if (sql.includes("AS ready")) return { rows: [{ ready: true }], rowCount: 1 };
     if (sql.includes("LIMIT 0")) return { rows: [], rowCount: 0 };
     if (sql.startsWith("SELECT *")) return { rows: records, rowCount: records.length };
     if (sql.includes("SELECT count(*)")) return { rows: [{ count: "0" }], rowCount: 1 };
     if (sql.startsWith("INSERT INTO public.marketplace_community_orders"))
-      return { rows: [row()], rowCount: 1 };
+      return {
+        rows: [
+          { ...row(), metadata: values?.[9] ? JSON.parse(String(values[9])) : row().metadata },
+        ],
+        rowCount: 1,
+      };
     return { rows: [], rowCount: 1 };
   });
 });
@@ -226,6 +234,120 @@ describe("community eligibility and readiness", () => {
 });
 
 describe("community publication", () => {
+  it("authenticates an optional comment against the seller and exact signed order", async () => {
+    const signed = listing();
+    const authorization = { signature: "0x12", walletAddress: seller };
+    const offer = await publishCommunityOrder(signed, {
+      listingComment: "  My favorite collectible.  ",
+      authorization,
+    });
+    expect(offer.listingComment).toBe("My favorite collectible.");
+    expect(mocks.authorize).toHaveBeenCalledExactlyOnceWith({
+      authorization,
+      method: "POST",
+      path: "/api/marketplace/community/orders",
+      payload: communityCommentPayload(
+        getListingOrderHash(signed.parameters),
+        "My favorite collectible.",
+      ),
+    });
+    const insert = mocks.query.mock.calls.find(([sql]) =>
+      sql.startsWith("INSERT INTO public.marketplace_community_orders"),
+    )!;
+    expect(JSON.parse(insert[1][9])).toMatchObject({
+      listingComment: "My favorite collectible.",
+      listingCommentAuthorization: authorization,
+    });
+    expect(JSON.parse(insert[1][7])).toEqual(signed);
+    expect(offer).not.toHaveProperty("listingCommentAuthorization");
+  });
+  it("rejects comments without valid authorization or signed by another wallet", async () => {
+    mocks.authorize.mockRejectedValueOnce(
+      new RequestSecurityError(401, "Signed wallet request is required."),
+    );
+    await expect(
+      publishCommunityOrder(listing(), { listingComment: "Test" }),
+    ).rejects.toMatchObject({ status: 401 });
+    mocks.authorize.mockResolvedValueOnce(buyer);
+    await expect(
+      publishCommunityOrder(listing(), { listingComment: "Test", authorization: {} }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it.each(["", " ", "x".repeat(281), "invalid\u0000text", 42])(
+    "rejects invalid listing comments before persistence",
+    async (listingComment) => {
+      await expect(
+        publishCommunityOrder(listing(), { listingComment, authorization: {} }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(mocks.authorize).not.toHaveBeenCalled();
+      expect(mocks.connect).not.toHaveBeenCalled();
+    },
+  );
+  it("recovers immutable comments without rewriting them or requiring a fresh signature", async () => {
+    records = [row(collection, "Original seller comment")];
+    expect(
+      (
+        await publishCommunityOrder(records[0].signed_order, {
+          listingComment: "Original seller comment",
+        })
+      ).listingComment,
+    ).toBe("Original seller comment");
+    expect((await publishCommunityOrder(records[0].signed_order)).listingComment).toBe(
+      "Original seller comment",
+    );
+    await expect(
+      publishCommunityOrder(records[0].signed_order, { listingComment: "Replacement" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(mocks.authorize).not.toHaveBeenCalled();
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it("does not add a comment retrospectively to a legacy signed order", async () => {
+    records = [row()];
+    await expect(
+      publishCommunityOrder(records[0].signed_order, {
+        listingComment: "New text",
+        authorization: {},
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it("does not overwrite a different comment inserted concurrently for the same order", async () => {
+    const query = mocks.query.getMockImplementation()!;
+    let reads = 0;
+    mocks.query.mockImplementation(async (sql: string, values?: unknown[]) => {
+      if (sql.startsWith("SELECT *") && ++reads === 2)
+        return { rows: [row(collection, "First comment")], rowCount: 1 };
+      return query(sql, values);
+    });
+    await expect(
+      publishCommunityOrder(listing(), { listingComment: "Another comment", authorization: {} }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(mocks.query).toHaveBeenCalledWith("ROLLBACK");
+    expect(
+      mocks.query.mock.calls.some(([sql]) =>
+        sql.startsWith("INSERT INTO public.marketplace_community_orders"),
+      ),
+    ).toBe(false);
+  });
+  it("projects the comment on its specific offer, not NFT metadata", async () => {
+    records = [row(collection, "Seller's story")];
+    const result = await listCommunityMarketplace();
+    expect(result.items[0]).not.toHaveProperty("listingComment");
+    expect(result.items[0].offers[0].listingComment).toBe("Seller's story");
+    expect((await getCommunityToken(collection, "12")).items[0].offers[0].listingComment).toBe(
+      "Seller's story",
+    );
+    expect((await getCommunityOrder(records[0].order_hash)).row.metadata).toMatchObject({
+      listingComment: "Seller's story",
+    });
+    await reconcileCommunityOrder(records[0].order_hash);
+    const update = mocks.query.mock.calls.find(([sql]) =>
+      sql.startsWith("UPDATE public.marketplace_community_orders"),
+    )![0];
+    expect(update).not.toContain("metadata");
+  });
   it("denies a five-Gnar signer before metadata or writes", async () => {
     mocks.read.mockImplementation(async ({ functionName }) =>
       functionName === "balanceOf" ? 5n : true,

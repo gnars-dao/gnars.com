@@ -15,6 +15,11 @@ import { z } from "zod";
 import { BUILDER_CODE, DAO_ADDRESSES } from "@/lib/config";
 import { ipfsToHttp } from "@/lib/ipfs";
 import {
+  communityCommentPayload,
+  communityListingCommentSchema,
+  communityPublicationSchema,
+} from "@/lib/marketplace/community-comment";
+import {
   COMMUNITY_FEE_RECIPIENT,
   getCommunityFeePolicy,
   MIN_COMMUNITY_GNARS,
@@ -333,7 +338,11 @@ function offerFor(
   listing: SignedListing,
   feePolicy: CommunityFeePolicy,
 ): MarketplaceOffer {
+  const { listingComment } = z
+    .object({ listingComment: communityListingCommentSchema.optional() })
+    .parse(row.metadata);
   return {
+    ...(listingComment !== undefined ? { listingComment } : {}),
     id: `community:${row.protocol_address}:${row.order_hash}`,
     source: "gnars-contract",
     orderHash: row.order_hash,
@@ -348,7 +357,11 @@ function offerFor(
   };
 }
 
-export async function publishCommunityOrder(raw: unknown) {
+export async function publishCommunityOrder(raw: unknown, publication: unknown = {}) {
+  const { listingComment, authorization } = parseMarketplaceInput(
+    communityPublicationSchema,
+    publication,
+  );
   await requireReady();
   // Recover acknowledged orders under their immutable fee snapshot before new-submission checks.
   const envelope = parseMarketplaceInput(
@@ -372,7 +385,20 @@ export async function publishCommunityOrder(raw: unknown) {
         "This listing was removed from the community marketplace.",
       );
     const decoded = decodeRow(saved.rows[0]);
-    return offerFor(saved.rows[0], decoded.listing, decoded.feePolicy);
+    const offer = offerFor(saved.rows[0], decoded.listing, decoded.feePolicy);
+    if (listingComment !== undefined && offer.listingComment !== listingComment)
+      throw new RequestSecurityError(409, "The comment on this signed order cannot be changed.");
+    return offer;
+  }
+  if (listingComment !== undefined) {
+    const author = await verifyWalletAuthorization({
+      authorization,
+      method: "POST",
+      path: "/api/marketplace/community/orders",
+      payload: communityCommentPayload(candidateHash as Hex, listingComment),
+    });
+    if (!isAddressEqual(author, envelope.parameters.offerer))
+      throw new RequestSecurityError(403, "Only the seller can authorize a listing comment.");
   }
   const currentFee = getCommunityFeePolicy();
   if (!currentFee) throw marketplaceUnavailable("Community marketplace fee is not configured.");
@@ -411,8 +437,11 @@ export async function publishCommunityOrder(raw: unknown) {
           "This listing was removed from the community marketplace.",
         );
       const decoded = decodeRow(existing.rows[0]);
+      const offer = offerFor(existing.rows[0], decoded.listing, decoded.feePolicy);
+      if (listingComment !== undefined && offer.listingComment !== listingComment)
+        throw new RequestSecurityError(409, "The comment on this signed order cannot be changed.");
       await client.query("COMMIT");
-      return offerFor(existing.rows[0], decoded.listing, decoded.feePolicy);
+      return offer;
     }
     const count = await client.query<{ count: string }>(
       "SELECT count(*) FROM public.marketplace_community_orders WHERE seller = $1 AND status IN ('active', 'invalid-owner', 'unapproved') AND expires_at > $2",
@@ -434,7 +463,12 @@ export async function publishCommunityOrder(raw: unknown) {
         listing.parameters.endTime,
         JSON.stringify(listing),
         JSON.stringify(currentFee),
-        JSON.stringify(metadata),
+        JSON.stringify({
+          ...metadata,
+          ...(listingComment !== undefined
+            ? { listingComment, listingCommentAuthorization: authorization }
+            : {}),
+        }),
         eligibility.balance,
       ],
     );

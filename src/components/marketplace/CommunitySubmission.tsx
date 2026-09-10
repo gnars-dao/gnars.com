@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useMarketplaceActions } from "@/hooks/use-marketplace-actions";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useWriteAccount } from "@/hooks/use-write-account";
@@ -82,6 +83,7 @@ function SubmissionDrawer({
   const [manualOpen, setManualOpen] = useState(false);
   const [invalidSelection, setInvalidSelection] = useState(false);
   const [price, setPrice] = useState("");
+  const [listingComment, setListingComment] = useState("");
   const [debouncedPrice, setDebouncedPrice] = useState("");
   const [duration, setDuration] = useState(7);
   const [submitted, setSubmitted] = useState(false);
@@ -244,6 +246,7 @@ function SubmissionDrawer({
       source: "gnars-contract",
       expectedRoyaltyWei: quote.data!.royaltyWei,
       expectedQuote: quote.data!,
+      ...(listingComment.trim() ? { listingComment: listingComment.trim() } : {}),
     });
   }
 
@@ -573,6 +576,27 @@ function SubmissionDrawer({
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <Label htmlFor="community-comment">{t("listingNote.optional")}</Label>
+                            <span
+                              id="community-comment-count"
+                              className="shrink-0 text-xs tabular-nums text-muted-foreground"
+                            >
+                              {listingComment.length}/280
+                            </span>
+                          </div>
+                          <Textarea
+                            id="community-comment"
+                            value={listingComment}
+                            onChange={(event) => setListingComment(event.target.value)}
+                            maxLength={280}
+                            rows={3}
+                            disabled={!canEdit}
+                            aria-describedby="community-comment-count"
+                            className="min-h-24 resize-y [overflow-wrap:anywhere]"
+                          />
                         </div>
                         {quote.isFetching && (
                           <p

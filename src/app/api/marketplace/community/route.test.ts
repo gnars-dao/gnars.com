@@ -103,6 +103,31 @@ describe("community route boundaries", () => {
     expect((await publish(post("orders", { listing: "x".repeat(24001) }))).status).toBe(413);
     expect(mocks.publish).not.toHaveBeenCalled();
   });
+  it("forwards a normalized optional comment and authorization to publication", async () => {
+    mocks.publish.mockResolvedValue({ id: "community:1", listingComment: "Seller comment" });
+    const listing = { signature: "0x12" };
+    const authorization = { signature: "0x34" };
+    const response = await publish(
+      post("orders", { listing, listingComment: "  Seller comment ", authorization }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.publish).toHaveBeenCalledWith(listing, {
+      listingComment: "Seller comment",
+      authorization,
+    });
+    expect((await response.json()).offer.listingComment).toBe("Seller comment");
+  });
+  it.each(["", " ", "x".repeat(281), "bad\u0000text", null])(
+    "rejects malformed comment before durable budget or publication",
+    async (listingComment) => {
+      const response = await publish(
+        post("orders", { listing: {}, listingComment, authorization: {} }),
+      );
+      expect(response.status).toBe(400);
+      expect(mocks.publish).not.toHaveBeenCalled();
+      expect(mocks.budget).not.toHaveBeenCalled();
+    },
+  );
   it("returns only signed order and fee snapshot for recovery", async () => {
     mocks.order.mockResolvedValue({
       listing: { signature: "0x12" },

@@ -374,6 +374,16 @@ export default function MarketplaceDetail({
                           listing.expiresAt * 1000,
                         )}
                       </p>
+                      {listing.listingComment && (
+                        <div className="space-y-1 border-l-2 border-emerald-500/50 pl-3">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            {t("listingNote.label")}
+                          </p>
+                          <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
+                            {listing.listingComment}
+                          </p>
+                        </div>
+                      )}
                       {writer &&
                       listing.seller.toLowerCase() === writer.account.address.toLowerCase() ? (
                         <Button

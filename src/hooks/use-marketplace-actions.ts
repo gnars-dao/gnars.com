@@ -25,6 +25,10 @@ import {
 } from "@/lib/marketplace/approval";
 import { generateMarketplaceSalt } from "@/lib/marketplace/attribution";
 import {
+  communityCommentPayload,
+  communityListingCommentSchema,
+} from "@/lib/marketplace/community-comment";
+import {
   marketplaceCollectionAddress,
   MIN_COMMUNITY_GNARS,
   validateCommunityFeePolicy,
@@ -93,6 +97,7 @@ import {
 import { isMarketplaceWalletRejection } from "@/lib/marketplace/wallet-request";
 import { getThirdwebClient } from "@/lib/thirdweb";
 import { ensureOnChain, waitForSuccessfulReceipt } from "@/lib/thirdweb-tx";
+import { signWalletRequest } from "@/lib/wallet-authorization";
 import type { MarketplaceOffer, MarketplaceSource } from "@/types/marketplace";
 
 export type MarketplacePhase =
@@ -114,6 +119,7 @@ export type MarketplaceActionError = {
   requestId?: string;
 };
 export type ListInput = {
+  listingComment?: string;
   collectionAddress?: Address;
   tokenId: string;
   priceEth: string;
@@ -189,6 +195,11 @@ function parseJournal(raw: string, account: Address): Journal {
   )
     throw new Error("Invalid saved marketplace attempt");
   if (value.kind === "list") listingSource(value.input);
+  if (value.input?.listingComment !== undefined) {
+    communityListingCommentSchema.parse(value.input.listingComment);
+    if (!value.collectionAddress || listingSource(value.input) !== "gnars-contract")
+      throw new Error("Comments require a community listing");
+  }
   assertMarketplaceJournalProtocol(value);
   const options = journalOptions(value);
   if (value.sweep) {
@@ -828,16 +839,35 @@ export function useMarketplaceActions() {
       if (!canRetryMarketplacePublication(current)) return;
       save(entry, { ...current, phase: "saving" });
       const source = listingSource(current.input);
+      const listingComment = current.input?.listingComment;
+      const publication =
+        listingComment === undefined
+          ? {}
+          : {
+              listingComment,
+              authorization: await signWalletRequest((await prepareSigner(saved.account)).account, {
+                method: "POST",
+                path: "/api/marketplace/community/orders",
+                payload: communityCommentPayload(
+                  getListingOrderHash(current.listing.parameters),
+                  listingComment,
+                ),
+              }),
+            };
+      signer(saved.account);
       const response = await api(
         source === "opensea"
           ? "/opensea/orders"
           : `${communityPrefix(current.collectionAddress)}/orders`,
         {
           listing: current.listing,
+          ...publication,
           ...(!current.collectionAddress && source === "gnars-contract" ? { source } : {}),
         },
       );
       assertPublishedListing(response.offer, current.listing, source);
+      if (listingComment !== undefined && response.offer.listingComment !== listingComment)
+        throw new Error("The published listing comment could not be confirmed");
       const latest = read(saved.account);
       if (latest?.id === saved.id) save(entry, { ...latest, phase: "complete", error: undefined });
     };
@@ -886,6 +916,11 @@ export function useMarketplaceActions() {
         saved && !canReplaceMarketplaceAttempt(saved) && saved.kind === "list"
           ? saved.input!
           : input;
+      if (selectedInput.listingComment !== undefined) {
+        communityListingCommentSchema.parse(selectedInput.listingComment);
+        if (!selectedInput.collectionAddress || source !== "gnars-contract")
+          throw new Error("Comments require a community listing");
+      }
       if (selectedInput.collectionAddress && source !== "gnars-contract")
         throw new Error("Community collections require the Gnars contract");
       const ready = await api("/readiness");
@@ -935,6 +970,9 @@ export function useMarketplaceActions() {
             ...(input.collectionAddress ? { collectionAddress: input.collectionAddress } : {}),
             input: {
               ...input,
+              ...(input.listingComment !== undefined
+                ? { listingComment: communityListingCommentSchema.parse(input.listingComment) }
+                : {}),
               ...(source === "gnars-contract"
                 ? { protocolAddress: getMarketplaceProtocolAddress(source) }
                 : {}),
