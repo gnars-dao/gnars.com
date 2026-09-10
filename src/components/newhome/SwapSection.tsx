@@ -41,7 +41,7 @@ export async function SwapSection() {
         </div>
 
         <SwapChainProvider>
-          <SwapWidget />
+          <SwapWidget showTokenCards={false} />
         </SwapChainProvider>
       </div>
     </section>
