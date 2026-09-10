@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCreatorContentReport, isUsableCreatorHandle } from "./route";
+import { buildCreatorContentReport, isUsableCreatorHandle } from "./creator-content-report";
 
 /**
  * Truncated-address "handles" — the noise half of the 27/08 feed collapse.

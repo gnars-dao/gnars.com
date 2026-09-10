@@ -59,8 +59,8 @@ export interface Product {
   slug: string;
   title: string;
   description: string;
-  /** Price in major currency units (e.g. dollars, not cents). */
-  price: number;
+  /** Price in major currency units (e.g. dollars, not cents). Optional for inquiry-only products. */
+  price?: number;
   currency: Currency;
   /** Ordered image URLs. The first entry is used as the cover. */
   images: string[];

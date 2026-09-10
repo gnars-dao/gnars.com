@@ -10,9 +10,9 @@ import {
 } from "@/lib/og-utils";
 import { getProposalByIdOrNumber } from "@/services/proposals";
 
-export const alt = "Gnars DAO Proposal";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Gnars DAO Proposal";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 export const revalidate = 1800;
 export const runtime = "nodejs";
 

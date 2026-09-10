@@ -11,6 +11,11 @@ import {
   type QualifiedCreator,
   type TVItemData,
 } from "@/services/farcaster-tv-aggregator";
+import {
+  buildCreatorContentReport,
+  isUsableCreatorHandle,
+  type CreatorContentReport,
+} from "./creator-content-report";
 
 // Dynamic route — never prerendered at build time. CDN handles caching via
 // the Cache-Control header on the response (see GET below). Keeps the build
@@ -232,37 +237,6 @@ function computeCoinBalanceBoost(coinBalance?: number): number {
  * profile, so it is skipped rather than counted as a failure: nothing broke,
  * there was simply nothing askable.
  */
-const TRUNCATED_ADDRESS_HANDLE = /^0x[0-9a-fA-F]{4}\.{3}[0-9a-fA-F]{4}$/;
-
-export function isUsableCreatorHandle(handle: string | null | undefined): boolean {
-  if (!handle) return false;
-  const trimmed = handle.trim();
-  if (trimmed.length === 0) return false;
-  return !TRUNCATED_ADDRESS_HANDLE.test(trimmed);
-}
-
-/**
- * How the creator-content pass went. Three states, same rule as the Farcaster
- * slice: `items` is only a total when nothing failed.
- *
- * This exists because the previous `catch {}` made the pass unfalsifiable. On
- * 27/08 it silently went from 375 items to 0 and there was no way to tell a
- * dead upstream from creators who simply had no coins — the investigation had
- * to reconstruct it from two payloads saved by hand. Counting the failures is
- * what turns that into a number somebody can read.
- */
-export type CreatorContentReport =
-  | { status: "ok"; items: number; creatorsAsked: number; creatorsSkipped: number }
-  | {
-      status: "incomplete";
-      itemsSoFar: number;
-      creatorsAsked: number;
-      creatorsSkipped: number;
-      creatorsFailed: number;
-      reason: string;
-    }
-  | { status: "unavailable"; creatorsFailed: number; reason: string };
-
 async function fetchCreatorContent(
   creators: QualifiedCreator[],
   loadedAddresses: Set<string>,
@@ -324,44 +298,6 @@ async function fetchCreatorContent(
       creatorsFailed: failed,
       reason: firstReason,
     }),
-  };
-}
-
-/**
- * Turn the pass's tally into one verdict. Pure and exported so the rule is
- * testable without Zora, a network, or the rest of the route.
- *
- * As with the Farcaster slice, the counts only appear on the branches where
- * they mean something: `unavailable` carries no item count, because zero items
- * from zero successful reads is not a measurement.
- */
-export function buildCreatorContentReport({
-  items,
-  creatorsAsked,
-  creatorsSkipped,
-  creatorsFailed,
-  reason,
-}: {
-  items: number;
-  creatorsAsked: number;
-  creatorsSkipped: number;
-  creatorsFailed: number;
-  reason?: string;
-}): CreatorContentReport {
-  const why = reason || "Zora profile read failed";
-  if (creatorsFailed === 0) {
-    return { status: "ok", items, creatorsAsked, creatorsSkipped };
-  }
-  if (creatorsAsked > 0 && creatorsFailed >= creatorsAsked) {
-    return { status: "unavailable", creatorsFailed, reason: why };
-  }
-  return {
-    status: "incomplete",
-    itemsSoFar: items,
-    creatorsAsked,
-    creatorsSkipped,
-    creatorsFailed,
-    reason: why,
   };
 }
 

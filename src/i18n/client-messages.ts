@@ -23,7 +23,6 @@ export const ROUTE_NAMESPACES = {
   propdates: ["propdates", "proposals"],
   proposals: ["feed", "propdates", "proposals"],
   propose: ["proposals", "propose"],
-  shop: ["shop"],
   store: ["store"],
   swap: ["swap"],
   treasury: ["auctions", "treasury"],

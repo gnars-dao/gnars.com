@@ -124,7 +124,7 @@ async function checkout(request: NextRequest) {
       { status: 404 },
     );
   }
-  if (!isDropshipFulfillable(product.fulfillmentSku)) {
+  if (!isDropshipFulfillable(product.fulfillmentSku) || product.price === undefined) {
     return NextResponse.json(
       {
         error: {

@@ -1,9 +1,9 @@
 import { ImageResponse } from "next/og";
 import { MINIAPP_SIZE, OG_COLORS, OG_FONTS } from "@/lib/og-utils";
 
-export const alt = "Swap on Gnars";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Swap on Gnars";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 export const runtime = "edge";
 
 export async function GET() {

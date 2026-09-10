@@ -2,9 +2,9 @@ import { ImageResponse } from "next/og";
 import { DAO_DESCRIPTION } from "@/lib/config";
 import { MINIAPP_SIZE, OG_COLORS, OG_FONTS } from "@/lib/og-utils";
 
-export const alt = "Gnars DAO";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Gnars DAO";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 export const runtime = "edge";
 
 export async function GET() {

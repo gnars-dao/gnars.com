@@ -181,15 +181,11 @@ function buildNavigationItems(t: NavTranslations) {
           badge: "SOON",
         },
         {
-          title: t("items.money.shop.title"),
-          href: "/shop",
+          title: t("items.money.store.title"),
+          href: "/store",
           icon: ShoppingBag,
-          description: t("items.money.shop.description"),
-          badge: "SOON",
+          description: t("items.money.store.description"),
         },
-        // TODO(store): main added a parallel /store route (i18n strings + route
-        // exist) but kept it intentionally unlinked. /shop (above) is the linked
-        // Phase-1 storefront; consolidate /shop and /store into one before launch.
       ],
     },
     {

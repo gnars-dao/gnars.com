@@ -11,7 +11,7 @@ function availabilityBadge(product: Product, labels: StoreCardLabels) {
     case "preorder":
       return labels.preorder;
     case "coming_soon":
-      return labels.comingSoon;
+      return labels.unavailable;
     default:
       return null;
   }
@@ -46,9 +46,11 @@ export function ProductCard({ product, labels }: { product: Product; labels: Sto
             {product.title}
           </h3>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-lg font-bold text-foreground">
-              {formatPrice(product.price, product.currency)}
-            </span>
+            {product.price !== undefined && (
+              <span className="text-lg font-bold text-foreground">
+                {formatPrice(product.price, product.currency)}
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors group-hover:text-[#e08968]">
               {labels.viewDetails}
               <ArrowUpRight className="h-3.5 w-3.5" />

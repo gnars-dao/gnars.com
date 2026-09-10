@@ -5,9 +5,9 @@ import { MINIAPP_SIZE } from "@/lib/og-utils";
 // The Farcaster embed image for /morpheus (3:2, taller than the 1.91:1 OG).
 // Same composition as the link preview — see `src/lib/og-morpheus.tsx`.
 
-export const alt = "Gnars × Morpheus — Stake or Die";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Gnars × Morpheus — Stake or Die";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 
 // Same 6h reasoning as the OG card: it reads the subnet over RPC, and total
 // staked moves slowly enough that a few hours of lag costs nothing.

@@ -24,7 +24,7 @@ const TRUSTWALLET_CHAIN_NAMES: Record<string, string> = {
   "42161": "arbitrum",
 };
 
-export interface LookedUpToken {
+interface LookedUpToken {
   address: string;
   symbol: string;
   name: string;

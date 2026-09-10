@@ -10,9 +10,7 @@ import { MINIAPP_SIZE, OG_COLORS, OG_FONTS } from "@/lib/og-utils";
 // row is capped at a width that breaks it 3 + 3 instead of letting six chips
 // wrap 5 + 1 — a lone trailing chip reads as an accident rather than a choice.
 
-export const alt = "Gnars on Base — A Complete Onchain DAO";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const size = MINIAPP_SIZE;
 
 const CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
 

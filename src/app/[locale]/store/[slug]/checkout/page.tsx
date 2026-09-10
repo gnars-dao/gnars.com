@@ -24,7 +24,7 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
 
   const product = await getProductBySlug(slug);
   // Only SKUs in KeepKey's dropship catalog have a real checkout today (see fulfillment.ts).
-  if (!product || !isDropshipFulfillable(product.fulfillmentSku)) {
+  if (!product || !isDropshipFulfillable(product.fulfillmentSku) || product.price === undefined) {
     notFound();
   }
 
