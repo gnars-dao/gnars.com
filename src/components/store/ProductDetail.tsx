@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { ArrowLeft, ExternalLink, Mail } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import type { Availability, Product, ProductVariant } from "@/types/store";
 import { ProductVisual } from "./ProductVisual";
 import { SandboxOrderTester } from "./SandboxOrderTester";
-import { formatPrice } from "./shared";
+import { displayCurrency, formatPrice } from "./shared";
 
 function BackLink({ label }: { label: string }) {
   return (
@@ -110,11 +110,13 @@ function DeviceProductDetail({
   sandboxTools: boolean;
 }) {
   const t = useTranslations("store");
+  const locale = useLocale();
   const variants = product.variants ?? [];
   const [selected, setSelected] = useState<ProductVariant>(variants[0]);
 
   const glow = selected?.colorHex ?? "#888888";
   const price = selected?.price ?? product.price;
+  const currency = displayCurrency(product.currency, locale);
   const availability = selected?.availability ?? product.availability;
   const soldOut = availability === "out_of_stock";
 
@@ -153,9 +155,9 @@ function DeviceProductDetail({
 
           <div className="mt-3 flex items-baseline gap-2">
             {product.price !== undefined && (
-              <span className="text-2xl font-semibold">{formatPrice(price, product.currency)}</span>
+              <span className="text-2xl font-semibold">{formatPrice(price, currency)}</span>
             )}
-            <span className="text-xs text-muted-foreground">{product.currency}</span>
+            <span className="text-xs text-muted-foreground">{currency}</span>
           </div>
 
           <p className="mt-4 text-muted-foreground">{product.description}</p>
@@ -204,6 +206,7 @@ function DeviceProductDetail({
 /** Default layout for static-image products (with a simple thumbnail gallery). */
 function StaticProductDetail({ product }: { product: Product }) {
   const t = useTranslations("store");
+  const locale = useLocale();
   const [activeImage, setActiveImage] = useState(0);
   const images = product.images;
   const cover = images[activeImage] ?? images[0];
@@ -258,7 +261,7 @@ function StaticProductDetail({ product }: { product: Product }) {
           <div className="mt-2 flex items-center gap-3">
             {product.price !== undefined && (
               <span className="text-2xl font-semibold">
-                {formatPrice(product.price, product.currency)}
+                {formatPrice(product.price, displayCurrency(product.currency, locale))}
               </span>
             )}
             {product.availability === "out_of_stock" && (

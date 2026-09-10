@@ -1,8 +1,11 @@
+"use client";
+
+import { useLocale } from "next-intl";
 import { ArrowUpRight } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import type { Product } from "@/types/store";
 import { ProductVisual } from "./ProductVisual";
-import { formatPrice, type StoreCardLabels } from "./shared";
+import { displayCurrency, formatPrice, type StoreCardLabels } from "./shared";
 
 function availabilityBadge(product: Product, labels: StoreCardLabels) {
   switch (product.availability) {
@@ -19,6 +22,8 @@ function availabilityBadge(product: Product, labels: StoreCardLabels) {
 
 export function ProductCard({ product, labels }: { product: Product; labels: StoreCardLabels }) {
   const badge = availabilityBadge(product, labels);
+  const locale = useLocale();
+  const currency = displayCurrency(product.currency, locale);
 
   return (
     <Link href={`/store/${product.slug}`} className="block h-full cursor-pointer">
@@ -48,7 +53,7 @@ export function ProductCard({ product, labels }: { product: Product; labels: Sto
           <div className="mt-3 flex items-center justify-between">
             {product.price !== undefined && (
               <span className="text-lg font-bold text-foreground">
-                {formatPrice(product.price, product.currency)}
+                {formatPrice(product.price, currency)}
               </span>
             )}
             <span className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors group-hover:text-[#e08968]">

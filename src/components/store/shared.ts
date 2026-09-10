@@ -25,3 +25,8 @@ export function formatPrice(price: number | undefined, currency: Currency): stri
     maximumFractionDigits: 2,
   }).format(price);
 }
+
+/** Nogenta prices are entered in reais and shown in dollars on the English site. */
+export function displayCurrency(currency: Currency, locale: string): Currency {
+  return currency === "BRL" && locale.toLowerCase().startsWith("en") ? "USD" : currency;
+}
