@@ -1,6 +1,6 @@
 {
   "title": "Loja Gnars",
-  "description": "Produtos oficiais da Gnars e de marcas parceiras. Comprados na Gnars, enviados pelos nossos parceiros de fulfillment.",
+  "description": "Hardware KeepKey e roupas Nogenta oficiais para quem manda ver.",
   "hero": {
     "eyebrow": "A Loja Gnars",
     "headline": "Equipamento para quem manda ver.",
@@ -16,7 +16,7 @@
   },
   "empty": {
     "title": "Ainda não há nada na loja",
-    "description": "Novos produtos estão a caminho. Volte em breve."
+    "description": "Hardware KeepKey e roupas Nogenta, tudo em um só lugar."
   },
   "featuredHeading": "Destaques",
   "allHeading": "Todos os produtos",
@@ -27,13 +27,14 @@
     "inStock": "Em estoque",
     "outOfStock": "Esgotado",
     "preorder": "Pré-venda",
-    "comingSoon": "Em breve",
+    "unavailable": "Indisponível",
     "featured": "Destaque"
   },
   "detail": {
     "backToStore": "Voltar à loja",
     "finish": "Acabamento",
-    "checkoutComingSoon": "Finalização de compra em breve",
+    "checkoutUnavailable": "Finalização indisponível",
+    "emailToBuy": "Comprar por e-mail",
     "buyNow": "Comprar agora",
     "viewOnBrand": "Ver na {brand}",
     "fulfilledBy": "Enviado pela {brand}."

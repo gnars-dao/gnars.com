@@ -60,6 +60,9 @@ function absoluteUrl(path: string): string {
 
 /** Transform a single product into a Meta Commerce catalog entry. */
 export function toMetaCatalogEntry(product: Product): MetaCatalogEntry {
+  if (product.price === undefined) {
+    throw new Error(`Product ${product.id} has no price for the Meta catalog`);
+  }
   return {
     id: product.id,
     title: product.title,

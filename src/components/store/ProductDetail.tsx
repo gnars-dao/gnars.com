@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, Mail } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Image from "@/components/ui/content-image";
@@ -29,9 +29,9 @@ function BackLink({ label }: { label: string }) {
 /** Purchase CTA + fulfillment note, shared by both layouts. */
 function PurchaseActions({ product, soldOut }: { product: Product; soldOut: boolean }) {
   const t = useTranslations("store");
-  // Only SKUs actually in KeepKey's dropship catalog can be ordered. The tees are marked
-  // `keepkey` but are print-on-demand elsewhere, so they stay "coming soon".
   const canCheckout = isDropshipFulfillable(product.fulfillmentSku);
+  const isEmail = product.externalProductUrl?.startsWith("mailto:") ?? false;
+  const canContact = Boolean(product.externalProductUrl) && !soldOut;
   return (
     <>
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -39,12 +39,27 @@ function PurchaseActions({ product, soldOut }: { product: Product; soldOut: bool
           <Button asChild size="lg">
             <Link href={`/store/${product.slug}/checkout`}>{t("detail.buyNow")}</Link>
           </Button>
+        ) : canContact ? (
+          <Button asChild size="lg">
+            <a
+              href={product.externalProductUrl}
+              target={isEmail ? undefined : "_blank"}
+              rel={isEmail ? undefined : "noopener noreferrer sponsored"}
+            >
+              {isEmail ? t("detail.emailToBuy") : t("detail.viewOnBrand", { brand: product.brand })}
+              {isEmail ? (
+                <Mail className="ml-2 h-4 w-4" />
+              ) : (
+                <ExternalLink className="ml-2 h-4 w-4" />
+              )}
+            </a>
+          </Button>
         ) : (
           <Button size="lg" disabled>
-            {soldOut ? t("card.outOfStock") : t("detail.checkoutComingSoon")}
+            {soldOut ? t("card.outOfStock") : t("detail.checkoutUnavailable")}
           </Button>
         )}
-        {product.externalProductUrl && (
+        {product.externalProductUrl && canCheckout && (
           <Button asChild size="lg" variant="outline">
             <a href={product.externalProductUrl} target="_blank" rel="noopener noreferrer">
               {t("detail.viewOnBrand", { brand: product.brand })}
@@ -74,7 +89,7 @@ function AvailabilityBadge({ availability }: { availability: Availability }) {
     availability === "preorder"
       ? t("card.preorder")
       : availability === "coming_soon"
-        ? t("card.comingSoon")
+        ? t("card.unavailable")
         : t("card.outOfStock");
   return (
     <Badge variant="secondary" className="uppercase tracking-wide">
@@ -134,7 +149,9 @@ function DeviceProductDetail({
           <h1 className="text-3xl font-bold">{product.title}</h1>
 
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-semibold">{formatPrice(price, product.currency)}</span>
+            {product.price !== undefined && (
+              <span className="text-2xl font-semibold">{formatPrice(price, product.currency)}</span>
+            )}
             <span className="text-xs text-muted-foreground">{product.currency}</span>
           </div>
 
@@ -236,9 +253,11 @@ function StaticProductDetail({ product }: { product: Product }) {
           <h1 className="text-3xl font-bold">{product.title}</h1>
 
           <div className="mt-2 flex items-center gap-3">
-            <span className="text-2xl font-semibold">
-              {formatPrice(product.price, product.currency)}
-            </span>
+            {product.price !== undefined && (
+              <span className="text-2xl font-semibold">
+                {formatPrice(product.price, product.currency)}
+              </span>
+            )}
             {product.availability === "out_of_stock" && (
               <Badge variant="secondary">{t("card.outOfStock")}</Badge>
             )}
@@ -246,7 +265,7 @@ function StaticProductDetail({ product }: { product: Product }) {
               <Badge variant="secondary">{t("card.preorder")}</Badge>
             )}
             {product.availability === "coming_soon" && (
-              <Badge variant="secondary">{t("card.comingSoon")}</Badge>
+              <Badge variant="secondary">{t("card.unavailable")}</Badge>
             )}
           </div>
 

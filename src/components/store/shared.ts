@@ -6,7 +6,7 @@ export interface StoreCardLabels {
   viewDetails: string;
   outOfStock: string;
   preorder: string;
-  comingSoon: string;
+  unavailable: string;
   featured: string;
 }
 
@@ -17,7 +17,8 @@ const CURRENCY_LOCALE: Record<Currency, string> = {
 };
 
 /** Format a price in its own currency, e.g. 59.95 USD → "$59.95". */
-export function formatPrice(price: number, currency: Currency): string {
+export function formatPrice(price: number | undefined, currency: Currency): string {
+  if (price === undefined) return "";
   return new Intl.NumberFormat(CURRENCY_LOCALE[currency] ?? "en-US", {
     style: "currency",
     currency,

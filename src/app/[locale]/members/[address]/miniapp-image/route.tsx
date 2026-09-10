@@ -2,9 +2,9 @@ import { ImageResponse } from "next/og";
 import { isAddress } from "viem";
 import { MINIAPP_SIZE } from "@/lib/og-utils";
 
-export const alt = "Gnars DAO Member";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Gnars DAO Member";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 export const runtime = "edge";
 
 interface Props {

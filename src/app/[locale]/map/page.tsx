@@ -6,7 +6,7 @@ import type { LatLngExpression } from "leaflet";
 import { MapLocationDrawer, type LocationData } from "@/components/map-location-drawer";
 import { Map, MapMarker, MapTileLayer } from "@/components/ui/map";
 
-export const locations: LocationData[] = [
+const locations: LocationData[] = [
   {
     position: [-22.903044816157887, -43.17337963607664],
     label: "Praca XV",

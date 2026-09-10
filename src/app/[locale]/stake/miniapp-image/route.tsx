@@ -12,9 +12,9 @@ import { MINIAPP_SIZE, OG_COLORS, OG_FONTS } from "@/lib/og-utils";
 // blocks pushed to the floor) leaves a dead band in the middle when stretched
 // into it, so here the content is centred as one block.
 
-export const alt = "Stake or Die — Gnars";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Stake or Die — Gnars";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 
 const CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
 

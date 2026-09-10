@@ -6,9 +6,9 @@ import { toOgImageUrl } from "@/lib/og-images";
 import { formatEthDisplay, MINIAPP_SIZE, OG_COLORS, OG_FONTS, truncateText } from "@/lib/og-utils";
 import { subgraphQuery } from "@/lib/subgraph";
 
-export const alt = "Gnars DAO Droposal";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Gnars DAO Droposal";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 export const revalidate = 300;
 export const runtime = "nodejs";
 

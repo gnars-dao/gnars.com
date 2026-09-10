@@ -2,9 +2,9 @@ import { ImageResponse } from "next/og";
 import { MINIAPP_SIZE } from "@/lib/og-utils";
 
 export const runtime = "edge";
-export const alt = "Gnars World Map - Global Skate Spots";
-export const size = MINIAPP_SIZE;
-export const contentType = "image/png";
+const alt = "Gnars World Map - Global Skate Spots";
+const size = MINIAPP_SIZE;
+const contentType = "image/png";
 
 // Location coordinates for the map markers
 const locations = [

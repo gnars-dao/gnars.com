@@ -17,9 +17,6 @@ export async function generateMetadata({
   return {
     title: t("title"),
     description: t("description"),
-    // TODO(store): remove `robots` (and re-add the header nav entry) at launch.
-    // Kept noindex/nofollow so the storefront stays hidden from search while it's WIP.
-    robots: { index: false, follow: false },
     alternates: {
       canonical,
       languages: {
@@ -59,7 +56,7 @@ export default async function StorePage({ params }: { params: Promise<{ locale: 
     viewDetails: t("card.viewDetails"),
     outOfStock: t("card.outOfStock"),
     preorder: t("card.preorder"),
-    comingSoon: t("card.comingSoon"),
+    unavailable: t("card.unavailable"),
     featured: t("card.featured"),
   };
 

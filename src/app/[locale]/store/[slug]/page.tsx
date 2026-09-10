@@ -26,15 +26,10 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
   const product = await fetchProduct(slug);
   const t = await getTranslations({ locale, namespace: "metadata.store" });
 
-  // TODO(store): remove `robots: noindex` here and on the listing page at launch.
-  // Kept so the storefront stays hidden from search while it's WIP.
-  const robots = { index: false, follow: false };
-
   if (!product) {
     return {
       title: t("notFoundTitle"),
       description: t("description"),
-      robots,
     };
   }
 
@@ -46,7 +41,6 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
   return {
     title: `${product.title} | Gnars Store`,
     description,
-    robots,
     alternates: {
       canonical,
       languages: {

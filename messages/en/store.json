@@ -1,6 +1,6 @@
 {
   "title": "Gnars Store",
-  "description": "Official gear from Gnars and partner brands. Bought on Gnars, shipped by our fulfillment partners.",
+  "description": "Official KeepKey hardware and Nogenta apparel for people who shred.",
   "hero": {
     "eyebrow": "The Gnars Store",
     "headline": "Gear for people who shred.",
@@ -16,7 +16,7 @@
   },
   "empty": {
     "title": "Nothing in the store yet",
-    "description": "New products are on the way. Check back soon."
+    "description": "KeepKey hardware and Nogenta apparel, all in one place."
   },
   "featuredHeading": "Featured",
   "allHeading": "All products",
@@ -27,13 +27,14 @@
     "inStock": "In stock",
     "outOfStock": "Out of stock",
     "preorder": "Pre-order",
-    "comingSoon": "Coming soon",
+    "unavailable": "Unavailable",
     "featured": "Featured"
   },
   "detail": {
     "backToStore": "Back to store",
     "finish": "Finish",
-    "checkoutComingSoon": "Checkout coming soon",
+    "checkoutUnavailable": "Checkout unavailable",
+    "emailToBuy": "Email to buy",
     "buyNow": "Buy now",
     "viewOnBrand": "View on {brand}",
     "fulfilledBy": "Fulfilled and shipped by {brand}."
