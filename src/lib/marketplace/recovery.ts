@@ -82,6 +82,12 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
   const source = listingSource(value.input ?? { source: value.offer?.source });
   assertMarketplaceJournalProtocol({ kind: "list", input: { ...value.input, source } });
   const collectionAddress = value.input?.collectionAddress ?? value.offer?.collectionAddress;
+  const replacesOrderHash = value.input?.replacesOrderHash;
+  if (
+    replacesOrderHash !== undefined &&
+    (typeof replacesOrderHash !== "string" || !/^0x[\da-fA-F]{64}$/.test(replacesOrderHash))
+  )
+    throw new Error("Invalid listing replacement identity");
   const listingComment =
     value.input?.listingComment === undefined
       ? undefined
@@ -129,6 +135,7 @@ export function repairMarketplaceJournal(raw: string, account: Address): string 
     ...(collectionAddress ? { collectionAddress } : {}),
     listing,
     input: {
+      ...(replacesOrderHash !== undefined ? { replacesOrderHash } : {}),
       ...(listingComment !== undefined ? { listingComment } : {}),
       tokenId,
       source,

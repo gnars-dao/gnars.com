@@ -58,6 +58,11 @@ try {
     "UPDATE public.marketplace_community_orders SET hidden=true, moderation_revision=moderation_revision+1, moderated_by=$2, moderation_reason=$3, moderated_at=NOW() WHERE order_hash=$1 AND moderation_revision=0";
   assert.equal((await client.query(moderate, [hash, address, "rollback-only probe"])).rowCount, 1);
   assert.equal((await client.query(moderate, [hash, address, "rollback-only probe"])).rowCount, 0);
+  const editComment = `UPDATE public.marketplace_community_orders
+    SET metadata=jsonb_build_object('listingComment', 'edited', 'listingCommentRevision', 1)
+    WHERE order_hash=$1 AND COALESCE((metadata->>'listingCommentRevision')::integer,0)=0`;
+  assert.equal((await client.query(editComment, [hash])).rowCount, 1);
+  assert.equal((await client.query(editComment, [hash])).rowCount, 0);
   assert.equal(
     (
       await client.query(

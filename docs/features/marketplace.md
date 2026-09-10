@@ -149,6 +149,38 @@ The for-sale view has three ordered bands: locally listed Gnars (custom contract
 and canonical Seaport book), community NFTs, then OpenSea Gnars. Each band retains
 its own offers/prices; community pagination and errors are independent.
 
+## Farcaster Listing Shares
+
+Accepted publication responses schedule an independent server-side `after()` task
+when `MARKETPLACE_FARCASTER_ANNOUNCEMENTS_ENABLED=true`. No browser callback posts
+casts. The server first persists a frozen announcement payload in
+`marketplace_announcements`, keyed by Base chain, protocol address, order hash and
+the `listed` event. Apply `scripts/marketplace-announcements-schema.sql` before
+enabling. This table is backend-only; the role cannot alter the order identity,
+payload or idempotency key after insertion.
+
+The Neynar signer must be approved for FID 3757. `NEYNAR_API_KEY_FALLBACK` is tried
+only after a primary-key 401 and must independently validate that same signer.
+The cast uses channel `gnars`, the NFT name (or token ID), the exact ETH price and
+one embedded listing URL. A successful response stores `cast_hash` with the order
+identity. No provider failure reverses or rejects an accepted listing.
+
+Database leases serialize concurrent sends; retries reuse the saved 16-character
+Neynar `idem` and unchanged payload. HTTP 401/403 blocks and logs a credential or
+permission error; 429 records a rate limit and retry time. Each task makes at most
+two bounded attempts. Ambiguous results older than five minutes require manual
+reconciliation, because Neynar does not document permanent idempotency retention.
+Do not reset `idem` or delete uncertain records to retry. There is no cron or
+historical backfill: another accepted publication retry can resume a due job;
+otherwise a deferred/failed job needs operator intervention.
+
+Shared URLs retain `nft`, optional `collection`, and exact `order`/`source`. The
+page emits `fc:miniapp` plus compatible `fc:frame`; its 1200x800 PNG uses trusted NFT
+metadata, not user-provided artwork URLs or prices. The launch action opens the NFT
+drawer and prioritizes the shared order. Missing/expired orders never borrow another
+order's price for the preview. Farcaster may cache the initial embed; checkout
+always revalidates current availability and signed terms.
+
 ## Community Listings
 
 The animated submission drawer has asset, terms and publication steps. Only the
@@ -159,11 +191,24 @@ Community listings may include an optional plain-text seller comment (280 UTF-16
 code units). A separate wallet authorization binds that comment to the Base chain,
 Gnars marketplace protocol, and exact Seaport order hash; only the order's seller
 can authorize it. It does not alter the Seaport signature, price, fees or royalties.
-Comment and authorization are stored once in the existing order metadata JSONB;
-no database migration is required. Same-order retries preserve the original text,
-and changed comments require a new order. Public offers expose only the comment,
-never its authorization. Listing journals retain the comment across retries and
+The seller can edit or clear an active, visible listing's comment with a wallet
+signature (no gas). `PATCH /api/marketplace/community/orders/[hash]/comment`
+binds the new text and expected revision to the order, protocol, chain and builder
+code. A row lock and revision comparison prevent conflicting updates; retries
+of the same authorization are idempotent. Metadata retains the original publication
+text so retrying an old publication never overwrites an edited comment. The runtime
+role needs `UPDATE (metadata)` only; signed orders, prices and fees remain immutable.
+Public offers expose the comment and revision, never wallet authorizations.
+Listing journals retain the comment across retries and
 repair; retrying publication may request another message signature, not a transaction.
+
+Seller price/duration edits cancel the original order onchain before separately
+reviewing and signing its replacement. Community eligibility is checked before
+canceling and again on publication. Local drafts survive interruption; the journal
+records the replaced order hash, and durable completion markers prevent stale tabs
+or recovery from publishing a second replacement. Cancellation costs gas; comment
+edits alone do not. Both paths use the active EOA/smart-wallet signer and existing
+builder attribution. Failed reads block replacement rather than implying cancellation.
 The asset step offers a paginated Base ERC721 wallet picker, scoped to the active
 write account, with manual contract/token entry as a fallback. Discovery uses
 server-side Alchemy metadata; selecting a card still requires fresh onchain

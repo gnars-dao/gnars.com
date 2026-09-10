@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ExternalLink,
   LoaderCircle,
+  Pencil,
   RefreshCw,
   ShoppingBag,
   Tag,
@@ -39,6 +40,8 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { DAO_ADDRESSES, MARKETPLACE_CONFIG } from "@/lib/config";
 import { parseMarketplacePrice } from "@/lib/marketplace-display";
+import { readListingEditDraft } from "@/lib/marketplace/listing-edit";
+import type { MarketplaceShareTarget } from "@/lib/marketplace/share";
 import { cn } from "@/lib/utils";
 import type {
   MarketplaceItem,
@@ -46,21 +49,25 @@ import type {
   MarketplacePage,
   MarketplaceSource,
 } from "@/types/marketplace";
+import { MarketplaceCommentEditor } from "./MarketplaceCommentEditor";
+import { MarketplaceListingEditor } from "./MarketplaceListingEditor";
 import { MarketplaceModeration } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { MarketplaceSourceLogo } from "./MarketplaceSourceLogo";
 import { NftArtwork } from "./NftArtwork";
 
-type Mode = "details" | "buy" | "sell" | "cancel";
+type Mode = "details" | "buy" | "sell" | "cancel" | "edit";
 
 export default function MarketplaceDetail({
   item: initialItem,
   capabilities: initialCapabilities,
+  sharedTarget,
   restoreFocus,
   onClose,
 }: {
   item: MarketplaceItem;
   capabilities: MarketplacePage["capabilities"];
+  sharedTarget?: MarketplaceShareTarget | null;
   restoreFocus: () => void;
   onClose: () => void;
 }) {
@@ -76,6 +83,7 @@ export default function MarketplaceDetail({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => setMounted(true), []);
   const [mode, setMode] = useState<Mode>("details");
+  const [commentBusy, setCommentBusy] = useState(false);
   const [offer, setOffer] = useState<MarketplaceOffer | null>(null);
   const [price, setPrice] = useState("");
   const [duration, setDuration] = useState(7);
@@ -142,7 +150,10 @@ export default function MarketplaceDetail({
   });
   const verifiedDetail =
     detail.data?.ownershipVerified === true && !detail.isError && !detail.isFetching;
-  const busy = actions.isBusy;
+  const busy = actions.isBusy || commentBusy;
+  const editDraft = writer
+    ? readListingEditDraft(writer.account.address, collectionAddress, item.tokenId)
+    : null;
   const success = actions.phase === "complete";
   const unresolved =
     !!actions.invalidJournal ||
@@ -176,7 +187,12 @@ export default function MarketplaceDetail({
 
   async function choose(next: Mode, listing?: MarketplaceOffer) {
     if (busy || unresolved) return;
-    if (writer) await actions.reset();
+    const completedReplacement =
+      next === "edit" &&
+      actions.phase === "complete" &&
+      actions.recovery?.kind === "list" &&
+      actions.recovery.input?.replacesOrderHash?.toLowerCase() === listing?.orderHash.toLowerCase();
+    if (writer && !completedReplacement) await actions.reset();
     setSubmitted(false);
     setPriceTouched(false);
     setOffer(listing ?? null);
@@ -358,78 +374,127 @@ export default function MarketplaceDetail({
                       )}
                     </p>
                   ) : null}
-                  {item.offers.map((listing) => (
-                    <div key={listing.id} className="space-y-3 border-b py-2 pb-4 last:border-b-0">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="break-all font-mono text-xl font-semibold">
-                          {formatEther(BigInt(listing.priceWei))} ETH
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {sourceName(listing.source)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {t("expires")}:{" "}
-                        {new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(
-                          listing.expiresAt * 1000,
-                        )}
-                      </p>
-                      {listing.listingComment && (
-                        <div className="space-y-1 border-l-2 border-emerald-500/50 pl-3">
-                          <p className="text-xs font-medium text-muted-foreground">
-                            {t("listingNote.label")}
-                          </p>
-                          <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
-                            {listing.listingComment}
-                          </p>
+                  {[...item.offers]
+                    .sort((a, b) => {
+                      const matches = (listing: MarketplaceOffer) =>
+                        Number(
+                          listing.orderHash.toLowerCase() ===
+                            sharedTarget?.orderHash?.toLowerCase() &&
+                            listing.source === sharedTarget?.source,
+                        );
+                      return matches(b) - matches(a);
+                    })
+                    .map((listing) => (
+                      <div
+                        key={listing.id}
+                        data-order-hash={listing.orderHash}
+                        className="space-y-3 border-b py-2 pb-4 last:border-b-0"
+                      >
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <span className="break-all font-mono text-xl font-semibold">
+                            {formatEther(BigInt(listing.priceWei))} ETH
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {sourceName(listing.source)}
+                          </span>
                         </div>
-                      )}
-                      {writer &&
-                      listing.seller.toLowerCase() === writer.account.address.toLowerCase() ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => choose("cancel", listing)}
-                          disabled={
-                            busy ||
-                            unresolved ||
-                            !verifiedDetail ||
-                            !(listing.source === "opensea"
-                              ? capabilities.openseaCancel
-                              : nativeTrading(listing.source))
-                          }
-                          className="w-full cursor-pointer"
-                        >
-                          <X className="size-3.5" />
-                          {t("cancel")}
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          onClick={() => choose("buy", listing)}
-                          disabled={
-                            busy ||
-                            unresolved ||
-                            !verifiedDetail ||
-                            !(listing.source === "opensea"
-                              ? capabilities.openseaBuy
-                              : nativeTrading(listing.source))
-                          }
-                          className="w-full cursor-pointer"
-                        >
-                          <ShoppingBag className="size-3.5" />
-                          {t("buy")}
-                        </Button>
-                      )}
-                      {community && (
-                        <MarketplaceModeration
-                          key={`${listing.orderHash}:${listing.moderation?.revision}`}
+                        <p className="text-xs text-muted-foreground">
+                          {t("expires")}:{" "}
+                          {new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(
+                            listing.expiresAt * 1000,
+                          )}
+                        </p>
+                        {listing.listingComment && (
+                          <div className="space-y-1 border-l-2 border-emerald-500/50 pl-3">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {t("listingNote.label")}
+                            </p>
+                            <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
+                              {listing.listingComment}
+                            </p>
+                          </div>
+                        )}
+                        {writer &&
+                        listing.seller.toLowerCase() === writer.account.address.toLowerCase() ? (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => choose("edit", listing)}
+                              disabled={
+                                busy ||
+                                unresolved ||
+                                !verifiedDetail ||
+                                !(listing.source === "opensea"
+                                  ? capabilities.openseaCancel && capabilities.openseaSell
+                                  : nativeTrading(listing.source))
+                              }
+                              className="flex-1"
+                            >
+                              <Pencil className="size-3.5" />
+                              {t("edit.listing")}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => choose("cancel", listing)}
+                              disabled={
+                                busy ||
+                                unresolved ||
+                                !verifiedDetail ||
+                                !(listing.source === "opensea"
+                                  ? capabilities.openseaCancel
+                                  : nativeTrading(listing.source))
+                              }
+                              className="flex-1 cursor-pointer"
+                            >
+                              <X className="size-3.5" />
+                              {t("cancel")}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => choose("buy", listing)}
+                            disabled={
+                              busy ||
+                              unresolved ||
+                              !verifiedDetail ||
+                              !(listing.source === "opensea"
+                                ? capabilities.openseaBuy
+                                : nativeTrading(listing.source))
+                            }
+                            className="w-full cursor-pointer"
+                          >
+                            <ShoppingBag className="size-3.5" />
+                            {t("buy")}
+                          </Button>
+                        )}
+                        <MarketplaceCommentEditor
                           offer={listing}
+                          disabled={busy || unresolved || !verifiedDetail}
+                          onBusyChange={setCommentBusy}
                         />
-                      )}
-                    </div>
-                  ))}
+                        {community && (
+                          <MarketplaceModeration
+                            key={`${listing.orderHash}:${listing.moderation?.revision}`}
+                            offer={listing}
+                          />
+                        )}
+                      </div>
+                    ))}
                 </div>
+                {editDraft && writer && (
+                  <Button
+                    variant="outline"
+                    onClick={() => choose("edit", editDraft.offer as MarketplaceOffer)}
+                    disabled={busy || unresolved}
+                    className="w-full"
+                  >
+                    <Pencil className="size-4" />
+                    {t("edit.resume")}
+                  </Button>
+                )}
                 {!writer ? (
                   <ConnectButton />
                 ) : isOwner && !community ? (
@@ -451,6 +516,12 @@ export default function MarketplaceDetail({
                   </div>
                 ) : null}
               </>
+            ) : mode === "edit" && offer ? (
+              <MarketplaceListingEditor
+                key={`${writer?.account.address}:${offer.orderHash}`}
+                item={item}
+                offer={offer}
+              />
             ) : (
               <>
                 <h3 className="text-base font-semibold">
@@ -623,7 +694,7 @@ export default function MarketplaceDetail({
             )}
           </div>
         </div>
-        {mode !== "details" && (
+        {mode !== "details" && mode !== "edit" && (
           <footer className="shrink-0 space-y-3 border-t bg-background px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
             <div className="max-h-[35dvh] overflow-y-auto">
               <MarketplaceRecovery showCompleted />

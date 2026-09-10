@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { walletPayloadDigest } from "@/lib/wallet-authorization";
 import {
+  communityCommentEditPayload,
+  communityCommentEditSchema,
   communityCommentPayload,
   communityListingCommentSchema,
   communityPublicationSchema,
@@ -50,5 +52,49 @@ describe("community seller comment", () => {
     expect(walletPayloadDigest({ ...payload, protocolAddress: `0x${"1".repeat(40)}` })).not.toBe(
       digest,
     );
+  });
+});
+
+describe("community comment edit authorization", () => {
+  it("binds the new comment, revision, chain, protocol, order and builder code", () => {
+    const payload = communityCommentEditPayload(hash, " Updated ", 2);
+    expect(payload).toMatchObject({
+      chainId: 8453,
+      protocolAddress: protocol,
+      orderHash: hash,
+      listingComment: "Updated",
+      expectedRevision: 2,
+      builderCode: expect.any(String),
+    });
+    const digest = walletPayloadDigest(payload);
+    for (const change of [
+      { listingComment: null },
+      { expectedRevision: 3 },
+      { orderHash: `0x${"b".repeat(64)}` },
+      { chainId: 1 },
+      { protocolAddress: hash },
+      { builderCode: "other" },
+    ]) {
+      expect(walletPayloadDigest({ ...payload, ...change })).not.toBe(digest);
+    }
+    expect(communityCommentEditPayload(hash, null, 0).listingComment).toBeNull();
+  });
+  it.each([-1, 0.5, Number.MAX_SAFE_INTEGER, Infinity])(
+    "rejects invalid revision %s",
+    (revision) => {
+      expect(() => communityCommentEditPayload(hash, "Text", revision)).toThrow();
+    },
+  );
+  it("rejects blank text, wrong chain, unknown fields and unsupported controls", () => {
+    const body = { ...communityCommentEditPayload(hash, "Text", 0), authorization: {} };
+    for (const change of [
+      { listingComment: " " },
+      { listingComment: "x".repeat(281) },
+      { listingComment: "\u0000" },
+      { chainId: 1 },
+      { priceWei: "100" },
+    ]) {
+      expect(communityCommentEditSchema.safeParse({ ...body, ...change }).success).toBe(false);
+    }
   });
 });

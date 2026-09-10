@@ -20,6 +20,10 @@ const mocks = vi.hoisted(() => ({
   publish: vi.fn(),
   reconcile: vi.fn(),
   catalogue: vi.fn(),
+  announce: vi.fn(),
+}));
+vi.mock("@/services/marketplace-announcements", () => ({
+  scheduleMarketplaceAnnouncement: mocks.announce,
 }));
 vi.mock("next/cache", () => ({
   unstable_cache: (fn: unknown) => fn,
@@ -90,6 +94,10 @@ describe("community route boundaries", () => {
     expect(mocks.budget).toHaveBeenCalledWith(request, "create");
     expect(mocks.invalidate).toHaveBeenCalledWith("marketplace-community", { expire: 0 });
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(mocks.announce).toHaveBeenCalledExactlyOnceWith(
+      { id: "community:1" },
+      { signature: "0x12" },
+    );
   });
   it.each([{}, { listing: {}, eligibility: true }, { listing: {}, feePolicy: {} }])(
     "rejects missing listings and client-owned policy fields",
@@ -97,6 +105,7 @@ describe("community route boundaries", () => {
       expect((await publish(post("orders", body))).status).toBe(400);
       expect(mocks.publish).not.toHaveBeenCalled();
       expect(mocks.budget).not.toHaveBeenCalled();
+      expect(mocks.announce).not.toHaveBeenCalled();
     },
   );
   it("limits signed listing payloads", async () => {

@@ -15,6 +15,8 @@ import { z } from "zod";
 import { BUILDER_CODE, DAO_ADDRESSES } from "@/lib/config";
 import { ipfsToHttp } from "@/lib/ipfs";
 import {
+  communityCommentEditPayload,
+  communityCommentEditSchema,
   communityCommentPayload,
   communityListingCommentSchema,
   communityPublicationSchema,
@@ -316,6 +318,23 @@ const storedMetadata = z.object({
   collectionName: z.string().max(120),
   image: z.string().max(8192).nullable(),
 });
+const storedComment = z.object({
+  listingComment: communityListingCommentSchema.optional(),
+  listingCommentRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  listingCommentOriginal: communityListingCommentSchema.nullable().optional(),
+  listingCommentEditAuthorization: z.object({ nonce: z.string().uuid() }).passthrough().optional(),
+});
+
+function verifyPublicationComment(row: Row, comment: string | undefined) {
+  if (comment === undefined) return;
+  const metadata = storedComment.parse(row.metadata);
+  const original =
+    metadata.listingCommentOriginal !== undefined
+      ? metadata.listingCommentOriginal
+      : metadata.listingComment;
+  if (original !== comment)
+    throw new RequestSecurityError(409, "Use the seller comment editor to change this comment.");
+}
 function decodeRow(row: Row) {
   const protocol = getMarketplaceProtocolAddress("gnars-contract");
   if (row.protocol_address !== protocol.toLowerCase())
@@ -338,11 +357,10 @@ function offerFor(
   listing: SignedListing,
   feePolicy: CommunityFeePolicy,
 ): MarketplaceOffer {
-  const { listingComment } = z
-    .object({ listingComment: communityListingCommentSchema.optional() })
-    .parse(row.metadata);
+  const { listingComment, listingCommentRevision } = storedComment.parse(row.metadata);
   return {
     ...(listingComment !== undefined ? { listingComment } : {}),
+    listingCommentRevision,
     id: `community:${row.protocol_address}:${row.order_hash}`,
     source: "gnars-contract",
     orderHash: row.order_hash,
@@ -386,8 +404,7 @@ export async function publishCommunityOrder(raw: unknown, publication: unknown =
       );
     const decoded = decodeRow(saved.rows[0]);
     const offer = offerFor(saved.rows[0], decoded.listing, decoded.feePolicy);
-    if (listingComment !== undefined && offer.listingComment !== listingComment)
-      throw new RequestSecurityError(409, "The comment on this signed order cannot be changed.");
+    verifyPublicationComment(saved.rows[0], listingComment);
     return offer;
   }
   if (listingComment !== undefined) {
@@ -438,8 +455,7 @@ export async function publishCommunityOrder(raw: unknown, publication: unknown =
         );
       const decoded = decodeRow(existing.rows[0]);
       const offer = offerFor(existing.rows[0], decoded.listing, decoded.feePolicy);
-      if (listingComment !== undefined && offer.listingComment !== listingComment)
-        throw new RequestSecurityError(409, "The comment on this signed order cannot be changed.");
+      verifyPublicationComment(existing.rows[0], listingComment);
       await client.query("COMMIT");
       return offer;
     }
@@ -491,6 +507,102 @@ export async function getCommunityOrder(orderHash: string) {
   const row = result.rows[0];
   if (!row) throw new RequestSecurityError(404, "Community listing was not found.");
   return { ...decodeRow(row), row };
+}
+
+export async function editCommunityOrderComment(raw: unknown) {
+  const input = parseMarketplaceInput(communityCommentEditSchema, raw);
+  const protocol = getMarketplaceProtocolAddress("gnars-contract");
+  if (!isAddressEqual(input.protocolAddress as Address, protocol))
+    throw new RequestSecurityError(409, "Marketplace protocol changed. Refresh before editing.");
+  const payload = communityCommentEditPayload(
+    input.orderHash as Hex,
+    input.listingComment,
+    input.expectedRevision,
+  );
+  const actor = await verifyWalletAuthorization({
+    authorization: input.authorization,
+    method: "PATCH",
+    path: `/api/marketplace/community/orders/${payload.orderHash}/comment`,
+    payload,
+  });
+  const authorization = z
+    .object({ nonce: z.string().uuid() })
+    .passthrough()
+    .parse(input.authorization);
+  const stored = await getCommunityOrder(payload.orderHash);
+  if (!isAddressEqual(stored.row.seller, actor))
+    throw new RequestSecurityError(403, "Only the seller can edit a listing comment.");
+  if (stored.row.hidden) throw new RequestSecurityError(403, "Hidden listings cannot be edited.");
+  if ((await getListingStatus(marketplaceClient, stored.listing, stored.options)) !== "active")
+    throw new RequestSecurityError(409, "Only active listings can be edited.");
+  const permissions = await database().query<{ ready: boolean }>(
+    "SELECT has_column_privilege(current_user, 'public.marketplace_community_orders', 'metadata', 'UPDATE') AS ready",
+  );
+  if (permissions.rows[0]?.ready !== true)
+    throw marketplaceUnavailable("Listing comment editing is not configured.");
+
+  const client = await database().connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query<Row>(
+      "SELECT * FROM public.marketplace_community_orders WHERE chain_id = 8453 AND protocol_address = $1 AND order_hash = $2 FOR UPDATE",
+      [protocol.toLowerCase(), payload.orderHash],
+    );
+    const row = selected.rows[0];
+    if (!row) throw new RequestSecurityError(404, "Community listing was not found.");
+    const decoded = decodeRow(row);
+    if (!isAddressEqual(row.seller, actor))
+      throw new RequestSecurityError(403, "Only the seller can edit a listing comment.");
+    if (row.hidden) throw new RequestSecurityError(403, "Hidden listings cannot be edited.");
+    if (row.status !== "active")
+      throw new RequestSecurityError(409, "Only active listings can be edited.");
+    const metadata = storedComment.parse(row.metadata);
+    if (metadata.listingCommentRevision !== input.expectedRevision) {
+      if (
+        metadata.listingCommentRevision === input.expectedRevision + 1 &&
+        metadata.listingCommentEditAuthorization?.nonce === authorization.nonce &&
+        (metadata.listingComment ?? null) === input.listingComment
+      ) {
+        await client.query("COMMIT");
+        return offerFor(row, decoded.listing, decoded.feePolicy);
+      }
+      throw new RequestSecurityError(409, "Listing comment changed. Refresh before editing.");
+    }
+    const patch = {
+      ...(input.listingComment === null ? {} : { listingComment: input.listingComment }),
+      listingCommentRevision: input.expectedRevision + 1,
+      listingCommentOriginal:
+        metadata.listingCommentOriginal !== undefined
+          ? metadata.listingCommentOriginal
+          : (metadata.listingComment ?? null),
+      listingCommentEditAuthorization: input.authorization,
+    };
+    const updated = await client.query<Row>(
+      "UPDATE public.marketplace_community_orders SET metadata = (metadata - 'listingComment') || $3::jsonb WHERE chain_id = 8453 AND protocol_address = $1 AND order_hash = $2 AND COALESCE((metadata->>'listingCommentRevision')::bigint, 0) = $4 RETURNING *",
+      [protocol.toLowerCase(), payload.orderHash, JSON.stringify(patch), input.expectedRevision],
+    );
+    if (updated.rowCount !== 1 || !updated.rows[0])
+      throw new RequestSecurityError(409, "Listing comment changed. Refresh before editing.");
+    const offer = offerFor(updated.rows[0], decoded.listing, decoded.feePolicy);
+    await client.query("COMMIT");
+    return offer;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getCommunityOrderComment(orderHash: string) {
+  const stored = await getCommunityOrder(orderHash);
+  if (stored.row.hidden) throw new RequestSecurityError(403, "Hidden listings cannot be edited.");
+  if (
+    stored.row.status !== "active" ||
+    (await getListingStatus(marketplaceClient, stored.listing, stored.options)) !== "active"
+  )
+    throw new RequestSecurityError(404, "Active community listing was not found.");
+  return offerFor(stored.row, stored.listing, stored.feePolicy);
 }
 
 export async function reconcileCommunityOrder(orderHash: string) {

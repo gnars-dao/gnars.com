@@ -3,6 +3,7 @@ import type { Address, Hex } from "viem";
 export type MarketplaceSource = "opensea" | "gnars" | "gnars-contract";
 export type MarketplaceOffer = {
   listingComment?: string;
+  listingCommentRevision?: number;
   collectionAddress?: Address;
   feePolicy?: { basisPoints: number; recipient: Address };
   moderation?: { hidden: boolean; revision: number };

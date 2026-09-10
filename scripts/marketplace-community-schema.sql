@@ -55,6 +55,7 @@ REVOKE ALL ON public.marketplace_community_orders, public.marketplace_community_
 REVOKE ALL ON SEQUENCE public.marketplace_community_orders_id_seq FROM PUBLIC, anon, authenticated, service_role, gnars_marketplace;
 GRANT SELECT, INSERT ON public.marketplace_community_orders, public.marketplace_community_moderation TO gnars_marketplace;
 GRANT UPDATE (status, checked_at, hidden, moderation_revision, moderated_by, moderation_reason, moderated_at) ON public.marketplace_community_orders TO gnars_marketplace;
+GRANT UPDATE (metadata) ON public.marketplace_community_orders TO gnars_marketplace;
 GRANT USAGE ON SEQUENCE public.marketplace_community_orders_id_seq TO gnars_marketplace;
 
 DO $$

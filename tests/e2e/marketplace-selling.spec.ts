@@ -46,6 +46,7 @@ async function setupWallet(
     rejectPublication?: boolean;
     holdConfirmation?: boolean;
     revertPurchase?: boolean;
+    existingListing?: boolean;
   } = {},
 ) {
   const account = privateKeyToAccount(generatePrivateKey());
@@ -66,7 +67,12 @@ async function setupWallet(
   let nftOwner = account.address;
   const receipts = new Map<string, Record<string, unknown>>();
   const sentTransactions = new Map<string, Record<string, unknown>>();
-  if (options.buying || options.restoreCancelled || options.legacySignedListing) {
+  if (
+    options.buying ||
+    options.restoreCancelled ||
+    options.legacySignedListing ||
+    options.existingListing
+  ) {
     const seller = options.buying ? privateKeyToAccount(generatePrivateKey()) : account;
     nftOwner = seller.address;
     const parameters: SignedListing["parameters"] = {
@@ -109,6 +115,7 @@ async function setupWallet(
     };
     listed = { parameters, signature: await seller.signTypedData(getListingTypedData(parameters)) };
   }
+  const initialOrderHash = listed && getListingOrderHash(listed.parameters);
 
   if (options.corruptJournal)
     await page.addInitScript((key) => localStorage.setItem(key, "{broken saved order"), journalKey);
@@ -368,7 +375,12 @@ async function setupWallet(
           return encodeFunctionResult({
             abi: seaportAbi,
             functionName: "getOrderStatus",
-            result: [false, cancelled, filled ? 1n : 0n, filled ? 1n : 0n],
+            result: [
+              false,
+              cancelled && (!options.existingListing || decoded.args[0] === initialOrderHash),
+              filled ? 1n : 0n,
+              filled ? 1n : 0n,
+            ],
           });
         if (decoded.functionName === "getOrderHash")
           return encodeFunctionResult({
@@ -442,7 +454,9 @@ async function setupWallet(
     orderHash: getListingOrderHash(listing.parameters),
     protocolAddress: SEAPORT_ADDRESS,
     seller: listing.parameters.offerer,
-    priceWei: "10000000000000000",
+    priceWei: listing.parameters.consideration
+      .reduce((sum, item) => sum + BigInt(item.startAmount), 0n)
+      .toString(),
     currency: "ETH",
     expiresAt: Number(listing.parameters.endTime),
   });
@@ -454,7 +468,14 @@ async function setupWallet(
         name: "Gnar #42",
         image: "/gnars.webp",
         owner: nftOwner,
-        offers: listed && !cancelled && !filled ? [offer(listed)] : [],
+        offers:
+          listed &&
+          (!cancelled ||
+            (options.existingListing &&
+              getListingOrderHash(listed.parameters) !== initialOrderHash)) &&
+          !filled
+            ? [offer(listed)]
+            : [],
       },
     ],
     nextCursor: null,
@@ -532,10 +553,11 @@ async function setupWallet(
             })
           ).toLowerCase(),
         ).toBe(account.address.toLowerCase());
-        expect(listing.parameters.consideration.map((item) => item.startAmount)).toEqual([
-          "9900000000000000",
-          "100000000000000",
-        ]);
+        expect(listing.parameters.consideration.map((item) => item.startAmount)).toEqual(
+          options.existingListing
+            ? ["19800000000000000", "200000000000000"]
+            : ["9900000000000000", "100000000000000"],
+        );
         publications.push(listing);
         if (options.rejectPublication)
           await route.fulfill({
@@ -647,6 +669,70 @@ async function connectAndOpen(page: Page) {
   await expect(drawer.getByText("0.0099 ETH", { exact: true })).toBeVisible();
   return drawer;
 }
+
+for (const mobile of [false, true]) {
+  test(`listing edit cancels before replacement ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    test.setTimeout(120000);
+    await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 });
+    const wallet = await setupWallet(page, { existingListing: true, confirmTransactions: true });
+    const drawer = await connectAndInspect(page);
+    await drawer.getByRole("button", { name: "Editar anúncio", exact: true }).click();
+    await drawer.getByLabel("Preço (ETH)", { exact: true }).fill("0.02");
+    await drawer.getByLabel("Novo prazo, a partir da publicação").selectOption("30");
+    const cancel = drawer.getByRole("button", { name: "Cancelar ordem atual para substituir" });
+    await expect(cancel).toBeEnabled();
+    expect(wallet.signedRequests).toHaveLength(0);
+    expect(wallet.publications).toHaveLength(0);
+    await cancel.click();
+    const publish = drawer.getByRole("button", { name: "Revisar e assinar substituição" });
+    await expect(publish).toBeEnabled({ timeout: 45000 });
+    expect(wallet.state().cancelled).toBe(true);
+    expect(wallet.publications).toHaveLength(0);
+    await publish.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `/tmp/gnars-listing-edit-${mobile ? "mobile" : "desktop"}.png` });
+    await publish.click();
+    await expect(drawer.getByText("Novo anúncio publicado.", { exact: true })).toBeVisible({
+      timeout: 45000,
+    });
+    expect(wallet.publications).toHaveLength(1);
+    expect(wallet.signedRequests).toHaveLength(1);
+    expect(wallet.transactions).toHaveLength(1);
+    expect(
+      Number(wallet.publications[0].parameters.endTime) - Math.floor(Date.now() / 1000),
+    ).toBeGreaterThan(29 * 86400);
+    const draftCount = await page.evaluate(
+      () => Object.keys(localStorage).filter((key) => key.startsWith("gnars:listing-edit:")).length,
+    );
+    expect(draftCount).toBe(0);
+    expect(wallet.rpcErrors).toEqual([]);
+  });
+}
+
+test("listing edit rejected cancellation preserves draft without signing replacement", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, { existingListing: true, rejectCancellation: true });
+  const drawer = await connectAndInspect(page);
+  await drawer.getByRole("button", { name: "Editar anúncio", exact: true }).click();
+  await drawer.getByLabel("Preço (ETH)", { exact: true }).fill("0.02");
+  await drawer.getByRole("button", { name: "Cancelar ordem atual para substituir" }).click();
+  await expect(
+    drawer.getByRole("button", { name: "Cancelar ordem atual para substituir" }),
+  ).toBeEnabled({ timeout: 30000 });
+  expect(wallet.state().cancelled).toBe(false);
+  expect(wallet.signedRequests).toHaveLength(0);
+  expect(wallet.publications).toHaveLength(0);
+  const drafts = await page.evaluate(() =>
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith("gnars:listing-edit:"))
+      .map((key) => JSON.parse(localStorage.getItem(key)!)),
+  );
+  expect(drafts).toHaveLength(1);
+  expect(drafts[0].price).toBe("0.02");
+});
 
 for (const mobile of [false, true]) {
   test(`connected OpenSea listing and owner cancellation review ${mobile ? "mobile" : "desktop"}`, async ({

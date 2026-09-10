@@ -3,7 +3,10 @@ import { RequestSecurityError } from "@/lib/server/request-security";
 import { MarketplaceServiceError } from "@/services/marketplace-common";
 import { POST } from "./route";
 
-const mocks = vi.hoisted(() => ({ publish: vi.fn(), invalidate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ publish: vi.fn(), invalidate: vi.fn(), announce: vi.fn() }));
+vi.mock("@/services/marketplace-announcements", () => ({
+  scheduleMarketplaceAnnouncement: mocks.announce,
+}));
 vi.mock("@/services/marketplace-opensea", () => ({
   publishOpenSeaListing: mocks.publish,
   invalidateOpenSeaOrdersCache: mocks.invalidate,
@@ -49,6 +52,7 @@ describe("OpenSea posting request boundaries", () => {
     expect(await response.json()).toEqual({ offer });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(mocks.invalidate).toHaveBeenCalledExactlyOnceWith(offer.orderHash);
+    expect(mocks.announce).toHaveBeenCalledExactlyOnceWith(offer, {});
   });
   it("does not invalidate caches when provider acceptance is unconfirmed", async () => {
     mocks.publish.mockRejectedValueOnce(
@@ -58,5 +62,6 @@ describe("OpenSea posting request boundaries", () => {
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("30");
     expect(mocks.invalidate).not.toHaveBeenCalled();
+    expect(mocks.announce).not.toHaveBeenCalled();
   });
 });

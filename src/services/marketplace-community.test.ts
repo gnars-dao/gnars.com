@@ -1,15 +1,20 @@
 import { zeroAddress, zeroHash, type Address } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILDER_CODE, DAO_ADDRESSES } from "@/lib/config";
-import { communityCommentPayload } from "@/lib/marketplace/community-comment";
+import {
+  communityCommentEditPayload,
+  communityCommentPayload,
+} from "@/lib/marketplace/community-comment";
 import { COMMUNITY_FEE_RECIPIENT } from "@/lib/marketplace/community-policy";
 import { getListingOrderHash, type SignedListing } from "@/lib/marketplace/seaport";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import {
   communityMarketplaceReady,
   communityModerationSchema,
+  editCommunityOrderComment,
   getCommunityEligibility,
   getCommunityOrder,
+  getCommunityOrderComment,
   getCommunityToken,
   isCommunityModerator,
   listCommunityManagedOrders,
@@ -172,6 +177,17 @@ beforeEach(() => {
     if (sql.includes("LIMIT 0")) return { rows: [], rowCount: 0 };
     if (sql.startsWith("SELECT *")) return { rows: records, rowCount: records.length };
     if (sql.includes("SELECT count(*)")) return { rows: [{ count: "0" }], rowCount: 1 };
+    if (sql.startsWith("UPDATE public.marketplace_community_orders SET metadata")) {
+      const metadata: Record<string, unknown> = { ...records[0].metadata };
+      delete metadata.listingComment;
+      records[0].metadata = {
+        ...records[0].metadata,
+        ...metadata,
+        listingComment: undefined,
+        ...JSON.parse(String(values?.[2])),
+      };
+      return { rows: [records[0]], rowCount: 1 };
+    }
     if (sql.startsWith("INSERT INTO public.marketplace_community_orders"))
       return {
         rows: [
@@ -180,6 +196,187 @@ beforeEach(() => {
         rowCount: 1,
       };
     return { rows: [], rowCount: 1 };
+  });
+});
+
+describe("community comment editing", () => {
+  const authorization = {
+    nonce: "11111111-1111-4111-8111-111111111111",
+    signature: "0x12",
+    walletAddress: seller,
+  };
+  function edit(comment: string | null = "Updated", revision = 0) {
+    return {
+      ...communityCommentEditPayload(records[0].order_hash, comment, revision),
+      authorization,
+    };
+  }
+  beforeEach(() => {
+    records = [row(collection, "Original")];
+    mocks.status.mockResolvedValue("active");
+  });
+  it("authenticates the exact PATCH and updates only comment metadata", async () => {
+    const signed = structuredClone(records[0].signed_order);
+    const offer = await editCommunityOrderComment(edit("  Updated  "));
+    expect(offer).toMatchObject({
+      listingComment: "Updated",
+      listingCommentRevision: 1,
+      feePolicy: policy,
+    });
+    expect(mocks.authorize).toHaveBeenCalledWith({
+      authorization,
+      method: "PATCH",
+      path: `/api/marketplace/community/orders/${records[0].order_hash}/comment`,
+      payload: communityCommentEditPayload(records[0].order_hash, "Updated", 0),
+    });
+    expect(records[0].signed_order).toEqual(signed);
+    expect(records[0].metadata).toMatchObject({
+      name: "Community #12",
+      image: "https://example.com/nft.png",
+      listingCommentOriginal: "Original",
+      listingCommentEditAuthorization: authorization,
+    });
+    expect(offer).not.toHaveProperty("listingCommentEditAuthorization");
+    const sql = mocks.query.mock.calls.find(([sql]) =>
+      sql.startsWith("UPDATE public.marketplace_community_orders SET metadata"),
+    )![0];
+    expect(sql).toContain("COALESCE((metadata->>'listingCommentRevision')::bigint, 0) = $4");
+    expect(sql).not.toContain("signed_order =");
+  });
+  it("supports clearing and readding while preserving original publication replay", async () => {
+    await editCommunityOrderComment(edit(null));
+    expect(await getCommunityOrderComment(records[0].order_hash)).toMatchObject({
+      listingCommentRevision: 1,
+    });
+    expect((await getCommunityOrderComment(records[0].order_hash)).listingComment).toBeUndefined();
+    await editCommunityOrderComment(edit("Restored", 1));
+    const replay = await publishCommunityOrder(records[0].signed_order, {
+      listingComment: "Original",
+    });
+    expect(replay).toMatchObject({ listingComment: "Restored", listingCommentRevision: 2 });
+    await expect(
+      publishCommunityOrder(records[0].signed_order, { listingComment: "Overwrite" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(records[0].metadata.listingComment).toBe("Restored");
+  });
+  it("can add a comment to a legacy listing without changing its publication payload", async () => {
+    records = [row()];
+    await editCommunityOrderComment(edit("New"));
+    expect(records[0].metadata).toMatchObject({
+      listingCommentOriginal: null,
+      listingCommentRevision: 1,
+    });
+    expect((await publishCommunityOrder(records[0].signed_order)).listingComment).toBe("New");
+  });
+  it("handles an identical lost-response retry idempotently and rejects stale replacement", async () => {
+    const input = edit();
+    await editCommunityOrderComment(input);
+    expect((await editCommunityOrderComment(input)).listingCommentRevision).toBe(1);
+    await expect(
+      editCommunityOrderComment({ ...input, listingComment: "Other" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(
+      mocks.query.mock.calls.filter(([sql]) =>
+        sql.startsWith("UPDATE public.marketplace_community_orders SET metadata"),
+      ),
+    ).toHaveLength(1);
+  });
+  it("does not accept a different authorization as an idempotent replay", async () => {
+    const input = edit();
+    await editCommunityOrderComment(input);
+    await expect(
+      editCommunityOrderComment({
+        ...input,
+        authorization: { ...authorization, nonce: "22222222-2222-4222-8222-222222222222" },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+  it("never replays an old authorization over a later successful edit", async () => {
+    const original = edit("First");
+    await editCommunityOrderComment(original);
+    await editCommunityOrderComment(edit("Second", 1));
+    await expect(editCommunityOrderComment(original)).rejects.toMatchObject({ status: 409 });
+    expect(records[0].metadata.listingComment).toBe("Second");
+  });
+  it("rejects a revision changed between preflight and acquiring the row lock", async () => {
+    const input = edit();
+    const query = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql: string, values?: unknown[]) => {
+      if (sql.includes("FOR UPDATE")) {
+        const concurrentMetadata = { listingCommentRevision: 1, listingComment: "Concurrent" };
+        records[0].metadata = { ...records[0].metadata, ...concurrentMetadata };
+      }
+      return query(sql, values);
+    });
+    await expect(editCommunityOrderComment(input)).rejects.toMatchObject({ status: 409 });
+    expect(records[0].metadata.listingComment).toBe("Concurrent");
+    expect(mocks.query).toHaveBeenCalledWith("ROLLBACK");
+    expect(mocks.release).toHaveBeenCalled();
+  });
+  it("rejects a cancellation recorded while waiting for the row lock", async () => {
+    const query = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql: string, values?: unknown[]) => {
+      if (sql.includes("FOR UPDATE")) records[0].status = "cancelled";
+      return query(sql, values);
+    });
+    await expect(editCommunityOrderComment(edit())).rejects.toMatchObject({ status: 409 });
+    expect(mocks.query).toHaveBeenCalledWith("ROLLBACK");
+  });
+  it("rejects unauthorized wallets and does not grant moderators seller rights", async () => {
+    vi.stubEnv("MARKETPLACE_COMMUNITY_ADMIN_ADDRESSES", buyer);
+    mocks.authorize.mockResolvedValue(buyer);
+    await expect(editCommunityOrderComment(edit())).rejects.toMatchObject({ status: 403 });
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it("fails closed on authorization errors and RPC failure", async () => {
+    mocks.authorize.mockRejectedValueOnce(new RequestSecurityError(401, "Invalid authorization"));
+    await expect(editCommunityOrderComment(edit())).rejects.toMatchObject({ status: 401 });
+    mocks.status.mockRejectedValueOnce(new Error("RPC unavailable"));
+    await expect(editCommunityOrderComment(edit())).rejects.toThrow("RPC unavailable");
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it.each(["cancelled", "filled", "expired", "invalid-owner", "invalid-counter", "unapproved"])(
+    "rejects onchain status %s",
+    async (status) => {
+      mocks.status.mockResolvedValue(status);
+      await expect(editCommunityOrderComment(edit())).rejects.toMatchObject({ status: 409 });
+      await expect(getCommunityOrderComment(records[0].order_hash)).rejects.toMatchObject({
+        status: 404,
+      });
+      expect(mocks.connect).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects hidden listings and rechecks moderation under the row lock", async () => {
+    records[0].hidden = true;
+    await expect(editCommunityOrderComment(edit())).rejects.toMatchObject({ status: 403 });
+    await expect(getCommunityOrderComment(records[0].order_hash)).rejects.toMatchObject({
+      status: 403,
+    });
+    records[0].hidden = false;
+    const query = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql: string, values?: unknown[]) => {
+      if (sql.includes("FOR UPDATE")) records[0].hidden = true;
+      return query(sql, values);
+    });
+    await expect(editCommunityOrderComment(edit())).rejects.toMatchObject({ status: 403 });
+    expect(mocks.query).toHaveBeenCalledWith("ROLLBACK");
+  });
+  it("requires only the metadata UPDATE permission separately from trading readiness", async () => {
+    const query = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql: string, values?: unknown[]) =>
+      sql.startsWith("SELECT has_column_privilege")
+        ? { rows: [{ ready: false }] }
+        : query(sql, values),
+    );
+    expect(await communityMarketplaceReady()).toBe(true);
+    await expect(editCommunityOrderComment(edit())).rejects.toThrow("editing is not configured");
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+  it("rejects protocol changes and prevents cross-contract authorization reuse", async () => {
+    await expect(
+      editCommunityOrderComment({ ...edit(), protocolAddress: otherCollection }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(mocks.authorize).not.toHaveBeenCalled();
   });
 });
 afterEach(() => {

@@ -40,6 +40,13 @@ import {
 } from "@/lib/marketplace/confirmation";
 import { parseMarketplaceApiError } from "@/lib/marketplace/errors";
 import {
+  assertListingReplacement,
+  completedListingEdit,
+  finalizeListingEdit,
+  isListingCancelled,
+  matchesCompletedListingEdit,
+} from "@/lib/marketplace/listing-edit";
+import {
   assertMarketplaceJournalProtocol,
   assertPublishedListing,
   buildNativeListingQuote,
@@ -119,6 +126,7 @@ export type MarketplaceActionError = {
   requestId?: string;
 };
 export type ListInput = {
+  replacesOrderHash?: Hex;
   listingComment?: string;
   collectionAddress?: Address;
   tokenId: string;
@@ -183,7 +191,13 @@ const communityPrefix = (collectionAddress?: Address) => (collectionAddress ? "/
 function read(account: Address): Journal | null {
   const raw = localStorage.getItem(keyFor(account));
   if (!raw) return null;
-  return parseJournal(raw, account);
+  const journal = parseJournal(raw, account);
+  try {
+    finalizeListingEdit(journal);
+  } catch {
+    /* Keep completed provenance until cleanup can succeed. */
+  }
+  return journal;
 }
 function parseJournal(raw: string, account: Address): Journal {
   const value = JSON.parse(raw) as Journal;
@@ -195,6 +209,11 @@ function parseJournal(raw: string, account: Address): Journal {
   )
     throw new Error("Invalid saved marketplace attempt");
   if (value.kind === "list") listingSource(value.input);
+  if (
+    value.input?.replacesOrderHash !== undefined &&
+    (value.kind !== "list" || !/^0x[\da-fA-F]{64}$/.test(value.input.replacesOrderHash))
+  )
+    throw new Error("Invalid listing replacement identity");
   if (value.input?.listingComment !== undefined) {
     communityListingCommentSchema.parse(value.input.listingComment);
     if (!value.collectionAddress || listingSource(value.input) !== "gnars-contract")
@@ -260,9 +279,20 @@ function parseJournal(raw: string, account: Address): Journal {
   return value;
 }
 function save(entry: Entry, journal: Journal) {
+  const previousRaw = localStorage.getItem(keyFor(journal.account));
+  if (previousRaw) {
+    const previous = JSON.parse(previousRaw) as Journal;
+    if (previous.phase === "complete" && previous.input?.replacesOrderHash)
+      finalizeListingEdit(parseJournal(previousRaw, journal.account));
+  }
+  if (entry.journal?.id !== journal.id) finalizeListingEdit(entry.journal);
   entry.journal = journal;
   localStorage.setItem(keyFor(journal.account), JSON.stringify(journal));
-  notify(entry);
+  try {
+    finalizeListingEdit(journal);
+  } finally {
+    notify(entry);
+  }
 }
 function client(): PublicClient {
   const thirdweb = getThirdwebClient();
@@ -866,7 +896,11 @@ export function useMarketplaceActions() {
         },
       );
       assertPublishedListing(response.offer, current.listing, source);
-      if (listingComment !== undefined && response.offer.listingComment !== listingComment)
+      if (
+        listingComment !== undefined &&
+        response.offer.listingComment !== listingComment &&
+        !response.offer.listingCommentRevision
+      )
         throw new Error("The published listing comment could not be confirmed");
       const latest = read(saved.account);
       if (latest?.id === saved.id) save(entry, { ...latest, phase: "complete", error: undefined });
@@ -904,9 +938,65 @@ export function useMarketplaceActions() {
     }
     return buildNativeListingQuote(price.toString(), royalty, source);
   }
-  async function list(input: ListInput) {
+  async function list(input: ListInput, replacement?: MarketplaceOffer) {
     return execute(async (entry, owner) => {
       let saved = read(owner);
+      if (replacement) {
+        if (matchesCompletedListingEdit(saved, owner, replacement, input.tokenId)) {
+          finalizeListingEdit(saved);
+          entry.journal = saved;
+          notify(entry);
+          return;
+        }
+        if (completedListingEdit(owner, replacement, input.tokenId))
+          throw new Error("This listing replacement was already published");
+        await assertListingReplacement(client(), owner, replacement, input);
+        if (
+          saved &&
+          !canReplaceMarketplaceAttempt(saved) &&
+          (saved.input?.replacesOrderHash?.toLowerCase() !== replacement.orderHash.toLowerCase() ||
+            saved.input?.source !== replacement.source)
+        )
+          throw new Error("Resolve the existing marketplace attempt");
+        input = { ...input, replacesOrderHash: replacement.orderHash };
+      } else if (
+        input.replacesOrderHash &&
+        (!saved ||
+          saved.kind !== "list" ||
+          saved.input?.replacesOrderHash !== input.replacesOrderHash ||
+          saved.tokenId !== input.tokenId ||
+          saved.input?.source !== input.source)
+      ) {
+        throw new Error("Listing replacement does not match the saved attempt");
+      }
+      if (
+        input.replacesOrderHash &&
+        matchesCompletedListingEdit(
+          saved,
+          owner,
+          {
+            source: input.source!,
+            orderHash: input.replacesOrderHash,
+            collectionAddress: input.collectionAddress,
+          },
+          input.tokenId,
+        )
+      ) {
+        finalizeListingEdit(saved);
+        entry.journal = saved;
+        notify(entry);
+        return;
+      }
+      if (
+        !replacement &&
+        input.replacesOrderHash &&
+        !(await isListingCancelled(client(), {
+          source: input.source!,
+          protocolAddress: getMarketplaceProtocolAddress(input.source!),
+          orderHash: input.replacesOrderHash,
+        }))
+      )
+        throw new Error("Confirm cancellation before replacing this listing");
       const source = listingSource(
         saved && !canReplaceMarketplaceAttempt(saved) && saved.kind === "list"
           ? saved.input
@@ -1368,6 +1458,8 @@ export function useMarketplaceActions() {
     invalidJournal,
     txStep: visible?.txStep,
     list,
+    replaceListing: (input: ListInput, offer: MarketplaceOffer) => list(input, offer),
+    isListingCancelled: (offer: MarketplaceOffer) => isListingCancelled(client(), offer),
     quote,
     sweep: sweepPurchase,
     sweepResult: visible?.sweep?.result ?? null,
@@ -1537,6 +1629,7 @@ export function useMarketplaceActions() {
           const saved = read(owner);
           if (saved && !canReplaceMarketplaceAttempt(saved))
             throw new Error("An unresolved attempt cannot be cleared");
+          finalizeListingEdit(saved);
           localStorage.removeItem(keyFor(owner));
           entry.journal = null;
           notify(entry);

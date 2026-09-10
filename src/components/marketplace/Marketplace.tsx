@@ -24,11 +24,13 @@ import { useMarketplace, type MarketplaceView } from "@/hooks/use-marketplace";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { DAO_ADDRESSES, getConfiguredGnarsMarketplaceAddress } from "@/lib/config";
+import { parseMarketplaceShareQuery, type MarketplaceShareTarget } from "@/lib/marketplace/share";
 import { cn } from "@/lib/utils";
 import type { MarketplaceItem, MarketplacePage } from "@/types/marketplace";
 import { CommunitySellerListings } from "./CommunitySellerListings";
 import { toggleSweepSelection, type MarketplaceSweepSelection } from "./marketplace-sweep-model";
 import { MarketplaceCard } from "./MarketplaceCard";
+import { MarketplaceEditRecovery } from "./MarketplaceListingEditor";
 import { MarketplaceMixedSweep as MarketplaceSweep } from "./MarketplaceMixedSweep";
 import { MarketplaceModerationQueue } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
@@ -50,6 +52,13 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   const [searchInvalid, setSearchInvalid] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<Address | null>(null);
+  const [sharedTarget, setSharedTarget] = useState<MarketplaceShareTarget | null>(null);
+  const activeSharedTarget =
+    sharedTarget?.tokenId === selectedId &&
+    (sharedTarget.collectionAddress ?? DAO_ADDRESSES.token).toLowerCase() ===
+      (selectedCollection ?? DAO_ADDRESSES.token).toLowerCase()
+      ? sharedTarget
+      : null;
   const [submissionOpen, setSubmissionOpen] = useState(false);
   const [createdNft, setCreatedNft] = useState<{
     collectionAddress: Address;
@@ -91,6 +100,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   useEffect(() => {
     const restore = () => {
       const params = new URLSearchParams(window.location.search);
+      setSharedTarget(parseMarketplaceShareQuery(Object.fromEntries(params)));
       const restoredView = params.get("view");
       const restoredId = params.get("q");
       const restoredSelection = params.get("nft");
@@ -147,8 +157,15 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     else url.searchParams.delete("nft");
     if (selectedId && selectedCollection) url.searchParams.set("collection", selectedCollection);
     else url.searchParams.delete("collection");
+    if (activeSharedTarget?.orderHash && activeSharedTarget.source) {
+      url.searchParams.set("order", activeSharedTarget.orderHash);
+      url.searchParams.set("source", activeSharedTarget.source);
+    } else {
+      url.searchParams.delete("order");
+      url.searchParams.delete("source");
+    }
     window.history.replaceState(window.history.state, "", url);
-  }, [view, tokenId, selectedId, selectedCollection, urlReady]);
+  }, [view, tokenId, selectedId, selectedCollection, activeSharedTarget, urlReady]);
   useEffect(() => {
     const restored = sharedItem.data?.items.find((item) => item.tokenId === selectedId);
     if (!selected && restored) setSelected(restored);
@@ -246,6 +263,14 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       </header>
 
       {!selected && <MarketplaceRecovery />}
+      {!selected && (
+        <MarketplaceEditRecovery
+          onResume={(collection, tokenId) => {
+            setSelectedCollection(collection);
+            setSelectedId(tokenId);
+          }}
+        />
+      )}
 
       <div className="mb-6 flex items-center justify-between gap-3 border-b">
         <Tabs
@@ -563,6 +588,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
         <MarketplaceDetail
           key={`${selectedCollection ?? DAO_ADDRESSES.token}-${selected.tokenId}-${writer?.account.address ?? "guest"}`}
           item={selected}
+          sharedTarget={activeSharedTarget}
           capabilities={
             (page ?? sharedItem.data)?.capabilities ?? {
               openseaBuy: false,
@@ -578,6 +604,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
             }
           }}
           onClose={() => {
+            setSharedTarget(null);
             setSelected(null);
             setSelectedId(null);
             setSelectedCollection(null);

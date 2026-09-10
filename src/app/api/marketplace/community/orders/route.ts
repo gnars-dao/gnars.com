@@ -2,11 +2,13 @@ import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { communityListingCommentSchema } from "@/lib/marketplace/community-comment";
 import { enforceRateLimit, readJsonBody } from "@/lib/server/request-security";
+import { scheduleMarketplaceAnnouncement } from "@/services/marketplace-announcements";
 import { marketplaceErrorResponse, parseMarketplaceInput } from "@/services/marketplace-common";
 import { COMMUNITY_CACHE_TAG, publishCommunityOrder } from "@/services/marketplace-community";
 import { enforceMarketplaceBudget } from "@/services/marketplace-orders";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     await enforceRateLimit(request, { scope: "community-create", limit: 10, windowSeconds: 60 });
@@ -25,6 +27,7 @@ export async function POST(request: Request) {
       ? await publishCommunityOrder(listing, publication)
       : await publishCommunityOrder(listing);
     revalidateTag(COMMUNITY_CACHE_TAG, { expire: 0 });
+    await scheduleMarketplaceAnnouncement(offer, listing);
     return Response.json({ offer }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return marketplaceErrorResponse(error);

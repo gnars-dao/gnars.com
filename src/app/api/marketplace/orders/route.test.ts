@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import { POST } from "./route";
 
-const mocks = vi.hoisted(() => ({ budget: vi.fn(), save: vi.fn(), invalidate: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  budget: vi.fn(),
+  save: vi.fn(),
+  invalidate: vi.fn(),
+  announce: vi.fn(),
+}));
+vi.mock("@/services/marketplace-announcements", () => ({
+  scheduleMarketplaceAnnouncement: mocks.announce,
+}));
 vi.mock("next/cache", () => ({ revalidateTag: mocks.invalidate }));
 vi.mock("@/services/marketplace-orders", () => ({
   enforceMarketplaceBudget: mocks.budget,
@@ -25,6 +33,7 @@ describe("listing creation request boundaries", () => {
     );
     expect(response.status).toBe(200);
     expect(mocks.save).toHaveBeenCalledWith({}, source);
+    expect(mocks.announce).toHaveBeenCalledExactlyOnceWith({ id: `${source}:test` }, {});
   });
   it("rejects arbitrary protocols at the native publishing endpoint", async () => {
     const response = await POST(
@@ -35,6 +44,7 @@ describe("listing creation request boundaries", () => {
     );
     expect(response.status).toBe(400);
     expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.announce).not.toHaveBeenCalled();
   });
   it("rejects oversized signed-order payloads before signature or RPC work", async () => {
     const response = await POST(

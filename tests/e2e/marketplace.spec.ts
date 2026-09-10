@@ -323,6 +323,36 @@ test("shared NFT links restore the drawer and closing removes only its selection
   expect(new URL(page.url()).searchParams.get("view")).toBeNull();
 });
 
+for (const mobile of [false, true]) {
+  test(`miniapp listing link preserves exact order ${mobile ? "mobile" : "desktop"}`, async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 });
+    const other = { ...offer, id: "other-order", orderHash: `0x${"22".repeat(32)}` };
+    await page.route("**/api/marketplace**", (route) =>
+      route.fulfill({ json: { ...data, items: [{ ...item, offers: [other, offer] }] } }),
+    );
+    await page.goto(`/pt-br/marketplace?nft=42&order=${offer.orderHash}&source=opensea`, {
+      waitUntil: "domcontentloaded",
+    });
+    const drawer = page.getByRole("dialog");
+    await expect(drawer.getByRole("heading", { name: "Gnar #42", exact: true })).toBeVisible();
+    await expect(drawer.locator("[data-order-hash]").first()).toHaveAttribute(
+      "data-order-hash",
+      offer.orderHash,
+    );
+    expect(new URL(page.url()).searchParams.get("order")).toBe(offer.orderHash);
+    await page.screenshot({
+      path: `/tmp/gnars-miniapp-launch-${mobile ? "mobile" : "desktop"}.png`,
+    });
+    await drawer.getByRole("button", { name: "Fechar", exact: true }).click();
+    await expect(drawer).not.toBeVisible();
+    await expect.poll(() => new URL(page.url()).searchParams.get("order")).toBeNull();
+    expect(new URL(page.url()).searchParams.get("source")).toBeNull();
+  });
+}
+
 test("exact ID search persists in the URL and unconfigured native source is not an outage", async ({
   page,
 }) => {

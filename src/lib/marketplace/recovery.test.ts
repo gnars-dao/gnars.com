@@ -122,6 +122,7 @@ describe("marketplace recovery guards", () => {
       input: {
         source: "gnars-contract",
         listingComment: "A collector's note",
+        replacesOrderHash: `0x${"a".repeat(64)}`,
         protocolAddress: custom,
         collectionAddress,
         expectedQuote: { feePolicy },
@@ -132,6 +133,19 @@ describe("marketplace recovery guards", () => {
     expect(repaired.collectionAddress).toBe(collectionAddress);
     expect(repaired.input.collectionAddress).toBe(collectionAddress);
     expect(repaired.input.listingComment).toBe("A collector's note");
+    expect(repaired.input.replacesOrderHash).toBe(raw.input.replacesOrderHash);
+    expect(() =>
+      repairMarketplaceJournal(
+        JSON.stringify({
+          ...raw,
+          input: {
+            ...raw.input,
+            replacesOrderHash: "invalid",
+          },
+        }),
+        owner,
+      ),
+    ).toThrow("replacement identity");
     expect(repaired.input.expectedQuote.feePolicy).toEqual(feePolicy);
     expect(repaired.input.expectedQuote.sellerWei).toBe("19500000000000000");
     expect(() =>
