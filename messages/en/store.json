@@ -37,7 +37,8 @@
     "emailToBuy": "Email to buy",
     "buyNow": "Buy now",
     "viewOnBrand": "View on {brand}",
-    "fulfilledBy": "Fulfilled and shipped by {brand}."
+    "fulfilledBy": "Fulfilled and shipped by {brand}.",
+    "nogentaShipping": "Shipping is calculated separately. Free shipping to Brazil."
   },
   "checkout": {
     "title": "Checkout",
