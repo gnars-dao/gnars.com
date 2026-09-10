@@ -269,10 +269,10 @@ export function MarketplaceCard({
             inert={!flipped}
             className="absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-zinc-400/60 bg-zinc-100 p-3 text-left shadow-lg [backface-visibility:hidden] [transform:rotateY(180deg)] dark:border-zinc-500/70 dark:bg-zinc-900 md:p-4"
           >
-            <p className="pr-9 text-[10px] font-medium uppercase text-muted-foreground md:text-xs">
+            <p className="min-h-9 pr-9 text-[10px] font-medium uppercase text-muted-foreground md:text-xs">
               {t("listingNote.label")}
             </p>
-            <h2 className="mt-3 truncate text-sm font-semibold" title={item.name}>
+            <h2 className="mt-1 truncate text-sm font-semibold" title={item.name}>
               {item.name}
             </h2>
             <div

@@ -197,6 +197,17 @@ for (const mobile of [false, true]) {
         .locator('[aria-hidden="false"]')
         .filter({ has: page.getByText(note, { exact: true }) });
       await expect(back.getByText(note, { exact: true })).toBeVisible();
+      await expect
+        .poll(async () => {
+          const toggleBounds = await card
+            .getByRole("button", { name: "Ver arte do NFT", exact: true })
+            .boundingBox();
+          const titleBounds = await back
+            .getByRole("heading", { name: item.name, exact: true })
+            .boundingBox();
+          return titleBounds!.y - toggleBounds!.y - toggleBounds!.height;
+        })
+        .toBeGreaterThanOrEqual(0);
       await expect(back.getByText("0.02 ETH", { exact: true })).toBeVisible();
       for (const target of [
         back.getByText("0.02 ETH", { exact: true }),
