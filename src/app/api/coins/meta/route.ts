@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAddress, type Address } from "viem";
+import { z } from "zod";
 import { onchainToCoin, type ZoraCoinLike } from "@/app/[locale]/swap/coinCardModel";
-import { ipfsToHttp } from "@/lib/ipfs";
+import { IPFS_GATEWAYS, ipfsToHttp } from "@/lib/ipfs";
+import { readLimitedResponse } from "@/lib/read-limited-response";
 import { serverPublicClient } from "@/lib/rpc";
 
 /**
@@ -14,13 +16,42 @@ import { serverPublicClient } from "@/lib/rpc";
  * coin's own `contractURI()` on Base points at the same media, so the card
  * can draw from the chain — without market figures, which only Zora has.
  *
- * Answers `{ coin: null }` with 200 for an address that is not a coin, so
- * the widget can ask about any token and simply draw nothing.
+ * Onchain metadata supplies artwork, not evidence that a token is from Zora.
+ * Missing enrichment leaves the caller's ordinary token card intact.
  */
 export const runtime = "nodejs";
 
 const ZORA_SDK = "https://api-sdk.zora.engineering/coin";
 const TTL = "public, s-maxage=600, stale-while-revalidate=3600";
+const MAX_METADATA_BYTES = 64 * 1024;
+const optionalText = z.string().nullish();
+const coinSchema = z.object({
+  address: optionalText,
+  name: optionalText,
+  symbol: optionalText,
+  description: optionalText,
+  marketCap: optionalText,
+  marketCapDelta24h: optionalText,
+  volume24h: optionalText,
+  uniqueHolders: z.number().finite().nonnegative().nullish(),
+  createdAt: optionalText,
+  mediaContent: z
+    .object({
+      mimeType: optionalText,
+      originalUri: optionalText,
+      previewImage: z
+        .object({ small: optionalText, medium: optionalText, blurhash: optionalText })
+        .nullish(),
+    })
+    .nullish(),
+  creatorProfile: z
+    .object({
+      handle: optionalText,
+      avatar: z.object({ previewImage: z.object({ small: optionalText }).nullish() }).nullish(),
+    })
+    .nullish(),
+});
+const zoraCoinSchema = coinSchema.extend({ address: z.string(), chainId: z.literal(8453) });
 
 const contractUriAbi = [
   {
@@ -45,11 +76,37 @@ async function fromZora(address: string): Promise<ZoraCoinLike | null> {
       ...(key ? { "api-key": key } : {}),
     },
     signal: AbortSignal.timeout(8_000),
+    redirect: "error",
     next: { revalidate: 600 },
   });
   if (!res.ok) return null;
-  const body = (await res.json()) as { zora20Token?: ZoraCoinLike | null };
-  return body.zora20Token ?? null;
+  const body: unknown = JSON.parse(await readLimitedResponse(res, MAX_METADATA_BYTES));
+  const result = z.object({ zora20Token: zoraCoinSchema.nullish() }).safeParse(body);
+  const coin = result.success ? result.data.zora20Token : null;
+  if (!coin || coin.address.toLowerCase() !== address.toLowerCase()) return null;
+  return coinSchema.parse(coin);
+}
+
+function safeContractMetadataUrl(uri: string): string | null {
+  try {
+    const url = new URL(ipfsToHttp(uri));
+    const gateway = new URL(IPFS_GATEWAYS[0]);
+    if (
+      url.origin !== gateway.origin ||
+      !url.pathname.startsWith(gateway.pathname) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    const path = decodeURIComponent(url.pathname.slice(gateway.pathname.length));
+    if (!path || path.split("/").some((part) => part === "." || part === "..")) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
 }
 
 async function fromChain(address: Address): Promise<ZoraCoinLike | null> {
@@ -59,12 +116,17 @@ async function fromChain(address: Address): Promise<ZoraCoinLike | null> {
     functionName: "contractURI",
   });
   if (!uri) return null;
-  const res = await fetch(ipfsToHttp(uri), {
+  const url = safeContractMetadataUrl(uri);
+  if (!url) return null;
+  const res = await fetch(url, {
     signal: AbortSignal.timeout(8_000),
+    redirect: "error",
     next: { revalidate: 3600 },
   });
   if (!res.ok) return null;
-  return onchainToCoin(await res.json(), address);
+  const metadata: unknown = JSON.parse(await readLimitedResponse(res, MAX_METADATA_BYTES));
+  const result = coinSchema.safeParse(onchainToCoin(metadata, address));
+  return result.success ? result.data : null;
 }
 
 export async function GET(request: NextRequest) {
@@ -88,8 +150,11 @@ export async function GET(request: NextRequest) {
       coin = await fromChain(address as Address);
       if (coin) source = "onchain";
     } catch {
-      // Not a coin, or the chain would not answer: the card draws nothing.
+      // Missing or untrusted enrichment leaves the ordinary token card intact.
     }
   }
-  return NextResponse.json({ coin, source }, { headers: { "cache-control": TTL } });
+  return NextResponse.json(
+    { coin, source },
+    { headers: { "cache-control": coin ? TTL : "no-store" } },
+  );
 }

@@ -21,10 +21,10 @@ import { ensureOnChain, normalizeTxError, waitForSuccessfulReceipt } from "@/lib
 import { cn } from "@/lib/utils";
 import { getDefaultPair, NATIVE_TOKEN, type SwapToken } from "./chains";
 import { useSwapChain } from "./SwapChainContext";
+import SwapTokenCard from "./SwapTokenCard";
 import TokenPicker from "./TokenPicker";
 import { formatBalanceDisplay, useTokenBalance } from "./useTokenBalance";
 import { useWalletTokens } from "./useWalletTokens";
-import ZoraCoinCard, { useZoraCoin } from "./ZoraCoinCard";
 
 const erc20ApproveAbi = [
   {
@@ -99,11 +99,6 @@ export function SwapWidget() {
   const feeRequested = supportFee && canPayTreasury;
 
   const [price, setPrice] = React.useState<ZeroExPriceResponse | null>(null);
-  // Whether either side is a Zora coin, so the card row exists only when it
-  // has something to show — an empty row still costs its gaps.
-  const sellCoin = useZoraCoin(sellToken.address, chain.id);
-  const buyCoin = useZoraCoin(buyToken.address, chain.id);
-  const anyCoin = Boolean(sellCoin.data || buyCoin.data);
   // Distinct from `price === null`, which also means "nothing typed yet". Without
   // this the widget reported a dead quote endpoint as "Enter an amount above".
   const [priceError, setPriceError] = React.useState<string | null>(null);
@@ -636,34 +631,24 @@ export function SwapWidget() {
           </div>
         </div>
 
-        {/* A Zora coin on either side gets its card: media, creator, market.
-            Renders nothing for an ordinary token, so the strip above is all
-            most pairs ever show. */}
-        {anyCoin && (
-          <div className="grid grid-cols-1 gap-y-4 @2xl:grid-cols-[1fr_auto_1fr] @2xl:gap-y-0">
-            <div className="empty:hidden @2xl:pr-7">
-              <ZoraCoinCard
-                token={sellToken}
-                counterpart={buyToken}
-                side="sell"
-                chainId={chain.id}
-              />
-            </div>
-            {/* The same width as the flip arrow above, so each card sits exactly
-              under its own token — invisible, never interactive. */}
-            <div aria-hidden className="invisible hidden p-2 @2xl:block">
-              <ArrowRight className="h-5 w-5" />
-            </div>
-            <div className="empty:hidden @2xl:pl-7">
-              <ZoraCoinCard
-                token={buyToken}
-                counterpart={sellToken}
-                side="buy"
-                chainId={chain.id}
-              />
-            </div>
+        <div className="grid grid-cols-1 gap-y-4 @2xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] @2xl:gap-y-0">
+          <div className="min-w-0 @2xl:pr-7">
+            <SwapTokenCard
+              token={sellToken}
+              counterpart={buyToken}
+              side="sell"
+              chainId={chain.id}
+            />
           </div>
-        )}
+          {/* The same width as the flip arrow above, so each card sits exactly
+              under its own token — invisible, never interactive. */}
+          <div aria-hidden className="invisible hidden p-2 @2xl:block">
+            <ArrowRight className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 @2xl:pl-7">
+            <SwapTokenCard token={buyToken} counterpart={sellToken} side="buy" chainId={chain.id} />
+          </div>
+        </div>
 
         {/* Hairline divider */}
         <div className="h-px bg-border" />

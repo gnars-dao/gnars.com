@@ -99,6 +99,11 @@
   "coinCard": {
     "zoraCoin": "Zora coin",
     "viewOnZora": "View on Zora",
+    "clankerCoin": "Clanker token",
+    "tokenizedStock": "Tokenized stock",
+    "token": "Token",
+    "viewOnClanker": "View on Clanker",
+    "viewOnExplorer": "View on explorer",
     "youSell": "You sell",
     "youBuy": "You buy",
     "marketCap": "Market cap",
