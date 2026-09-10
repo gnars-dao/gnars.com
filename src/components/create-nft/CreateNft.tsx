@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
 import { Input } from "@/components/ui/input";
 import { useCreateNft } from "@/hooks/use-create-nft";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 
 export function CreateNft() {
   const t = useTranslations("createNft");
@@ -38,6 +38,22 @@ export function CreateNft() {
     retry: 1,
   });
   const actions = useCreateNft(status.data?.ready ? status.data.address : undefined);
+  const router = useRouter();
+  const handedOff = useRef<string | null>(null);
+  useEffect(() => {
+    const mint = actions.confirmedMint;
+    if (
+      !mint?.tokenId ||
+      actions.busy ||
+      handedOff.current === mint.requestId ||
+      actions.journal?.requestId !== mint.requestId ||
+      actions.journal.tokenId !== mint.tokenId ||
+      actions.writer?.account.address.toLowerCase() !== mint.account.toLowerCase()
+    )
+      return;
+    handedOff.current = mint.requestId;
+    router.push(`/marketplace?createCollection=${mint.contract}&createTokenId=${mint.tokenId}`);
+  }, [actions.confirmedMint, actions.busy, actions.journal, actions.writer, router]);
   const [file, setFile] = useState<File>();
   const [preview, setPreview] = useState("");
   const [name, setName] = useState("");
@@ -151,15 +167,6 @@ export function CreateNft() {
                   className="min-h-28 w-full rounded-md border bg-transparent p-3 text-sm"
                 />
               </div>
-              <dl className="space-y-3 border-y py-4 text-sm">
-                <div className="flex justify-between gap-4">
-                  <dt>{t("royalty")}</dt>
-                  <dd>{(status.data.royaltyBps ?? 0) / 100}%</dd>
-                </div>
-                <div className="break-all text-muted-foreground">
-                  {t("recipient")}: {status.data.recipient}
-                </div>
-              </dl>
               <p className="text-sm text-muted-foreground">{t("membership")}</p>
               <p className="text-sm text-muted-foreground">{t("permanent")}</p>
               <label className="flex items-start gap-3 text-sm">

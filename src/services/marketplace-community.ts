@@ -13,7 +13,7 @@ import {
 } from "viem";
 import { z } from "zod";
 import { BUILDER_CODE, DAO_ADDRESSES } from "@/lib/config";
-import { ipfsToHttp } from "@/lib/ipfs";
+import { IPFS_GATEWAYS, ipfsToHttp } from "@/lib/ipfs";
 import {
   communityCommentEditPayload,
   communityCommentEditSchema,
@@ -242,7 +242,7 @@ const metadataSchema = z.object({
     .nullish(),
 });
 
-const nftMetadata = unstable_cache(
+const indexedNftMetadata = unstable_cache(
   async (collection: Address, tokenId: string) => {
     const key = process.env.ALCHEMY_API_KEY;
     if (!key) throw marketplaceUnavailable("NFT metadata provider is not configured.");
@@ -275,6 +275,94 @@ const nftMetadata = unstable_cache(
   ["marketplace-community-metadata-v1"],
   { revalidate: 300, tags: [COMMUNITY_CACHE_TAG] },
 );
+
+function genericNftName(name: string | null | undefined, tokenId: string) {
+  return !name?.trim() || [tokenId, `#${tokenId}`, `NFT #${tokenId}`].includes(name.trim());
+}
+
+const onchainNftMetadata = unstable_cache(
+  async (collection: Address, tokenId: string) => {
+    const [uri, collectionName] = await Promise.all([
+      marketplaceClient.readContract({
+        address: collection,
+        abi: erc721Abi,
+        functionName: "tokenURI",
+        args: [BigInt(tokenId)],
+      }),
+      marketplaceClient
+        .readContract({ address: collection, abi: erc721Abi, functionName: "name" })
+        .catch(() => null),
+    ]);
+    if (typeof uri !== "string" || uri.length > 8192)
+      throw marketplaceUnavailable("NFT token URI is unavailable.");
+    // Only fetch content through our fixed public IPFS gateways, never arbitrary contract URLs.
+    const url = new URL(ipfsToHttp(uri));
+    const gateway = new URL(IPFS_GATEWAYS[0]);
+    const path = decodeURIComponent(url.pathname.slice(gateway.pathname.length));
+    if (
+      url.origin !== gateway.origin ||
+      !url.pathname.startsWith(gateway.pathname) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{20,100})(\/|$)/.test(path) ||
+      path.split("/").some((part) => part === "." || part === "..") ||
+      /[\\\x00-\x1f]/.test(path)
+    )
+      throw marketplaceUnavailable("NFT token URI is unsupported.");
+    for (const base of IPFS_GATEWAYS) {
+      try {
+        const response = await fetch(`${base}${url.pathname.slice(gateway.pathname.length)}`, {
+          cache: "no-store",
+          redirect: "error",
+          signal: AbortSignal.timeout(2000),
+        });
+        const metadata = z
+          .object({ name: z.string().nullish(), image: z.string().nullish() })
+          .parse(await boundedMetadata(response));
+        const image = safeImage(metadata.image);
+        if (!image) continue;
+        return {
+          name: metadata.name?.trim().slice(0, 200) || null,
+          image,
+          collectionName:
+            typeof collectionName === "string" ? collectionName.trim().slice(0, 120) : null,
+        };
+      } catch {
+        /* A failed gateway must not cache an empty metadata result. */
+      }
+    }
+    throw marketplaceUnavailable("NFT IPFS metadata is unavailable.");
+  },
+  ["marketplace-community-token-uri-v1"],
+  { revalidate: 300, tags: [COMMUNITY_CACHE_TAG] },
+);
+
+async function nftMetadata(collection: Address, tokenId: string) {
+  let indexed: Awaited<ReturnType<typeof indexedNftMetadata>> | undefined;
+  let providerError: unknown;
+  try {
+    indexed = await indexedNftMetadata(collection, tokenId);
+  } catch (error) {
+    providerError = error;
+  }
+  if (indexed?.image && !genericNftName(indexed.name, tokenId)) return indexed;
+  try {
+    const metadata = await onchainNftMetadata(collection, tokenId);
+    return {
+      name: metadata.name || indexed?.name || `NFT #${tokenId}`,
+      image: metadata.image,
+      collectionName:
+        metadata.collectionName ||
+        indexed?.collectionName ||
+        `${collection.slice(0, 6)}...${collection.slice(-4)}`,
+    };
+  } catch {
+    if (indexed) return indexed;
+    throw providerError;
+  }
+}
 
 export const communityQuoteSchema = z
   .object({
@@ -813,7 +901,22 @@ async function itemsFromRows(
           available = false;
         });
   }
-  return { items: [...items.values()], available };
+  const projected = [...items.values()];
+  // Repair old indexer placeholders at read time, without rewriting signed orders or comments.
+  await Promise.all(
+    projected.map(async (item) => {
+      if (item.image && !genericNftName(item.name, item.tokenId)) return;
+      try {
+        const metadata = await nftMetadata(item.collectionAddress!, item.tokenId);
+        if (metadata.image) item.image = metadata.image;
+        if (!genericNftName(metadata.name, item.tokenId)) item.name = metadata.name;
+        if (metadata.collectionName) item.collectionName = metadata.collectionName;
+      } catch {
+        /* Incomplete artwork never changes listing availability. */
+      }
+    }),
+  );
+  return { items: projected, available };
 }
 
 export async function listCommunityMarketplace(

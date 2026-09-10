@@ -29,6 +29,8 @@ After verification set `NEXT_PUBLIC_GNARS_COMMUNITY_NFT_ADDRESS` locally and in 
 
 The initial UI accepts PNG/JPEG/GIF/WebP up to 20 MB. Media uploads reuse the authenticated, rate-limited browser-to-Pinata presigned upload used by droposals. Metadata uses a separate authenticated, membership-checked and rate-limited JSON endpoint. Pinata credentials stay server-side.
 
-Mint requests are persisted before the wallet prompt and scoped by collection plus actual signing account. Bounded read-only polling recovers by the contract's request mapping and checks creator plus immutable URI. No polling sends a transaction or signature. Explicit wallet rejection or a verified reverted receipt permits a new attempt. Unknown outcomes do not. Successful mint links back to the marketplace community listing flow; minting itself never signs a sale.
+Mint requests are persisted before the wallet prompt and scoped by collection plus actual signing account. Bounded read-only polling recovers by the contract's request mapping and checks creator plus immutable URI. No polling sends a transaction or signature. Explicit wallet rejection or a verified reverted receipt permits a new attempt. Unknown outcomes do not. A newly confirmed mint, including pending recovery, opens the community listing form for that NFT. Restoring an already completed journal does not redirect again. Minting itself never signs a sale. The creation form omits the royalty/address summary; contract royalty verification and settlement remain unchanged.
+
+Fresh NFT previews fall back from incomplete indexer results to onchain `tokenURI` and bounded public IPFS gateway reads. Existing listing rows with missing artwork or placeholder names are enriched at read time without modifying their signed terms, comments, or published casts.
 
 References: [OpenZeppelin ERC-721](https://docs.openzeppelin.com/contracts/5.x/erc721), [ERC-2981](https://docs.openzeppelin.com/contracts/5.x/api/token/common).

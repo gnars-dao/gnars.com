@@ -624,6 +624,147 @@ describe("community publication", () => {
   });
 });
 
+describe("freshly minted community metadata", () => {
+  const cid = "QmXosWuuzRado4nVni1XvBwrvbFm4ptNotkWG8Xe1w1tNj";
+  const image = "ipfs://bafkreicxejfi5jgli57mzuweeavfnvt2w2foaanpzprqnhrzuysvvbl4um";
+  beforeEach(() => {
+    mocks.read.mockImplementation(
+      async ({ functionName }) =>
+        ({
+          balanceOf: 6n,
+          ownerOf: seller,
+          supportsInterface: true,
+          tokenURI: `ipfs://${cid}`,
+          name: "Gnars Community",
+        })[functionName as string],
+    );
+    mocks.fetch.mockImplementation(async (url) =>
+      String(url).includes("alchemy.com")
+        ? Response.json({
+            tokenId: "12",
+            name: "#12",
+            contract: { address: collection, name: "Gnars Community" },
+            image: {},
+          })
+        : Response.json({ name: "Gnarllie", image }),
+    );
+  });
+  it("recovers real name and artwork from tokenURI while the indexer has placeholders", async () => {
+    const result = await getCommunityToken(collection, "12");
+    expect(result.items[0]).toMatchObject({
+      name: "Gnarllie",
+      collectionName: "Gnars Community",
+      image: expect.stringContaining("bafkreicxejfi5jgli57mzuweeavfnvt2w2foaanpzprqnhrzuysvvbl4um"),
+    });
+    expect(mocks.read).toHaveBeenCalledWith(
+      expect.objectContaining({ address: collection, functionName: "tokenURI", args: [12n] }),
+    );
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      `https://magic.decentralized-content.com/ipfs/${cid}`,
+      expect.objectContaining({ redirect: "error", signal: expect.any(AbortSignal) }),
+    );
+  });
+  it("falls back to Pinata when the first trusted gateway fails", async () => {
+    const fetch = mocks.fetch.getMockImplementation()!;
+    mocks.fetch.mockImplementation(async (url, options) =>
+      String(url).includes("magic.decentralized-content.com")
+        ? new Response("unavailable", { status: 503 })
+        : fetch(url, options),
+    );
+    expect((await getCommunityToken(collection, "12")).items[0].name).toBe("Gnarllie");
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      `https://gateway.pinata.cloud/ipfs/${cid}`,
+      expect.anything(),
+    );
+  });
+  it("supports onchain metadata when Alchemy is unavailable or unconfigured", async () => {
+    vi.stubEnv("ALCHEMY_API_KEY", "");
+    expect((await getCommunityToken(collection, "12")).items[0].name).toBe("Gnarllie");
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes("alchemy.com"))).toBe(false);
+  });
+  it("gives the next gateway an independent timeout after the first aborts", async () => {
+    const fetch = mocks.fetch.getMockImplementation()!;
+    mocks.fetch.mockImplementation(async (url, options) => {
+      if (String(url).includes("magic.decentralized-content.com"))
+        throw new DOMException("Timed out", "TimeoutError");
+      return fetch(url, options);
+    });
+    expect((await getCommunityToken(collection, "12")).items[0].name).toBe("Gnarllie");
+    const gateways = mocks.fetch.mock.calls.filter(([url]) => !String(url).includes("alchemy.com"));
+    expect(gateways).toHaveLength(2);
+    expect(gateways[0][1].signal).not.toBe(gateways[1][1].signal);
+    expect(gateways[1][1].signal.aborted).toBe(false);
+  });
+  it("uses SkateHive when both preceding gateways fail", async () => {
+    const fetch = mocks.fetch.getMockImplementation()!;
+    mocks.fetch.mockImplementation(async (url, options) =>
+      String(url).includes("magic.decentralized-content.com") ||
+      String(url).includes("gateway.pinata.cloud")
+        ? new Response("unavailable", { status: 503 })
+        : fetch(url, options),
+    );
+    expect((await getCommunityToken(collection, "12")).items[0].name).toBe("Gnarllie");
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      `https://ipfs.skatehive.app/ipfs/${cid}`,
+      expect.anything(),
+    );
+  });
+  it("repairs already-published cards without writing stored orders, fees, or comments", async () => {
+    const saved = row(collection, "Original seller comment");
+    saved.metadata.name = "#12";
+    saved.metadata.image = "";
+    records = [saved];
+    const original = structuredClone(saved);
+    const result = await listCommunityMarketplace();
+    expect(result.items[0]).toMatchObject({
+      name: "Gnarllie",
+      image: expect.stringContaining("bafkrei"),
+    });
+    expect(result.items[0].offers[0].listingComment).toBe("Original seller comment");
+    expect(records[0]).toEqual(original);
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE"))).toBe(false);
+  });
+  it("does not request tokenURI when indexed artwork and title are complete", async () => {
+    mocks.fetch.mockResolvedValue(
+      Response.json({
+        tokenId: "12",
+        name: "Gnarllie",
+        contract: { address: collection },
+        image: { cachedUrl: "https://example.com/art.png" },
+      }),
+    );
+    await getCommunityToken(collection, "12");
+    expect(mocks.read.mock.calls.some(([input]) => input.functionName === "tokenURI")).toBe(false);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    "http://127.0.0.1/private",
+    "https://metadata.example/token/12",
+    `ipfs://${cid}/%2e%2e/private`,
+    `ipfs://${cid}?redirect=http://127.0.0.1`,
+    `ipfs://${cid}/%zz`,
+    `ipfs://${cid}/%5cprivate`,
+  ])("never fetches unsupported or unsafe tokenURI %s", async (uri) => {
+    const read = mocks.read.getMockImplementation()!;
+    mocks.read.mockImplementation(async (input) =>
+      input.functionName === "tokenURI" ? uri : read(input),
+    );
+    const result = await getCommunityToken(collection, "12");
+    expect(result.items[0].image).toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+  it("keeps incomplete listing readable when gateways fail and never exposes unsafe artwork", async () => {
+    const fetch = mocks.fetch.getMockImplementation()!;
+    mocks.fetch.mockImplementation(async (url, options) =>
+      String(url).includes("alchemy.com")
+        ? fetch(url, options)
+        : Response.json({ name: "Gnarllie", image: "https://127.0.0.1/private" }),
+    );
+    expect((await getCommunityToken(collection, "12")).items[0].image).toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe("community discovery and settlement", () => {
   it("batches stale collection-qualified chain checks at one block and performs one bulk update", async () => {
     records = [row(), { ...row(otherCollection), id: "2" }].map((record) => ({

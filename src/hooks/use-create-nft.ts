@@ -35,6 +35,13 @@ export function useCreateNft(contractAddress: Address | undefined) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
+  const [confirmedMint, setConfirmedMint] = useState<NftCreationJournal | null>(null);
+  const sessionRef = useRef({ key });
+
+  useLayoutEffect(() => {
+    sessionRef.current = { key };
+    setConfirmedMint(null);
+  }, [key]);
 
   useEffect(() => {
     const restore = () => {
@@ -63,20 +70,33 @@ export function useCreateNft(contractAddress: Address | undefined) {
   const save = useCallback((value: NftCreationJournal) => {
     const storageKey = nftCreationStorageKey(value.account, value.contract);
     localStorage.setItem(storageKey, JSON.stringify(value));
-    if (writerRef.current?.account.address.toLowerCase() === value.account.toLowerCase())
+    if (
+      sessionRef.current.key === storageKey &&
+      writerRef.current?.account.address.toLowerCase() === value.account.toLowerCase()
+    )
       setJournal(value);
   }, []);
 
   const verify = useCallback(
     async (saved: NftCreationJournal) => {
       if (!client) throw new Error("failed");
+      const verificationSession = sessionRef.current;
       const address = saved.contract as Address;
       const update = (values: Partial<NftCreationJournal>) => {
         const raw = localStorage.getItem(nftCreationStorageKey(saved.account, saved.contract));
         if (!raw) return;
         const latest = nftCreationJournalSchema.parse(JSON.parse(raw));
         if (latest.requestId !== saved.requestId) return;
-        save({ ...latest, ...values });
+        const updated = { ...latest, ...values };
+        save(updated);
+        if (
+          values.tokenId &&
+          !latest.tokenId &&
+          sessionRef.current === verificationSession &&
+          verificationSession.key === nftCreationStorageKey(saved.account, saved.contract) &&
+          writerRef.current?.account.address.toLowerCase() === saved.account.toLowerCase()
+        )
+          setConfirmedMint(updated);
       };
       const tokenId = await client.readContract({
         address,
@@ -255,9 +275,10 @@ export function useCreateNft(contractAddress: Address | undefined) {
     await navigator.locks.request(key, () => {
       localStorage.removeItem(key);
       setJournal(null);
+      setConfirmedMint(null);
       setError("");
     });
   }
 
-  return { writer, journal, step, error, busy, storageReady, create, check, reset };
+  return { writer, journal, confirmedMint, step, error, busy, storageReady, create, check, reset };
 }

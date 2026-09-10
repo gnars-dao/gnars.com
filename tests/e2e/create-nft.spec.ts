@@ -41,7 +41,10 @@ for (const viewport of [
     });
     await expect(page.getByRole("img", { name: "Gnars artwork" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Criar na Base" })).toBeDisabled();
-    await expect(page.getByText("1.5%", { exact: true })).toBeVisible();
+    await expect(page.getByText("1.5%", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Royalty de revenda", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Split builders + tesouro", { exact: false })).toHaveCount(0);
+    await expect(page.getByText(`0x${"34".repeat(20)}`, { exact: false })).toHaveCount(0);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
     ).toBeTruthy();
