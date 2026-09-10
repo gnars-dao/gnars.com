@@ -1,3 +1,4 @@
+import { corsPreflight, withCors } from "@/lib/server/cors";
 import { enforceRateLimit, readJsonBody } from "@/lib/server/request-security";
 import { marketplaceErrorResponse, parseMarketplaceInput } from "@/services/marketplace-common";
 import {
@@ -7,7 +8,7 @@ import {
 import { enforceMarketplaceBudget } from "@/services/marketplace-orders";
 
 export const dynamic = "force-dynamic";
-export async function POST(request: Request) {
+export const POST = withCors(async (request: Request) => {
   try {
     await enforceRateLimit(request, {
       scope: "marketplace-fulfillment",
@@ -25,4 +26,6 @@ export async function POST(request: Request) {
   } catch (error) {
     return marketplaceErrorResponse(error);
   }
-}
+});
+
+export const OPTIONS = (request: Request) => corsPreflight(request, ["POST", "OPTIONS"]);
