@@ -100,6 +100,17 @@ export const UPGRADER_ADDRESS = migrationEnv.upgraderAddress;
 export const MIGRATION_UPGRADE_ID = migrationEnv.upgradeId;
 export const MIGRATION_CONFIG_ERROR = migrationEnv.error;
 
+/**
+ * Second holdings source on /migrate: plain Base ERC-20s found by scanning the
+ * wallet, quoted to ETH through KyberSwap, alongside the curated Zora coins.
+ *
+ * Flagged because it is the one part of that page fed by an uncurated scan: if
+ * the spam filter in src/services/wallet-base-tokens.ts turns out to be too
+ * loose in the wild, set NEXT_PUBLIC_MIGRATE_WALLET_TOKENS=0 and redeploy — the
+ * page falls back to Zora coins only, with no code revert.
+ */
+export const MIGRATE_WALLET_TOKENS_ENABLED = process.env.NEXT_PUBLIC_MIGRATE_WALLET_TOKENS !== "0";
+
 /** Deposit / withdraw / claim UI is live only with a contract AND an upgrade id. */
 export const isMigrationDepositLive = () =>
   UPGRADER_ADDRESS !== null && MIGRATION_UPGRADE_ID !== null;

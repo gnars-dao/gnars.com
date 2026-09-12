@@ -137,6 +137,9 @@ async function fetchMetadataByAddress(chainId: string, addresses: string[]) {
   return metadata;
 }
 
+/** Zora's GraphQL API rejects batches larger than this. */
+const ZORA_BATCH_SIZE = 20;
+
 type ZoraCoinSummary = {
   marketCap?: string | number | null;
 };
@@ -152,11 +155,16 @@ const getCachedZoraBatch = unstable_cache(
       { signal: AbortSignal.timeout(8000) } as NonNullable<Parameters<typeof getCoins>[1]>,
     );
     if (!result.data?.zora20Tokens) throw new Error("Zora metadata request failed");
-    // An absent token in a successful batch is a cacheable negative lookup.
-    return result.data.zora20Tokens.map((coin) => ({
-      address: coin.address.toLowerCase(),
-      marketCap: coin.marketCap,
-    }));
+    // Zora answers positionally: every address that is NOT a Zora coin comes
+    // back as a literal `null` in the array. Reading `.address` off those threw
+    // and turned the whole route into a 502 for any wallet holding a plain
+    // ERC-20 — i.e. almost every real wallet. They are simply "not a Zora coin".
+    return result.data.zora20Tokens
+      .filter((coin): coin is NonNullable<typeof coin> => Boolean(coin?.address))
+      .map((coin) => ({
+        address: coin.address.toLowerCase(),
+        marketCap: coin.marketCap,
+      }));
   },
   ["wallet-zora-metadata-v1"],
   { revalidate: 300 },
@@ -171,8 +179,11 @@ async function fetchZoraCoinsByAddress(
   const addresses = [...new Set(tokens.map((token) => token.contractAddress.toLowerCase()))].sort();
   const coins = new Map<string, ZoraCoinSummary>();
   // Bound upstream concurrency and request size for wallets with many tokens.
-  for (let i = 0; i < addresses.length; i += 25) {
-    const batch = await getCachedZoraBatch(addresses.slice(i, i + 25));
+  // 20 is Zora's own hard limit ("Too many coin ids requested. The max batch
+  // size is 20"); asking for 25 made every wallet holding more than 20 tokens
+  // fail the whole request.
+  for (let i = 0; i < addresses.length; i += ZORA_BATCH_SIZE) {
+    const batch = await getCachedZoraBatch(addresses.slice(i, i + ZORA_BATCH_SIZE));
     for (const coin of batch) coins.set(coin.address, coin);
   }
   return coins;

@@ -66,6 +66,21 @@ const eslintConfig = [
       ],
     },
   },
+  {
+    // `bag-engine.ts` is a deliberately faithful port of the migrate bag's
+    // `_bagcore.js` prototype: it is the canonical copy of physics that was
+    // tuned frame-by-frame against that artboard, and it is diffed against it
+    // when the artboard changes. Rewriting its `var`s to let/const and its
+    // `var self = this` aliases to arrow functions would make every future
+    // diff against the prototype unreadable for no behavioural gain, so the
+    // two stylistic rules that fire on the ported body are scoped off here
+    // rather than the file being rewritten. Nothing else is relaxed.
+    files: ["src/components/migrate/bag/bag-engine.ts"],
+    rules: {
+      "no-var": "off",
+      "@typescript-eslint/no-this-alias": "off",
+    },
+  },
   // Disable rules that conflict with Prettier's formatting
   prettierConfig,
 ];

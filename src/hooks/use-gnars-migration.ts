@@ -19,9 +19,14 @@ import {
   type TradeParameters,
 } from "@zoralabs/coins-sdk";
 import { formatUnits, type Address } from "viem";
-import { GNARS_CREATOR_COIN, ZORA_TOKEN_BASE } from "@/lib/config";
+import { GNARS_CREATOR_COIN, MIGRATE_WALLET_TOKENS_ENABLED, ZORA_TOKEN_BASE } from "@/lib/config";
 import { kyberQuoteToEth } from "@/lib/kyber-quote";
 import { expectedFromZoraQuote } from "@/lib/route-margin";
+import {
+  fetchWalletBaseTokens,
+  MIN_WALLET_TOKEN_USD,
+  MIN_WALLET_TOKEN_WEI,
+} from "@/services/wallet-base-tokens";
 
 const BASE_CHAIN_ID = 8453;
 const GNARS = GNARS_CREATOR_COIN.toLowerCase();
@@ -48,9 +53,17 @@ if (typeof window !== "undefined") {
 // Zora coins use 18 decimals across the protocol.
 const ZORA_COIN_DECIMALS = 18;
 
+/**
+ * Where a holding was found. The two sources are not interchangeable and the UI
+ * must keep them apart: "zora" comes from Zora's own curated indexer, "wallet"
+ * from a raw ERC-20 balance scan that nobody vetted.
+ */
+export type CoinSource = "zora" | "wallet";
+
 /** A single coin the user could migrate. */
 export interface MigratableCoin {
   address: Address;
+  source: CoinSource;
   symbol: string;
   name: string;
   decimals: number;
@@ -69,7 +82,7 @@ export interface MigratableCoin {
   pairedWith: { address: string; name: string } | null;
 }
 
-export type CoinKind = "gnars-content" | "creator" | "content" | "other";
+export type CoinKind = "gnars-content" | "creator" | "content" | "wallet" | "other";
 
 export interface RouteHop {
   label: string;
@@ -87,6 +100,10 @@ export function buildRoute(coin: MigratableCoin): { kind: CoinKind; hops: RouteH
   const start: RouteHop = { label: coin.symbol, kind: "coin" };
   const zoraHop: RouteHop = { label: "ZORA", kind: "zora" };
   const ethHop: RouteHop = { label: "ETH", kind: "eth" };
+
+  // A plain wallet token has no Zora pool and never touches the ZORA hub: the
+  // aggregator finds its own path, which is one trade as far as the user cares.
+  if (coin.source === "wallet") return { kind: "wallet", hops: [start, ethHop] };
 
   if (paired === GNARS) {
     // Paired with the old $gnars creator coin, which itself sits on ZORA.
@@ -157,6 +174,12 @@ export function useMigratableCoins(address: string | undefined) {
         const priceUsd = coin.tokenPrice?.priceInUsdc ? Number(coin.tokenPrice.priceInUsdc) : null;
         const usdValue = priceUsd !== null ? Number(displayBalance) * priceUsd : null;
         const marketCap = coin.marketCap ? Number(coin.marketCap) : null;
+        // Zora's indexer already renders a preview for every coin; the medium
+        // size is the one the coin face is struck from, the small one is only
+        // ever a 32px avatar. Falling through to the original URI would hand us
+        // an ipfs:// that no <img> can load.
+        const preview = coin.mediaContent?.previewImage;
+        const logoUrl = preview?.medium || preview?.small || null;
         const pairedWith = coin.poolCurrencyToken?.address
           ? {
               address: coin.poolCurrencyToken.address,
@@ -166,12 +189,13 @@ export function useMigratableCoins(address: string | undefined) {
 
         coins.push({
           address: coin.address as Address,
+          source: "zora",
           symbol: coin.symbol ?? "?",
           name: coin.name ?? coin.symbol ?? "Unknown coin",
           decimals: ZORA_COIN_DECIMALS,
           balance: balance.toString(),
           displayBalance,
-          logoUrl: null,
+          logoUrl,
           usdValue,
           marketCap,
           pairedWith,
@@ -187,6 +211,81 @@ export function useMigratableCoins(address: string | undefined) {
     isLoading: query.isLoading,
     isError: query.isError,
     refetch: query.refetch,
+  };
+}
+
+/**
+ * The connected wallet's plain Base ERC-20 holdings — a raw balance scan, in
+ * deliberate contrast to `useMigratableCoins` above. Everything it returns is a
+ * CANDIDATE: the metadata filter has run (see services/wallet-base-tokens.ts)
+ * but the value floor has not, because that needs a quote. Callers must not
+ * render a candidate before its quote has cleared `passesWalletValueFloor`.
+ */
+export function useWalletBaseTokenCandidates(address: string | undefined) {
+  const query = useQuery<MigratableCoin[]>({
+    queryKey: ["migratable-wallet-tokens", address?.toLowerCase()],
+    enabled: MIGRATE_WALLET_TOKENS_ENABLED && Boolean(address),
+    staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const tokens = await fetchWalletBaseTokens(address as string, { signal });
+      return tokens.map((t) => ({
+        address: t.address as Address,
+        source: "wallet" as const,
+        symbol: t.symbol,
+        name: t.name,
+        decimals: t.decimals,
+        balance: t.balance,
+        displayBalance: t.displayBalance,
+        logoUrl: t.logoUrl,
+        usdValue: t.usdValue,
+        // Neither figure exists outside Zora's indexer. Null is the honest
+        // answer; the UI already renders "no USD value" rather than "$0".
+        marketCap: null,
+        pairedWith: null,
+      }));
+    },
+  });
+
+  return {
+    candidates: query.data ?? [],
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Both holdings sources, deduplicated but NOT concatenated — the page has to be
+ * able to label them apart, so it gets them apart.
+ *
+ * A token present in both is kept as the Zora record: Zora's indexer carries
+ * the pricing metadata (USD value, market cap, pool pairing, preview image)
+ * that the Alchemy scan cannot supply, and its quote routes through Zora's own
+ * router rather than the aggregator.
+ */
+export function useMigrationHoldings(address: string | undefined) {
+  const zora = useMigratableCoins(address);
+  const wallet = useWalletBaseTokenCandidates(address);
+
+  const walletCandidates = useMemo(() => {
+    const known = new Set(zora.coins.map((c) => c.address.toLowerCase()));
+    // Same two exclusions the Zora source makes: old $gnars has its own sell
+    // leg on this page, and ZORA is the hub every Zora route passes through.
+    return wallet.candidates.filter((c) => {
+      const addr = c.address.toLowerCase();
+      return addr !== GNARS && addr !== ZORA && !known.has(addr);
+    });
+  }, [wallet.candidates, zora.coins]);
+
+  return {
+    zoraCoins: zora.coins,
+    walletCandidates,
+    isLoading: zora.isLoading,
+    isError: zora.isError,
+    refetch: zora.refetch,
+    walletIsLoading: wallet.isLoading,
+    walletIsError: wallet.isError,
+    walletRefetch: wallet.refetch,
   };
 }
 
@@ -206,7 +305,47 @@ export interface CoinQuote {
   routable: boolean;
   /** Expected ETH out (wei), before slippage. */
   out: bigint;
+  /** USD value of `out` when the router reports one. Kyber does; Zora does not. */
+  outUsd: number | null;
   error?: string;
+}
+
+/**
+ * Value floor for an UNCURATED wallet token, applied to what the sell would
+ * actually deliver rather than to any self-reported price. Zora coins are not
+ * subject to it — they come from a curated source and the user asked for them.
+ */
+export function passesWalletValueFloor(quote: CoinQuote): boolean {
+  if (!quote.routable) return false;
+  if (quote.outUsd !== null) return quote.outUsd >= MIN_WALLET_TOKEN_USD;
+  return quote.out >= MIN_WALLET_TOKEN_WEI;
+}
+
+/** Quote one token straight through the aggregator. Never asks Zora. */
+async function quoteViaKyber(address: Address, amountIn: bigint): Promise<CoinQuote> {
+  try {
+    const k = await kyberQuoteToEth(address, amountIn);
+    if (!k) return { address, status: "no-route", routable: false, out: 0n, outUsd: null };
+    const usd = Number(k.routeSummary.amountOutUsd);
+    return {
+      address,
+      provider: "kyber",
+      status: "routable",
+      routable: true,
+      out: k.amountOut,
+      outUsd: Number.isFinite(usd) && usd > 0 ? usd : null,
+    };
+  } catch (err) {
+    // A dead pool and a service outage stay different answers on purpose.
+    return {
+      address,
+      status: "quote-failed",
+      routable: false,
+      out: 0n,
+      outUsd: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /** Quotes each selected coin's full balance straight to ETH. */
@@ -218,11 +357,17 @@ export function useCoinQuotes(
   const results = useQueries({
     queries: coins.map((coin) => ({
       queryKey: ["migration-quote", coin.address.toLowerCase(), coin.balance, sender, slippage],
-      enabled: apiKeyReady && Boolean(sender) && BigInt(coin.balance) > 0n,
+      // A wallet token is quoted by the aggregator alone, so it does not need
+      // Zora's API key; a Zora coin asks Zora first and does.
+      enabled:
+        (coin.source === "wallet" || apiKeyReady) && Boolean(sender) && BigInt(coin.balance) > 0n,
       staleTime: 30_000,
       retry: false,
       queryFn: async (): Promise<CoinQuote> => {
         const amountIn = BigInt(coin.balance);
+        // Zora's router only knows Zora coins: asking it about a plain ERC-20
+        // is a request that is known in advance to fail, so skip it entirely.
+        if (coin.source === "wallet") return quoteViaKyber(coin.address, amountIn);
         const params: TradeParameters = {
           sell: { type: "erc20", address: coin.address },
           buy: { type: "eth" },
@@ -235,7 +380,13 @@ export function useCoinQuotes(
           const resp = await createTradeCall(params);
           zora =
             !resp?.success || !resp.quote?.amountOut
-              ? { address: coin.address, status: "no-route", routable: false, out: 0n }
+              ? {
+                  address: coin.address,
+                  status: "no-route",
+                  routable: false,
+                  out: 0n,
+                  outUsd: null,
+                }
               : {
                   address: coin.address,
                   provider: "zora",
@@ -243,6 +394,7 @@ export function useCoinQuotes(
                   routable: true,
                   // Zora returns the post-slippage minimum; show what is expected.
                   out: expectedFromZoraQuote(BigInt(resp.quote.amountOut), slippage),
+                  outUsd: null,
                 };
         } catch (err) {
           zora = {
@@ -250,6 +402,7 @@ export function useCoinQuotes(
             status: "quote-failed",
             routable: false,
             out: 0n,
+            outUsd: null,
             error: err instanceof Error ? err.message : String(err),
           };
         }
@@ -260,12 +413,14 @@ export function useCoinQuotes(
         try {
           const k = await kyberQuoteToEth(coin.address, amountIn);
           if (k) {
+            const usd = Number(k.routeSummary.amountOutUsd);
             return {
               address: coin.address,
               provider: "kyber",
               status: "routable",
               routable: true,
               out: k.amountOut,
+              outUsd: Number.isFinite(usd) && usd > 0 ? usd : null,
             };
           }
         } catch {

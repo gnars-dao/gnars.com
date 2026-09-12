@@ -21,7 +21,8 @@
   },
   "noCoins": "No migratable Zora coins found in this wallet.",
   "holdingsError": "Couldn't load your Zora coins. Nothing is assumed. Try again.",
-  "safetyHint": "Only verified Zora coins are shown; non-Zora and scam/airdrop tokens are filtered out.",
+  "safetyHint": "Zora coins come from Zora's own indexer. Base tokens come from a scan of your wallet: one is listed only if KyberSwap finds a live route to ETH worth at least $1, and it is never selected for you. Check each one before you sell.",
+  "safetyHintZoraOnly": "Only Zora coins, from Zora's own indexer. The wallet scan for other Base tokens is turned off.",
   "selectAll": "Select all",
   "clear": "Clear",
   "route": {
@@ -33,7 +34,7 @@
     "slippageNote": "Thin pools move the price on large sells; the estimate can change before the transaction confirms.",
     "slippageDetails": "Each coin gets its own slippage margin, 0.5% to 5%, set from how much its route moves when it is sold in full.",
     "leftoverNote": "The deposit is each route's guaranteed minimum; anything above it stays in your wallet as ETH.",
-    "migrateCta": "Sell {count} coins to ETH",
+    "migrateCta": "Sell {count, plural, one {# coin} other {# coins}} to ETH",
     "executing": "Working…",
     "batchNote": "One signature: every sell and the deposit run as a single sponsored transaction.",
     "sequentialNote": "Your wallet may ask for up to {count} signatures (approve, permit and swap per coin, then the deposit), and you pay the gas. Between the sells and the deposit the ETH sits in your wallet, and the deposit is its own transaction.",
@@ -42,8 +43,10 @@
     "batchNoteSellOnly": "One signature: every sell runs as a single sponsored transaction.",
     "sequentialNoteSellOnly": "Your wallet may ask for up to {count} signatures (approve, permit and swap per coin), and you pay the gas.",
     "viaKyber": "{count} of these coins Zora could not route; KyberSwap can, and will be used for them.",
-    "sellAndDepositCta": "Sell {count} coins and deposit ≈{eth} ETH",
-    "sellOnlyLink": "Sell to ETH only, keep it in the wallet"
+    "sellAndDepositCta": "Sell {count, plural, one {# coin} other {# coins}} and deposit ≈{eth} ETH",
+    "sellOnlyLink": "Sell to ETH only, keep it in the wallet",
+    "doneCta": "Deposit complete",
+    "simulated": "Simulated run — no transaction is sent"
   },
   "deposit": {
     "live": "Deposits open",
@@ -150,17 +153,37 @@
     "quoteFailed": "Quote failed",
     "selectedCountNoRoute": "{selected} of {total} selected · {noRoute} without a route",
     "deselectUnroutable": "Deselect unroutable",
-    "deselectUnroutableCount": "Deselect {count} unroutable"
+    "deselectUnroutableCount": "Deselect {count} unroutable",
+    "pricing": "Pricing…",
+    "pricingAll": "Waiting for every coin to be priced",
+    "ethExcluded": "Not counted in the total",
+    "ethNotCounted": "excluded",
+    "ethPortion": "How much of it",
+    "walletTitle": "Base tokens in your wallet",
+    "walletHint": "Found by scanning your wallet, not curated by anyone. Check each one before selling.",
+    "walletBadge": "Wallet",
+    "walletError": "Couldn't scan your wallet for other Base tokens. The Zora coins above are unaffected.",
+    "walletHidden": "{count, plural, one {# other token was left out} other {# other tokens were left out}}: no route to ETH, or worth less than {min}."
   },
   "receipt": {
     "title": "Your migration deposit",
-    "hint": "Where it all goes",
     "walletEth": "ETH in wallet",
     "coinsSold": "+ {count} Zora coins, sold",
     "coinsNone": "+ Zora coins, sold",
     "oldGnarsSold": "+ old $gnars, sold",
     "nothingSelected": "Nothing selected",
     "available": "Available to deposit",
-    "gasReserve": "− gas reserve"
+    "gasReserve": "− gas reserve",
+    "walletExcluded": "ETH in wallet (not counted)",
+    "walletEthPortion": "ETH in wallet ({pct}%)"
+  },
+  "bag": {
+    "headHintLive": "fills as the coins land",
+    "headHintEmpty": "empty until you pick",
+    "breakdownSell": "{count} sell + {amount} ETH from your wallet",
+    "breakdownSells": "{count} sells + {amount} ETH from your wallet",
+    "breakdownEmpty": "{amount} ETH from your wallet · pick a coin to add to it",
+    "soundMute": "Mute bag sound",
+    "soundUnmute": "Unmute bag sound"
   }
 }

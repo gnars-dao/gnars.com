@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import { formatEther, parseEther } from "viem";
 import { useBalance } from "wagmi";
+import type { BagEvent } from "@/components/migrate/bag/bag-engine";
+import { BagMuteToggle } from "@/components/migrate/bag/BagMuteToggle";
+import { BagStage } from "@/components/migrate/bag/BagStage";
+import { useBag, type BagToken } from "@/components/migrate/bag/use-bag";
+import { useBagAudio } from "@/components/migrate/bag/use-bag-audio";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,8 +37,9 @@ import {
 import {
   buildRoute,
   formatCoinAmount,
+  passesWalletValueFloor,
   useCoinQuotes,
-  useMigratableCoins,
+  useMigrationHoldings,
   type CoinQuote,
   type MigratableCoin,
   type RouteHop,
@@ -46,14 +52,43 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import {
   CHAIN,
   GNARS_CREATOR_COIN,
+  IS_DEV,
   isMigrationDepositLive,
+  MIGRATE_WALLET_TOKENS_ENABLED,
   MIGRATION_CONFIG_ERROR,
   UPGRADER_ADDRESS,
 } from "@/lib/config";
 import { normalizeDecimalInput } from "@/lib/decimal-input";
 import { cn } from "@/lib/utils";
+import { MIN_WALLET_TOKEN_USD } from "@/services/wallet-base-tokens";
+import {
+  DEMO_ADDRESS,
+  DEMO_COINS,
+  DEMO_QUOTES,
+  DEMO_WALLET_WEI,
+  isDemoMode,
+} from "./demo-fixtures";
 
 const OLD_GNARS_KEY = GNARS_CREATOR_COIN.toLowerCase();
+
+// Matches Tailwind's `lg` breakpoint — the same one the desktop stage
+// (`lg:block`) and the mobile bar (`lg:hidden`) switch on, so the engine
+// that is actually being drawn to is always the one the CSS is showing.
+const BAG_DESKTOP_QUERY = "(min-width: 1024px)";
+
+/** SSR-safe breakpoint watcher: starts `false` (mobile) until the effect
+ * reads the real value on mount, then tracks live viewport changes. */
+function useIsDesktopBag(): boolean {
+  const [isDesktop, setIsDesktop] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia(BAG_DESKTOP_QUERY);
+    setIsDesktop(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return isDesktop;
+}
 
 /**
  * The migration as a ledger: what you hold on the left (the sources), the
@@ -63,11 +98,242 @@ const OLD_GNARS_KEY = GNARS_CREATOR_COIN.toLowerCase();
  */
 export function MigrationWidget() {
   const t = useTranslations("migrate");
-  const { address, isConnected, canSwitchView, viewMode, adminAddress } = useUserAddress();
-  const { coins, isLoading, isError, refetch } = useMigratableCoins(address);
+  // `?demo=1` in development only: seeded holdings and a stand-in wallet, so a
+  // campaign recording is deterministic and puts nobody's real balances on
+  // screen. See demo-fixtures.ts — it folds away in a production build.
+  const [demo, setDemo] = React.useState(false);
+  React.useEffect(() => setDemo(isDemoMode()), []);
+
+  const real = useUserAddress();
+  const address = demo ? DEMO_ADDRESS : real.address;
+  const isConnected = demo ? true : real.isConnected;
+  const { canSwitchView, viewMode, adminAddress } = real;
+  const {
+    zoraCoins: liveZoraCoins,
+    walletCandidates,
+    isLoading,
+    isError,
+    refetch,
+    walletIsLoading,
+    walletIsError,
+    walletRefetch,
+  } = useMigrationHoldings(address);
+  // Override at the source so everything downstream — the merged list, the
+  // quote set, Select all, the rendered rows — follows from one place.
+  const zoraCoins = demo ? DEMO_COINS : liveZoraCoins;
   const position = useUpgraderPosition();
   const writer = useWriteAccount();
   const live = isMigrationDepositLive();
+
+  // The bag: two engine instances (a canvas hidden by `display:none` has a
+  // zero-size bounding box and its flight geometry breaks), gated visually by
+  // the same Tailwind `lg` breakpoint this hook watches — see BagStage.tsx's
+  // header comment and the reconciliation effect below for how only the
+  // currently-visible one is actually driven.
+  const bagDesktop = useBag("desktop");
+  const bagMobile = useBag("mobile");
+  const isDesktopBag = useIsDesktopBag();
+  const activeBag = isDesktopBag ? bagDesktop : bagMobile;
+  // Mirrors the prototype's `state.live`: false until the very first pick,
+  // true forever after (never reset by clearAll).
+  const [bagLive, setBagLive] = React.useState(false);
+  const bagLiveRef = React.useRef(false);
+  React.useEffect(() => {
+    bagLiveRef.current = bagLive;
+  }, [bagLive]);
+  // Always launches on the engine that is CURRENTLY visible, even from a
+  // setTimeout closure captured on an earlier render.
+  const activeBagRef = React.useRef(activeBag);
+  React.useEffect(() => {
+    activeBagRef.current = activeBag;
+    // Park the breakpoint that is not on screen: it is still mounted, but it
+    // must not run a solver or clear a page-sized canvas for a hidden view.
+    bagDesktop.setActive(isDesktopBag);
+    bagMobile.setActive(!isDesktopBag);
+  }, [activeBag, bagDesktop, bagMobile, isDesktopBag]);
+  // ---- sound ----
+  // ONE audio instance for the page, but TWO engines feeding it: both are
+  // mounted at all times (see above) and both are driven by the same
+  // selection, so subscribing to both naively would voice every coin twice.
+  // `bagVoiceRef` names the single variant allowed to be heard right now —
+  // the visible one — and each subscription filters on it, so exactly one
+  // engine's events reach the audio layer at any instant.
+  const audio = useBagAudio();
+  const bagVoiceRef = React.useRef<"desktop" | "mobile">(isDesktopBag ? "desktop" : "mobile");
+  React.useEffect(() => {
+    bagVoiceRef.current = isDesktopBag ? "desktop" : "mobile";
+  }, [isDesktopBag]);
+  // A breakpoint switch replays the whole pile into the newly-visible engine
+  // (see the reconciliation effect below). That is a resize, not a pick: the
+  // user clicked nothing, so it must land silently. The replay sets this to a
+  // timestamp a little past the longest flight, and the filter drops anything
+  // arriving before it.
+  const bagSilentUntilRef = React.useRef(0);
+  React.useEffect(() => {
+    const heard = (variant: "desktop" | "mobile", fn: (ev: BagEvent) => void) => (ev: BagEvent) => {
+      if (bagVoiceRef.current !== variant) return;
+      if (Date.now() < bagSilentUntilRef.current) return;
+      fn(ev);
+    };
+    const offDesktop = audio.subscribe({ on: (fn) => bagDesktop.on(heard("desktop", fn)) });
+    const offMobile = audio.subscribe({ on: (fn) => bagMobile.on(heard("mobile", fn)) });
+    return () => {
+      offDesktop();
+      offMobile();
+    };
+  }, [audio, bagDesktop, bagMobile]);
+
+  // ---- the ETH figure ticks with the coins ----
+  // How many of each token's coins are actually sitting in the bag right now.
+  // The figure is a pure FUNCTION of this rather than an accumulated delta:
+  // summing increments would drift a hair off the true total and stay there,
+  // whereas landed/count hits exactly 1 when a volley finishes, so the number
+  // arrives on the real value with no snapping.
+  const bagFillRef = React.useRef<Map<string, { landed: number; count: number }>>(new Map());
+  const [bagTick, setBagTick] = React.useState(0);
+  const bagRaf = React.useRef<number | null>(null);
+  // Up to 12 coins land per 700ms per token and a select-all overlaps volleys;
+  // one render per frame instead of one per coin.
+  const bumpBagTick = React.useCallback(() => {
+    if (bagRaf.current != null) return;
+    bagRaf.current = requestAnimationFrame(() => {
+      bagRaf.current = null;
+      setBagTick((n) => n + 1);
+    });
+  }, []);
+  React.useEffect(
+    () => () => {
+      if (bagRaf.current != null) cancelAnimationFrame(bagRaf.current);
+    },
+    [],
+  );
+  React.useEffect(() => {
+    // A coin ENTERS on `land` and LEAVES on the staggered return throw. Not on
+    // `leave`: that fires once, up front, when the whole group is lifted out of
+    // the pile, which would drop the whole amount in a single step.
+    const counted =
+      (variant: "desktop" | "mobile") =>
+      (ev: BagEvent): void => {
+        if (bagVoiceRef.current !== variant) return;
+        const map = bagFillRef.current;
+        if (ev.type === "land") {
+          const cur = map.get(ev.tokenId) ?? { landed: 0, count: ev.count };
+          cur.count = ev.count;
+          cur.landed = Math.min(cur.count, cur.landed + 1);
+          map.set(ev.tokenId, cur);
+          bumpBagTick();
+        } else if (ev.type === "throw" && ev.dir === -1) {
+          const cur = map.get(ev.tokenId);
+          if (!cur) return;
+          cur.landed = Math.max(0, cur.landed - 1);
+          bumpBagTick();
+        }
+      };
+    const offD = bagDesktop.on(counted("desktop"));
+    const offM = bagMobile.on(counted("mobile"));
+    return () => {
+      offD();
+      offM();
+    };
+  }, [bagDesktop, bagMobile, bumpBagTick]);
+
+  // What the bag actually holds right now, keyed the same way `quoteByAddr`
+  // is (lowercase coin address, or OLD_GNARS_KEY) — the reconciliation
+  // effect below is the single source of truth for it.
+  const presentInBagRef = React.useRef<Map<string, BagToken>>(new Map());
+  // Set when a deposit succeeds. The coins were sold and the ETH is deposited,
+  // so they must NOT fly back to the rows the way a deselect sends them — that
+  // reads as the deposit being undone. The pile stays where it is, branded,
+  // until the user starts a new selection.
+  const bagSealedRef = React.useRef(false);
+  // Per-token generation counter, one level up from the engine's own: a
+  // scheduled launch/recall only fires if it is still the latest thing
+  // decided for that token by the time its delay elapses, so a fast
+  // re-toggle can never have a stale add fire after a newer recall (or vice
+  // versa) — the same voiding guarantee bag-engine.ts's `gen` gives inside
+  // one launch call, applied across separate calls.
+  const bagTokenGenRef = React.useRef<Map<string, number>>(new Map());
+  const bagTimersRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+  React.useEffect(
+    () => () => {
+      bagTimersRef.current.forEach(clearTimeout);
+    },
+    [],
+  );
+  // The engine ROOT is the whole widget, not the bag panel: the prototype
+  // attaches setRoot to the artboard (Main.dc.html:220, Mobile.dc.html:181)
+  // and hangs the page-sized flight canvas off it (:376 / :285), so a coin's
+  // arc from a holdings row on the left to the bag on the right is drawn in
+  // one coordinate space. Both engines share this one element; each gets its
+  // own flight canvas over it (rendered at the bottom of the JSX below).
+  const bagRootRef = React.useCallback(
+    (el: HTMLElement | null) => {
+      bagDesktop.rootRef(el);
+      bagMobile.rootRef(el);
+    },
+    [bagDesktop, bagMobile],
+  );
+
+  // Wrapped (rather than read off the hook result during render) so the
+  // react-hooks/refs rule does not classify the whole `bag` object as a ref
+  // and then flag every other use of it; the wrappers are stable, so React
+  // never detaches and re-attaches the canvas node.
+  const attachDesktopFlight = React.useCallback(
+    (el: HTMLCanvasElement | null) => bagDesktop.flightCanvasRef(el),
+    [bagDesktop],
+  );
+  const attachMobileFlight = React.useCallback(
+    (el: HTMLCanvasElement | null) => bagMobile.flightCanvasRef(el),
+    [bagMobile],
+  );
+
+  // One merged ref callback per token id, registering the same DOM node as
+  // that coin's launch origin with BOTH engines (only the active one is ever
+  // launched into, but both need to know where the row sits so a resync after
+  // a breakpoint switch — or simply becoming active later — has it). Memoised
+  // per id the same way useBag's own avatarRef is, so React never sees a new
+  // ref identity on every render (which would thrash registerAvatar).
+  const mergedAvatarRefs = React.useRef<Map<string, (el: HTMLElement | null) => void>>(new Map());
+  const bagAvatarRef = React.useCallback(
+    (tokenId: string) => {
+      let cb = mergedAvatarRefs.current.get(tokenId);
+      if (!cb) {
+        cb = (el: HTMLElement | null) => {
+          bagDesktop.avatarRef(tokenId)(el);
+          bagMobile.avatarRef(tokenId)(el);
+        };
+        mergedAvatarRefs.current.set(tokenId, cb);
+      }
+      return cb;
+    },
+    [bagDesktop, bagMobile],
+  );
+
+  // Switching which artboard is visible (a resize across the `lg` breakpoint)
+  // must not leave the newly-shown engine's pile stale or empty: it never ran
+  // the launches that produced the current pile (only the previously-active
+  // engine did), so resync it immediately, in full, no animation stagger —
+  // correctness here matters more than a replayed flight.
+  const prevIsDesktopBagRef = React.useRef(isDesktopBag);
+  React.useEffect(() => {
+    if (prevIsDesktopBagRef.current === isDesktopBag) return;
+    prevIsDesktopBagRef.current = isDesktopBag;
+    // Flush the React-side launch queue BEFORE replaying: a resize during a
+    // Select All stagger otherwise let the still-pending timers fire after
+    // the replay, onto the newly-active engine, double-adding those tokens.
+    bagTimersRef.current.forEach(clearTimeout);
+    bagTimersRef.current = [];
+    // Nothing the user clicked caused this; the replay must be silent (the
+    // window covers the longest flight plus its landing).
+    bagSilentUntilRef.current = Date.now() + 2200;
+    presentInBagRef.current.forEach((_tok, id) => {
+      bagTokenGenRef.current.set(id, (bagTokenGenRef.current.get(id) || 0) + 1);
+    });
+    const next = isDesktopBag ? bagDesktop : bagMobile;
+    next.clear();
+    if (bagLiveRef.current) next.activate();
+    presentInBagRef.current.forEach((tok) => next.launch(tok, 1));
+  }, [isDesktopBag, bagDesktop, bagMobile]);
 
   // Selection is keyed by lowercase address.
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -90,12 +356,85 @@ export function MigrationWidget() {
   }, [oldGnarsAmount]);
   const oldGnars = useOldGnarsPosition(address, typedOldGnars);
 
+  // A different wallet is a different set of holdings: carrying the previous
+  // account's selection (and its pile) across the switch showed coins that
+  // are not in this wallet, and the holdings rows that would have recalled
+  // them have already unmounted. Reset everything the bag derives from.
+  const prevAddressRef = React.useRef(address);
+  React.useEffect(() => {
+    if (prevAddressRef.current === address) return;
+    prevAddressRef.current = address;
+    bagTimersRef.current.forEach(clearTimeout);
+    bagTimersRef.current = [];
+    bagTokenGenRef.current.clear();
+    presentInBagRef.current = new Map();
+    bagDesktop.clear();
+    bagMobile.clear();
+    bagLiveRef.current = false;
+    setBagLive(false);
+    setSelected(new Set());
+    setIncludeOldGnars(false);
+    setOldGnarsAmount("");
+  }, [address, bagDesktop, bagMobile]);
+
   const wallet = useBalance({ address: address as `0x${string}` | undefined, chainId: CHAIN.id });
   // An EOA pays its own gas: "max" must leave a reserve or the deposit itself
   // cannot be mined. A sponsored smart account keeps the whole balance.
   const gasReserve = writer?.isEoaSigner ? EOA_GAS_RESERVE : 0n;
+  // The wallet's own ETH is no longer forced into the total: the user picks
+  // whether it counts and how much of it. Default is all of it, which is the
+  // behaviour this replaces.
+  const [walletOn, setWalletOn] = React.useState(true);
+  const [walletPct, setWalletPct] = React.useState(100);
+  const walletWei = demo ? DEMO_WALLET_WEI : wallet.data?.value;
   const usableWallet =
-    wallet.data && wallet.data.value > gasReserve ? wallet.data.value - gasReserve : 0n;
+    walletWei !== undefined && walletWei > gasReserve ? walletWei - gasReserve : 0n;
+  const walletContribution = walletOn ? (usableWallet * BigInt(walletPct)) / 100n : 0n;
+
+  // Everything the wallet holds is quoted up front, not just what is picked:
+  // the bag's flight is sized from a coin's ETH value, so that value has to
+  // exist BEFORE the click (see the row gate in HoldingsList). Old $gnars is
+  // the exception — its amount is typed, so its queryKey changes per keystroke
+  // and it stays on-demand, quoted only once it is actually included.
+  // Wallet candidates are in here because their quote is also what decides
+  // whether they are shown at all — the value half of the spam filter.
+  const quotableCoins = React.useMemo(() => {
+    const all = [...zoraCoins, ...walletCandidates];
+    if (includeOldGnars && oldGnars.sellAmount !== undefined && oldGnars.sellAmount > 0n) {
+      all.push(oldGnarsAsCoin(oldGnars.sellAmount));
+    }
+    return all;
+  }, [zoraCoins, walletCandidates, includeOldGnars, oldGnars.sellAmount]);
+
+  const { quotes, refetchFailed } = useCoinQuotes(quotableCoins, address);
+
+  const quoteByAddr = React.useMemo(
+    () => new Map((demo ? DEMO_QUOTES : quotes).map((q) => [q.address.toLowerCase(), q])),
+    [demo, quotes],
+  );
+
+  // Second half of the spam filter, and the reason wallet tokens are quoted
+  // before they are rendered: an uncurated token has to prove a live route to
+  // ETH worth more than the floor before it is offered to anyone. A quote that
+  // FAILED is kept and labelled — an outage is not evidence against a token.
+  const walletTokens = React.useMemo(
+    () =>
+      walletCandidates.filter((c) => {
+        const q = quoteByAddr.get(c.address.toLowerCase());
+        if (!q) return false; // still pricing
+        if (q.status === "quote-failed") return true;
+        return passesWalletValueFloor(q);
+      }),
+    [walletCandidates, quoteByAddr],
+  );
+  const walletPricing = React.useMemo(
+    () => walletCandidates.some((c) => !quoteByAddr.has(c.address.toLowerCase())),
+    [walletCandidates, quoteByAddr],
+  );
+  const walletHiddenCount = walletCandidates.length - walletTokens.length;
+
+  /** Everything that is actually on screen and therefore actually selectable. */
+  const coins = React.useMemo(() => [...zoraCoins, ...walletTokens], [zoraCoins, walletTokens]);
 
   const selectedZora = React.useMemo(
     () => coins.filter((c) => selected.has(c.address.toLowerCase())),
@@ -111,20 +450,135 @@ export function MigrationWidget() {
     return picked;
   }, [selectedZora, includeOldGnars, oldGnars.sellAmount]);
 
-  const {
-    quotes,
-    totalEthOut,
-    isLoading: quotesLoading,
-    failedCount,
-    refetchFailed,
-  } = useCoinQuotes(selectedCoins, address);
+  // The bag must always hold exactly what is currently selected AND priced.
+  // Since a coin cannot be picked before its own quote has resolved, that
+  // pairing now holds at the moment of the press and the coins fly with the
+  // click. This effect stays as the invariant behind it: a quote that is
+  // refetched or invalidated (or one that resolves after its coin was
+  // deselected) is reconciled the same way a toggle is. Driving this off the
+  // selection/quote state directly (rather than from the click handlers)
+  // is what makes both of those true automatically: whatever changed to
+  // produce this state — a toggle, Select All, Clear, a quote arriving, a
+  // retry — is reconciled the same single way, so the pile can never drift
+  // from the selection no matter which of those caused the change.
+  React.useEffect(() => {
+    const desired = new Map<string, BagToken>();
+    for (const c of coins) {
+      const key = c.address.toLowerCase();
+      if (!selected.has(key)) continue;
+      const q = quoteByAddr.get(key);
+      if (!q?.routable || q.out <= 0n) continue;
+      desired.set(key, {
+        id: key,
+        mark: c.symbol.slice(0, 2).toUpperCase(),
+        logoUrl: c.logoUrl,
+        eth: parseFloat(formatEther(q.out)),
+      });
+    }
+    if (includeOldGnars) {
+      const q = quoteByAddr.get(OLD_GNARS_KEY);
+      if (q?.routable && q.out > 0n) {
+        desired.set(OLD_GNARS_KEY, {
+          id: OLD_GNARS_KEY,
+          mark: "G",
+          logoUrl: null,
+          eth: parseFloat(formatEther(q.out)),
+        });
+      }
+    }
 
-  const quoteByAddr = React.useMemo(
-    () => new Map(quotes.map((q) => [q.address.toLowerCase(), q])),
-    [quotes],
-  );
-  // The receipt splits the sells into their two sources; the total the run
-  // deposits is still the hook's own `totalEthOut`.
+    if (bagSealedRef.current) {
+      if (desired.size === 0) {
+        // Still sealed: `clearAll()` emptied the selection on success, but the
+        // bag keeps what it holds. Forget the tokens so a later pick starts
+        // clean, without recalling a single coin.
+        presentInBagRef.current = new Map();
+        return;
+      }
+      // A new pick breaks the seal and starts a fresh bag: the old contents
+      // belong to a deposit that is already done, and leaving them would add
+      // the next selection on top of a total that no longer applies.
+      bagSealedRef.current = false;
+      bagTimersRef.current.forEach(clearTimeout);
+      bagTimersRef.current = [];
+      bagDesktop.clear();
+      bagMobile.clear();
+      bagDesktop.resetCelebration();
+      bagMobile.resetCelebration();
+      bagFillRef.current.clear();
+      presentInBagRef.current = new Map();
+      bagLiveRef.current = false;
+      setBagLive(false);
+      bumpBagTick();
+    }
+
+    const present = presentInBagRef.current;
+    const added: BagToken[] = [];
+    const removed: BagToken[] = [];
+    desired.forEach((tok, id) => {
+      if (!present.has(id)) added.push(tok);
+    });
+    present.forEach((tok, id) => {
+      if (!desired.has(id)) removed.push(tok);
+    });
+    presentInBagRef.current = desired;
+    if (added.length === 0 && removed.length === 0) return;
+
+    const wasLive = bagLiveRef.current;
+    const firstActivation = !wasLive && added.length > 0;
+    if (firstActivation) {
+      bagLiveRef.current = true;
+      setBagLive(true);
+      // The prototype's activate() (Main.dc.html:1446-1450): the bag's own
+      // flat->lit crossfade starts BEFORE the 140ms launch, not with it.
+      activeBagRef.current.activate();
+    }
+
+    const scheduleLaunch = (tok: BagToken, dir: 1 | -1, delay: number) => {
+      const nextGen = (bagTokenGenRef.current.get(tok.id) || 0) + 1;
+      bagTokenGenRef.current.set(tok.id, nextGen);
+      const timer = setTimeout(() => {
+        if (bagTokenGenRef.current.get(tok.id) !== nextGen) return; // superseded
+        activeBagRef.current.launch(tok, dir);
+      }, delay);
+      bagTimersRef.current.push(timer);
+    };
+
+    // A lone pick gets the prototype's toggle()/pickOld() timing (the stage
+    // lights up before the first pick's coins fly); several at once (a
+    // cached Select All, or a burst of quotes resolving together) stagger
+    // the way selectAll() staggers its launches.
+    added.forEach((tok, i) => {
+      const delay =
+        added.length === 1 ? (firstActivation ? 140 : 0) : (firstActivation ? 160 : 0) + i * 150;
+      scheduleLaunch(tok, 1, delay);
+    });
+    // A single deselect recalls instantly, same as toggle()/pickOld(); several
+    // at once (Clear) stagger 110ms apart, same as clearAll().
+    removed.forEach((tok, i) => {
+      scheduleLaunch(tok, -1, removed.length === 1 ? 0 : i * 110);
+    });
+  }, [coins, selected, includeOldGnars, quoteByAddr, bagDesktop, bagMobile, bumpBagTick]);
+
+  // Coin art loads once per token id (idempotent inside the hook) regardless
+  // of selection, so it is already resolved by the time a coin is picked.
+  React.useEffect(() => {
+    const tokens: BagToken[] = coins.map((c) => ({
+      id: c.address.toLowerCase(),
+      mark: c.symbol.slice(0, 2).toUpperCase(),
+      logoUrl: c.logoUrl,
+      eth: 0,
+    }));
+    if (oldGnars.balance !== undefined && oldGnars.balance > 0n) {
+      tokens.push({ id: OLD_GNARS_KEY, mark: "G", logoUrl: null, eth: 0 });
+    }
+    bagDesktop.syncArt(tokens);
+    bagMobile.syncArt(tokens);
+  }, [coins, oldGnars.balance, bagDesktop, bagMobile]);
+  // The receipt splits the sells into their two sources. The hook's own
+  // `totalEthOut` is NOT usable for display any more: it sums every coin it was
+  // given, which is now the whole wallet — the receipt, the bag figure and the
+  // CTA all mean "what was picked", so that total is derived here instead.
   const zoraEthOut = React.useMemo(
     () =>
       selectedZora.reduce((sum, c) => {
@@ -135,17 +589,35 @@ export function MigrationWidget() {
   );
   const oldGnarsQuote = quoteByAddr.get(OLD_GNARS_KEY);
   const oldGnarsEthOut = oldGnarsQuote?.routable ? oldGnarsQuote.out : 0n;
+  /** The only total that may be shown: what the current selection is worth. */
+  const selectedEthOut = zoraEthOut + (includeOldGnars ? oldGnarsEthOut : 0n);
+  // Same reason the total is derived: the hook's `isLoading`/`failedCount` now
+  // span every coin in the wallet, but the receipt speaks about the selection.
+  const quotesLoading = React.useMemo(
+    () => selectedCoins.some((c) => !quoteByAddr.has(c.address.toLowerCase())),
+    [selectedCoins, quoteByAddr],
+  );
+  const failedCount = React.useMemo(
+    () =>
+      selectedCoins.filter(
+        (c) => quoteByAddr.get(c.address.toLowerCase())?.status === "quote-failed",
+      ).length,
+    [selectedCoins, quoteByAddr],
+  );
 
   const { execute, swapAndDeposit, isRunning, steps, canBatch, lastResult } = useExecuteMigration();
 
   // Only migrate coins that actually have a route (skip the dead-pool ones).
   const routableAddrs = React.useMemo(
-    () => new Set(quotes.filter((q) => q.routable).map((q) => q.address.toLowerCase())),
-    [quotes],
+    () =>
+      new Set(
+        [...quoteByAddr.values()].filter((q) => q.routable).map((q) => q.address.toLowerCase()),
+      ),
+    [quoteByAddr],
   );
   const providerByAddr = React.useMemo(
-    () => new Map(quotes.map((q) => [q.address.toLowerCase(), q.provider])),
-    [quotes],
+    () => new Map([...quoteByAddr.values()].map((q) => [q.address.toLowerCase(), q.provider])),
+    [quoteByAddr],
   );
   const routableCoins: CoinToMigrate[] = selectedCoins
     .filter((c) => routableAddrs.has(c.address.toLowerCase()))
@@ -155,16 +627,107 @@ export function MigrationWidget() {
       balance: c.balance,
       provider: providerByAddr.get(c.address.toLowerCase()),
     }));
-  const routableCount = quotes.filter((q) => q.routable).length;
-  const kyberCount = quotes.filter((q) => q.provider === "kyber").length;
+  // Count what the user PICKED, not what the wallet holds. Quoting became
+  // eager (every coin is priced on load so a row can be clicked the instant
+  // its value is known), which quietly turned `quotes` into "every coin in the
+  // wallet" — leaving the CTA offering to sell coins nobody selected, and
+  // `signatureCount` promising prompts for them too.
+  const routableCount = routableCoins.length;
+  const kyberCount = routableCoins.filter((c) => c.provider === "kyber").length;
   // Sequential: the Zora SDK may prompt up to three times per coin (approve,
   // permit signature, swap), then once for the deposit.
   const signatureCount = routableCount * SEQUENTIAL_PROMPTS_PER_COIN + (live ? 1 : 0);
 
+  // The bag's own figure and copy: the same "available to deposit" total the
+  // receipt shows, and a breakdown that mirrors the prototype's own —
+  // `routableCount` here already counts old $gnars once it is included (its
+  // quote is folded into `selectedCoins`/`quotes` above), so it is exactly
+  // the prototype's `ctaCount`, not double-counted.
+  // The prototype feeds digits() `fmt(v, 4)` = `toFixed(4)` — always exactly
+  // six characters, always "." as the separator. formatCoinAmount is the
+  // receipt's variable-precision formatter (it returns "0", "<0.0001", drops
+  // trailing zeros and follows the browser locale), and feeding that to the
+  // per-index digit diff made the row change width and animate every cell.
+  // The wallet's own ETH is the constant floor — it is not coins in the bag and
+  // must not animate. Only the sold value climbs, coin by coin.
+  const bagAmount = React.useMemo(() => {
+    void bagTick; // recomputed on each coalesced frame; the counts live in a ref
+    let wei = walletContribution;
+    bagFillRef.current.forEach((fill, id) => {
+      if (fill.count <= 0 || fill.landed <= 0) return;
+      const q = quoteByAddr.get(id);
+      if (!q?.routable) return;
+      // Exact at the ends: landed === count gives back q.out untruncated.
+      wei += (q.out * BigInt(fill.landed)) / BigInt(fill.count);
+    });
+    return Math.max(0, Number(formatEther(wei))).toFixed(4);
+  }, [bagTick, walletContribution, quoteByAddr]);
+
+  // Safety net. A rapid re-toggle can have its in-flight coins voided by the
+  // engine's per-token generation guard, and those coins never emit a `land` —
+  // which would leave the figure parked below the truth. Once the dust has
+  // settled, force every token the bag actually holds to its full count.
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      // A sealed bag has no selection behind it any more; reconciling against
+      // one would delete every entry and collapse the figure to the wallet.
+      if (bagSealedRef.current) return;
+      const map = bagFillRef.current;
+      let changed = false;
+      map.forEach((fill, id) => {
+        if (!presentInBagRef.current.has(id)) {
+          map.delete(id);
+          changed = true;
+        } else if (fill.landed !== fill.count) {
+          fill.landed = fill.count;
+          changed = true;
+        }
+      });
+      if (changed) bumpBagTick();
+    }, 1800);
+    return () => clearTimeout(t);
+  }, [selectedEthOut, bumpBagTick]);
+  const bagWalletLabel = formatCoinAmount(walletContribution, 18, 4);
+  const bagBreakdown =
+    routableCount > 0
+      ? t(routableCount === 1 ? "bag.breakdownSell" : "bag.breakdownSells", {
+          count: routableCount,
+          amount: bagWalletLabel,
+        })
+      : t("bag.breakdownEmpty", { amount: bagWalletLabel });
+  // One control, rendered into whichever stage is on screen (only ever one
+  // of them is: the desktop stage is `hidden lg:block`, the mobile bar
+  // `lg:hidden`). Both live inside the `isConnected` branches below, so the
+  // toggle is never on screen without a bag under it.
+  const bagMuteToggle = (
+    <BagMuteToggle
+      muted={audio.muted}
+      available={audio.available}
+      onToggle={() => {
+        // Unmuting is itself a gesture — prime the context on the way in, so
+        // the very next coin is audible rather than the one after it.
+        if (audio.muted) audio.resume();
+        audio.setMuted(!audio.muted);
+      }}
+    />
+  );
+
+  const bagStageProps = {
+    live: bagLive,
+    amount: bagAmount,
+    label: t("receipt.available"),
+    breakdown: bagBreakdown,
+  } as const;
+
   const toggle = (addr: string) => {
+    const key = addr.toLowerCase();
+    // Inside the row's click handler, so this IS the user gesture the browser
+    // wants before it will let an AudioContext run. Doing it from an effect
+    // instead would leave the context suspended and the bag mute forever.
+    audio.resume();
+    audio.tick(selected.has(key) ? "off" : "on");
     setSelected((prev) => {
       const next = new Set(prev);
-      const key = addr.toLowerCase();
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
@@ -183,20 +746,83 @@ export function MigrationWidget() {
     [selectedZora, quoteByAddr],
   );
 
-  const selectAll = () => setSelected(new Set(coins.map((c) => c.address.toLowerCase())));
-  const deselectUnroutable = () =>
+  // Curated coins only. "Select all" must never sweep an uncurated wallet token
+  // into a sale the user did not look at — those are picked one row at a time.
+  const selectAll = () => {
+    audio.resume();
+    audio.tick("on");
+    setSelected(new Set(zoraCoins.map((c) => c.address.toLowerCase())));
+  };
+  const deselectUnroutable = () => {
+    audio.resume();
+    audio.tick("off");
     setSelected((prev) => {
       const next = new Set(prev);
       for (const c of unroutableSelected) next.delete(c.address.toLowerCase());
       return next;
     });
+  };
+  // The old-$gnars row is a pick like any other: same gesture, same tick.
+  const setOldGnarsIncluded = (next: boolean) => {
+    audio.resume();
+    audio.tick(next ? "on" : "off");
+    setIncludeOldGnars(next);
+  };
+
   const clearAll = () => {
+    audio.resume();
+    audio.tick("off");
     setSelected(new Set());
     setIncludeOldGnars(false);
     setOldGnarsAmount("");
   };
 
+  // ---- local-only simulated run ----
+  // Gated on IS_DEV (`process.env.NODE_ENV === "development"`) on purpose: in a
+  // production build that constant folds to false and this whole branch is
+  // eliminated from the bundle, so no misconfigured env var can ever expose a
+  // fake deposit to a real user. NEXT_PUBLIC_MIGRATE_REAL=1 turns it back off
+  // locally for anyone who needs to exercise the real path.
+  const mockRun = IS_DEV && process.env.NEXT_PUBLIC_MIGRATE_REAL !== "1";
+  const [mockSteps, setMockSteps] = React.useState<MigrationStep[]>([]);
+  const [mockRunning, setMockRunning] = React.useState(false);
+  const mockTimers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+  React.useEffect(() => {
+    const timers = mockTimers.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const runSimulated = async (deposit: boolean) => {
+    // Same step shape the real run builds, so the step list, the CTA state and
+    // anything watching them behave identically.
+    const labels = [
+      ...routableCoins.map((c) => `${c.symbol} → ETH${c.provider === "kyber" ? " · Kyber" : ""}`),
+      ...(deposit ? [t("steps.deposit")] : []),
+    ];
+    setMockRunning(true);
+    setMockSteps(labels.map((label, i) => ({ label, status: i === 0 ? "active" : "pending" })));
+    for (let i = 0; i < labels.length; i++) {
+      await new Promise<void>((resolve) => {
+        mockTimers.current.push(setTimeout(resolve, 420));
+      });
+      setMockSteps((prev) =>
+        prev.map((step, j) => ({
+          ...step,
+          status: j <= i ? "done" : j === i + 1 ? "active" : "pending",
+        })),
+      );
+    }
+    setMockRunning(false);
+    return true;
+  };
+
   const run = async (deposit: boolean) => {
+    if (mockRun) {
+      await runSimulated(deposit);
+      celebrate();
+      clearAll();
+      return;
+    }
     const result = deposit
       ? await swapAndDeposit(routableCoins)
       : await execute(routableCoins, { depositIntoMigration: false });
@@ -208,21 +834,177 @@ export function MigrationWidget() {
     void wallet.refetch();
     // Keep the failed coins selected so the retry is one click, and keep the
     // step list on screen as the record of what failed.
-    if (result.ok) clearAll();
+    if (result.ok) {
+      celebrate();
+      clearAll();
+    }
   };
 
   const hasSelection = selectedCoins.length > 0;
-  const ctaDisabled = quotesLoading || isRunning || routableCount === 0;
-  const ctaLabel = isRunning
+  const busy = isRunning || mockRunning;
+  const ctaDisabled = quotesLoading || busy || routableCount === 0;
+  const ctaLabel = busy
     ? t("preview.executing")
     : live
       ? t("preview.sellAndDepositCta", {
           count: routableCount,
-          eth: formatCoinAmount(totalEthOut, 18, 4),
+          eth: formatCoinAmount(selectedEthOut, 18, 4),
         })
       : t("preview.migrateCta", { count: routableCount });
+  // ---- the hero lift ----
+  // While the run is executing the bag floats to the middle of the screen over
+  // a dimmed page, plays its burst there, then snaps back a second later.
+  // It is TRANSLATED, never `position: fixed`: taking it out of flow would
+  // collapse the card behind the scrim and shift the page under the user.
+  const HERO_SCALE = 2.1;
+  const [hero, setHero] = React.useState(false);
+  // Both breakpoints render a wrapper, but only one is visible; collect both
+  // and measure whichever actually has a box.
+  const heroStages = React.useRef<(HTMLDivElement | null)[]>([null, null]);
+  const heroStageAt = React.useCallback(
+    (i: number) => (el: HTMLDivElement | null) => {
+      heroStages.current[i] = el;
+    },
+    [],
+  );
+  const heroTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set synchronously by celebrate(), so the idle branch below does not yank
+  // the bag down in the same commit that the run finished — the success has a
+  // second of its own up there before the snap.
+  const heroHoldRef = React.useRef(false);
+  const placeHero = React.useCallback(() => {
+    const el = heroStages.current.find((n) => n && n.offsetParent !== null) ?? null;
+    if (!el) return;
+    // Measure against the untransformed box so repeated calls do not compound.
+    const prev = el.style.transform;
+    el.style.transform = "none";
+    const r = el.getBoundingClientRect();
+    el.style.transform = prev;
+    const dx = window.innerWidth / 2 - (r.left + r.width / 2);
+    const dy = window.innerHeight / 2 - (r.top + r.height / 2);
+    el.style.setProperty("--gb-hero-x", `${Math.round(dx)}px`);
+    el.style.setProperty("--gb-hero-y", `${Math.round(dy)}px`);
+    el.style.setProperty("--gb-hero-k", String(HERO_SCALE));
+  }, []);
+  React.useEffect(() => {
+    if (!hero) return;
+    placeHero();
+    let raf: number | null = null;
+    const onMove = () => {
+      if (raf != null) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        placeHero();
+      });
+    };
+    window.addEventListener("scroll", onMove, { passive: true });
+    window.addEventListener("resize", onMove);
+    return () => {
+      if (raf != null) cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onMove);
+      window.removeEventListener("resize", onMove);
+    };
+  }, [hero, placeHero]);
+  React.useEffect(
+    () => () => {
+      if (heroTimer.current) clearTimeout(heroTimer.current);
+    },
+    [],
+  );
+
+  // The success flourish rests for a beat instead of snapping back, so the
+  // moment is legible; the fanfare resolves inside the same window.
+  const [justDone, setJustDone] = React.useState(false);
+  const doneTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const celebrate = React.useCallback(() => {
+    setJustDone(true);
+    // The bag's own flourish, fired at the same instant as the button's: a
+    // mini burst out of the mouth, and the Gnars mark printed onto the cloth.
+    // Both engines are told; the parked one takes the end state silently.
+    // Seal BEFORE clearAll() lands: the selection is about to empty, and
+    // without this the reconcile effect would read that as a deselect and
+    // throw every coin back out of the bag.
+    bagSealedRef.current = true;
+    bagDesktop.celebrate();
+    bagMobile.celebrate();
+    // The burst plays up there, then it drops back. The user asked for a snap,
+    // so the return has no transition — see .gb-stage--hero in globals.css.
+    heroHoldRef.current = true;
+    if (heroTimer.current) clearTimeout(heroTimer.current);
+    heroTimer.current = setTimeout(() => {
+      heroHoldRef.current = false;
+      setHero(false);
+      // The engine must learn the bag is small again, or its bag-local->screen
+      // maths stays scaled and the next burst fires off to one side.
+      bagDesktop.setView(1);
+      bagMobile.setView(1);
+      // Three seconds up there: the burst, the mark landing, and a beat to
+      // actually look at it before the snap.
+    }, 3000);
+    // The jingle lands with the burst: its ascending run resolves onto the held
+    // chord at ~630ms, inside the burst's own 620ms, so the two read as one
+    // event rather than as a sound that arrives after the picture.
+    audio.fanfare();
+    if (doneTimer.current) clearTimeout(doneTimer.current);
+    doneTimer.current = setTimeout(() => setJustDone(false), 3200);
+  }, [bagDesktop, bagMobile, audio]);
+  React.useEffect(
+    () => () => {
+      if (doneTimer.current) clearTimeout(doneTimer.current);
+    },
+    [],
+  );
+
+  const runSteps = mockRunning || mockSteps.length ? mockSteps : steps;
+  const ctaProgress = busy
+    ? runSteps.length
+      ? runSteps.filter((st) => st.status === "done").length / runSteps.length
+      : 0
+    : null;
+
+  // The bag gathers power in step with the run: `ctaProgress` is the fraction
+  // of steps done, or null when nothing is running. Both engines are driven —
+  // the parked one costs nothing (its wake() is a no-op) and is then already
+  // correct if the breakpoint changes mid-run.
+  const runningRef = React.useRef(false);
+  React.useEffect(() => {
+    if (ctaProgress === null) {
+      runningRef.current = false;
+      bagDesktop.setCharge(0);
+      bagMobile.setCharge(0);
+      // A run that ENDED WITHOUT SUCCEEDING has no celebration to hold the bag
+      // up, and nothing else would ever bring it down: it would float over a
+      // dimmed page for good. Only a live celebration keeps it aloft.
+      if (!heroHoldRef.current) {
+        setHero(false);
+        bagDesktop.setView(1);
+        bagMobile.setView(1);
+      }
+      return;
+    }
+    if (!runningRef.current) {
+      // A fresh run wipes the previous celebration, so a second migration gets
+      // its own burst rather than starting already branded.
+      runningRef.current = true;
+      bagDesktop.resetCelebration();
+      bagMobile.resetCelebration();
+    }
+    bagDesktop.setCharge(ctaProgress);
+    bagMobile.setCharge(ctaProgress);
+    setHero(true);
+    bagDesktop.setView(HERO_SCALE);
+    bagMobile.setView(HERO_SCALE);
+  }, [ctaProgress, bagDesktop, bagMobile]);
+
   const primaryCta = (
-    <PrimaryCta label={ctaLabel} disabled={ctaDisabled} onClick={() => void run(live)} />
+    <PrimaryCta
+      label={ctaLabel}
+      disabled={ctaDisabled}
+      onClick={() => void run(live)}
+      progress={ctaProgress}
+      done={justDone}
+      doneLabel={t("preview.doneCta")}
+    />
   );
 
   const coinsElsewhereHint =
@@ -234,25 +1016,58 @@ export function MigrationWidget() {
       : undefined;
 
   return (
-    <>
+    // `relative` + the two flight canvases below: this element is the engines'
+    // shared root, and the flight canvases are page-sized overlays on it (the
+    // prototype's `.root` + `.flightcanvas`). The bag stages keep only their
+    // own `overflow:hidden` bag canvas.
+    <div ref={bagRootRef} className="relative">
       <div className="grid items-start gap-6 lg:grid-cols-12">
         {/* Destination first in the DOM: on mobile the deposit is never below
             the fold. On desktop it is placed back on the right by column start. */}
-        <section className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-20 lg:col-span-5 lg:col-start-8 lg:row-start-1">
-          <ColumnHeading title={t("receipt.title")} hint={t("receipt.hint")} />
+        <section
+          className={cn(
+            "flex min-w-0 flex-col gap-4 lg:sticky lg:top-20 lg:col-span-5 lg:col-start-8 lg:row-start-1",
+            // `lg:sticky` makes this a stacking context, so the bag's z-index
+            // is trapped inside it and the page-level scrim paints over the
+            // whole column. Raising the column itself is what lets the bag sit
+            // above the blur; `gb-lift` then fades everything in it except the
+            // bag, so the column does not simply escape the dim as a bright
+            // rectangle.
+            hero && "gb-lift",
+          )}
+        >
+          <ColumnHeading
+            title={t("receipt.title")}
+            hint={bagLive ? t("bag.headHintLive") : t("bag.headHintEmpty")}
+          />
 
-          <Card className="gap-0 overflow-hidden p-0">
+          <Card
+            className={cn("gap-0 p-0", hero ? "gb-liftcard overflow-visible" : "overflow-hidden")}
+          >
+            {isConnected && (
+              <div ref={heroStageAt(0)} className={cn("hidden lg:block", hero && "gb-hero")}>
+                <BagStage
+                  variant="desktop"
+                  bag={bagDesktop}
+                  action={bagMuteToggle}
+                  {...bagStageProps}
+                />
+              </div>
+            )}
+
             {isConnected && (
               <Receipt
-                walletValue={wallet.data?.value}
-                walletLoading={wallet.isLoading}
-                walletError={wallet.isError}
+                walletValue={walletContribution}
+                walletOn={walletOn}
+                walletPct={walletPct}
+                walletLoading={demo ? false : wallet.isLoading}
+                walletError={demo ? false : wallet.isError}
                 gasReserve={gasReserve}
                 zoraCount={selectedZora.length}
                 zoraEthOut={zoraEthOut}
                 oldGnarsIncluded={includeOldGnars}
                 oldGnarsEthOut={oldGnarsEthOut}
-                available={usableWallet + totalEthOut}
+                available={walletContribution + selectedEthOut}
                 quotesLoading={quotesLoading}
                 failedCount={failedCount}
                 onRetryQuotes={refetchFailed}
@@ -263,6 +1078,11 @@ export function MigrationWidget() {
               <div className="space-y-3 border-b p-5">
                 {hasSelection && (
                   <div className="space-y-3">
+                    {mockRun && (
+                      <p className="rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-2 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                        {t("preview.simulated")}
+                      </p>
+                    )}
                     {primaryCta}
                     {live && (
                       <div className="text-center">
@@ -301,7 +1121,7 @@ export function MigrationWidget() {
                         <RouteMap coins={selectedCoins} />
                       </Disclosure>
                     </div>
-                    {steps.length > 0 && <StepList steps={steps} />}
+                    {runSteps.length > 0 && <StepList steps={runSteps} />}
                     {lastResult?.depositFailed && (
                       <ErrorNote>
                         <span>
@@ -316,8 +1136,8 @@ export function MigrationWidget() {
 
                 <DepositPanel
                   position={position}
-                  walletValue={wallet.data?.value}
-                  walletError={wallet.isError}
+                  walletValue={walletWei}
+                  walletError={demo ? false : wallet.isError}
                   refetchWallet={() => void wallet.refetch()}
                   usableWallet={usableWallet}
                   gasReserve={gasReserve}
@@ -358,50 +1178,121 @@ export function MigrationWidget() {
           ) : (
             <>
               <EthRow
-                value={wallet.data?.value}
-                loading={wallet.isLoading}
-                error={wallet.isError}
+                value={walletWei}
+                loading={demo ? false : wallet.isLoading}
+                error={demo ? false : wallet.isError}
+                on={walletOn}
+                pct={walletPct}
+                contribution={walletContribution}
+                onToggle={() => setWalletOn((v) => !v)}
+                onPct={setWalletPct}
               />
 
-              <OldGnarsRow
-                position={oldGnars}
-                included={includeOldGnars}
-                onIncludedChange={setIncludeOldGnars}
-                amount={oldGnarsAmount}
-                onAmountChange={setOldGnarsAmount}
-              />
+              {/* Reads a balance for an address that does not exist in demo
+                  mode, so it would render only its own error card. */}
+              {!demo && (
+                <OldGnarsRow
+                  position={oldGnars}
+                  included={includeOldGnars}
+                  onIncludedChange={setOldGnarsIncluded}
+                  amount={oldGnarsAmount}
+                  onAmountChange={setOldGnarsAmount}
+                  avatarRef={bagAvatarRef}
+                />
+              )}
 
               <HoldingsList
-                coins={coins}
-                isLoading={isLoading}
-                isError={isError}
+                title={t("hold.zoraTitle")}
+                coins={zoraCoins}
+                isLoading={demo ? false : isLoading}
+                isError={demo ? false : isError}
+                errorMessage={t("holdingsError")}
                 coinsElsewhereHint={coinsElsewhereHint}
                 onRetry={() => void refetch()}
                 selected={selected}
                 quoteByAddr={quoteByAddr}
                 onToggle={toggle}
-                quotesLoading={quotesLoading}
                 unroutableCount={unroutableSelected.length}
                 onSelectAll={selectAll}
                 onClearAll={clearAll}
                 onDeselectUnroutable={deselectUnroutable}
+                avatarRef={bagAvatarRef}
               />
+
+              {/* Second source, and never folded into the one above: these came
+                  from a scan of the wallet, not from Zora's curated indexer.
+                  Own card, own heading, own per-row badge. */}
+              {MIGRATE_WALLET_TOKENS_ENABLED && !demo && (
+                <HoldingsList
+                  title={t("hold.walletTitle")}
+                  subtitle={t("hold.walletHint")}
+                  badgeLabel={t("hold.walletBadge")}
+                  coins={walletTokens}
+                  isLoading={walletIsLoading || (walletPricing && walletTokens.length === 0)}
+                  isError={walletIsError}
+                  errorMessage={t("hold.walletError")}
+                  onRetry={() => void walletRefetch()}
+                  hideWhenEmpty
+                  allowSelectAll={false}
+                  footnote={
+                    walletHiddenCount > 0 && !walletPricing
+                      ? t("hold.walletHidden", {
+                          count: walletHiddenCount,
+                          min: `$${MIN_WALLET_TOKEN_USD}`,
+                        })
+                      : undefined
+                  }
+                  selected={selected}
+                  quoteByAddr={quoteByAddr}
+                  onToggle={toggle}
+                  unroutableCount={0}
+                  onSelectAll={selectAll}
+                  onClearAll={clearAll}
+                  onDeselectUnroutable={deselectUnroutable}
+                  avatarRef={bagAvatarRef}
+                />
+              )}
 
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <ShieldCheck className="mt-px size-3.5 shrink-0" />
-                {t("safetyHint")}
+                {MIGRATE_WALLET_TOKENS_ENABLED ? t("safetyHint") : t("safetyHintZoraOnly")}
               </p>
             </>
           )}
         </section>
       </div>
 
-      {isConnected && hasSelection && (
-        <div className="sticky bottom-0 z-30 border-t bg-background/90 py-3 backdrop-blur lg:hidden">
-          {primaryCta}
+      {/* Mounted for the whole connected session, exactly as the prototype's
+          bagbar is always present (Mobile.dc.html). Gating it on hasSelection
+          unmounted the engine in the same commit the recall was scheduled:
+          the coins-fly-back animation never played, and the engine kept a
+          stale pile that double-counted on the next pick. */}
+      {isConnected && (
+        <div
+          className={cn(
+            "sticky bottom-0 z-30 bg-background/90 backdrop-blur lg:hidden",
+            hero && "gb-lift gb-liftcard",
+          )}
+        >
+          <div ref={heroStageAt(1)} className={cn(hero && "gb-hero")}>
+            <BagStage variant="mobile" bag={bagMobile} action={bagMuteToggle} {...bagStageProps} />
+          </div>
+          <div className="py-3">{primaryCta}</div>
         </div>
       )}
-    </>
+
+      {hero && <div className="gb-scrim" aria-hidden="true" />}
+      <canvas
+        ref={attachDesktopFlight}
+        className={cn("gb-flightcanvas", hero && "gb-flightcanvas--hero")}
+        aria-hidden="true"
+      />
+      <canvas
+        ref={attachMobileFlight}
+        className={cn("gb-flightcanvas", hero && "gb-flightcanvas--hero")}
+        aria-hidden="true"
+      />
+    </div>
   );
 }
 
@@ -410,14 +1301,44 @@ function PrimaryCta({
   label,
   disabled,
   onClick,
+  progress,
+  done,
+  doneLabel,
 }: {
   label: string;
   disabled: boolean;
   onClick: () => void;
+  /** 0..1 across the run's steps, or null when nothing is running. */
+  progress?: number | null;
+  done?: boolean;
+  doneLabel?: string;
 }) {
   return (
-    <Button className="w-full" size="lg" disabled={disabled} onClick={onClick}>
-      {label}
+    <Button
+      className={cn("gb-cta relative w-full overflow-hidden", done && "gb-cta--done")}
+      size="lg"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {/* A spinner says "something is happening"; this says how far along it is,
+          which is the honest thing to show when the run is a known number of
+          steps. Width, not a marquee — a fake indeterminate bar would imply
+          progress we do not have. */}
+      {progress != null && (
+        <span
+          // Positioned with utilities, NOT the hand-written stylesheet: this
+          // element must be out of flow or it becomes a flex item and shoves
+          // the label sideways as it grows. Layout cannot depend on a rule
+          // that a stale CSS chunk can silently drop.
+          className="gb-cta__fill pointer-events-none absolute inset-y-0 left-0 z-0"
+          style={{ width: `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%` }}
+          aria-hidden="true"
+        />
+      )}
+      <span className="relative z-10 inline-flex items-center justify-center gap-2">
+        {done && <Check className="gb-cta__check size-4" aria-hidden="true" />}
+        {done && doneLabel ? doneLabel : label}
+      </span>
     </Button>
   );
 }
@@ -438,6 +1359,8 @@ function ColumnHeading({ title, hint }: { title: string; hint: string }) {
  */
 function Receipt({
   walletValue,
+  walletOn,
+  walletPct,
   walletLoading,
   walletError,
   gasReserve,
@@ -451,6 +1374,8 @@ function Receipt({
   onRetryQuotes,
 }: {
   walletValue: bigint | undefined;
+  walletOn: boolean;
+  walletPct: number;
   walletLoading: boolean;
   walletError: boolean;
   gasReserve: bigint;
@@ -468,7 +1393,15 @@ function Receipt({
 
   return (
     <div className="space-y-2.5 border-b p-5">
-      <ReceiptRow label={t("receipt.walletEth")}>
+      <ReceiptRow
+        label={
+          !walletOn
+            ? t("receipt.walletExcluded")
+            : walletPct < 100
+              ? t("receipt.walletEthPortion", { pct: walletPct })
+              : t("receipt.walletEth")
+        }
+      >
         {walletLoading ? (
           <Skeleton className="h-4 w-16" />
         ) : walletError || walletValue === undefined ? (
@@ -478,7 +1411,7 @@ function Receipt({
         )}
       </ReceiptRow>
 
-      {gasReserve > 0n && walletValue !== undefined && walletValue > 0n && (
+      {walletOn && gasReserve > 0n && walletValue !== undefined && walletValue > 0n && (
         <ReceiptRow label={t("receipt.gasReserve")}>
           {formatCoinAmount(gasReserve, 18, 4)}
         </ReceiptRow>
@@ -883,40 +1816,99 @@ function OtherAddressNotice({ position }: { position: UpgraderPosition }) {
   );
 }
 
-/** ETH already in the wallet: the one holding the migration takes as it is. */
+/** ETH already in the wallet. Unlike the coins it needs no trade, but the user
+ *  still chooses whether it goes in and how much of it — it is their money
+ *  sitting in their wallet, not something the page gets to volunteer. */
 function EthRow({
   value,
   loading,
   error,
+  on,
+  pct,
+  contribution,
+  onToggle,
+  onPct,
 }: {
   value: bigint | undefined;
   loading: boolean;
   error: boolean;
+  on: boolean;
+  pct: number;
+  contribution: bigint;
+  onToggle: () => void;
+  onPct: (pct: number) => void;
 }) {
   const t = useTranslations("migrate");
+  const readable = !loading && !error && value !== undefined && value > 0n;
   return (
-    <Card className="flex-row items-center gap-3 p-4">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
-        <Wallet className="size-4 text-muted-foreground" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium">{t("hold.ethTitle")}</div>
-        <div className="text-xs text-muted-foreground">{t("hold.ethReady")}</div>
-      </div>
-      <div className="text-right">
-        <div className="text-sm font-semibold tabular-nums">
-          {loading ? (
-            <Skeleton className="ml-auto h-4 w-20" />
-          ) : error || value === undefined ? (
-            <span className="text-xs font-normal text-muted-foreground">
-              {t("hold.unreadable")}
-            </span>
+    <Card className="gap-0 p-0">
+      <div
+        role="button"
+        tabIndex={readable ? 0 : -1}
+        aria-pressed={on}
+        aria-disabled={!readable}
+        onClick={readable ? onToggle : undefined}
+        onKeyDown={
+          readable
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onToggle();
+                }
+              }
+            : undefined
+        }
+        className={cn(
+          "flex flex-row items-center gap-3 p-4",
+          readable ? "cursor-pointer transition-colors hover:bg-accent" : "cursor-default",
+        )}
+      >
+        <Checkbox checked={on} disabled={!readable} tabIndex={-1} className="pointer-events-none" />
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
+          <Wallet className="size-4 text-muted-foreground" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">{t("hold.ethTitle")}</div>
+          <div className="text-xs text-muted-foreground">
+            {on ? t("hold.ethReady") : t("hold.ethExcluded")}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm font-semibold tabular-nums">
+            {loading ? (
+              <Skeleton className="ml-auto h-4 w-20" />
+            ) : error || value === undefined ? (
+              <span className="text-xs font-normal text-muted-foreground">
+                {t("hold.unreadable")}
+              </span>
+            ) : (
+              `${formatCoinAmount(on ? contribution : value, 18, 4)} ETH`
+            )}
+          </div>
+          {on ? (
+            <div className="text-xs text-emerald-600 dark:text-emerald-400">
+              {t("hold.accepted")}
+            </div>
           ) : (
-            `${formatCoinAmount(value, 18, 4)} ETH`
+            <div className="text-xs text-muted-foreground">{t("hold.ethNotCounted")}</div>
           )}
         </div>
-        <div className="text-xs text-emerald-600 dark:text-emerald-400">{t("hold.accepted")}</div>
       </div>
+      {on && readable && (
+        <div className="flex flex-wrap items-center gap-2 border-t px-4 py-3">
+          <span className="text-xs text-muted-foreground">{t("hold.ethPortion")}</span>
+          {OLD_GNARS_PORTIONS.map((p) => (
+            <Button
+              key={p.pct}
+              variant={pct === p.pct ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => onPct(p.pct)}
+            >
+              {t(p.labelKey)}
+            </Button>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -925,6 +1917,7 @@ function EthRow({
 function oldGnarsAsCoin(balance: bigint): MigratableCoin {
   return {
     address: GNARS_CREATOR_COIN,
+    source: "zora",
     symbol: "$GNARS",
     name: "Gnars (old)",
     decimals: 18,
@@ -958,12 +1951,18 @@ function OldGnarsRow({
   onIncludedChange,
   amount,
   onAmountChange,
+  avatarRef,
 }: {
   position: ReturnType<typeof useOldGnarsPosition>;
   included: boolean;
   onIncludedChange: (v: boolean) => void;
   amount: string;
   onAmountChange: (v: string) => void;
+  /** Registers a token id's avatar element as its launch origin (same shape
+   *  as HoldingsList's, called here — `ref={avatarRef(id)}` — rather than by
+   *  the parent, matching the one call-expression shape the react-hooks/refs
+   *  rule does not flag: see HoldingsList's own use of it below). */
+  avatarRef: (tokenId: string) => (el: HTMLElement | null) => void;
 }) {
   const t = useTranslations("migrate");
 
@@ -1034,7 +2033,10 @@ function OldGnarsRow({
           aria-label={t("oldGnars.include")}
           onCheckedChange={(v) => onIncludedChange(v === true)}
         />
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-yellow-400 text-xs font-bold text-black">
+        <span
+          ref={avatarRef(OLD_GNARS_KEY)}
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-yellow-400 text-xs font-bold text-black"
+        >
           G
         </span>
         <div className="min-w-0 flex-1">
@@ -1237,6 +2239,13 @@ function CoinAvatar({ src, symbol }: { src: string | null; symbol: string }) {
 }
 
 function HoldingsList({
+  title,
+  subtitle,
+  badgeLabel,
+  footnote,
+  hideWhenEmpty = false,
+  allowSelectAll = true,
+  errorMessage,
   coins,
   isLoading,
   isError,
@@ -1245,12 +2254,26 @@ function HoldingsList({
   selected,
   quoteByAddr,
   onToggle,
-  quotesLoading,
   unroutableCount,
   onSelectAll,
   onClearAll,
   onDeselectUnroutable,
+  avatarRef,
 }: {
+  /** Heading for this source. The two sources never share a card. */
+  title: string;
+  /** One line saying what this source is, when it is not self-evident. */
+  subtitle?: string;
+  /** Per-row marker, so a row is identifiable as this source on its own. */
+  badgeLabel?: string;
+  /** Shown under the rows — e.g. how many were filtered out and why. */
+  footnote?: string;
+  /** An empty curated list is news; an empty scan is not, so it can vanish. */
+  hideWhenEmpty?: boolean;
+  /** Off for uncurated sources: bulk-selecting tokens nobody vetted is the
+   *  exact mistake the spam filter exists to prevent. */
+  allowSelectAll?: boolean;
+  errorMessage: string;
   coins: MigratableCoin[];
   isLoading: boolean;
   isError: boolean;
@@ -1260,13 +2283,13 @@ function HoldingsList({
   selected: Set<string>;
   quoteByAddr: Map<string, CoinQuote>;
   onToggle: (addr: string) => void;
-  /** True while any selected coin is still being quoted. */
-  quotesLoading: boolean;
   /** Selected coins with no route or a failed quote. */
   unroutableCount: number;
   onSelectAll: () => void;
   onClearAll: () => void;
   onDeselectUnroutable: () => void;
+  /** Registers a coin row's avatar element as that coin's launch origin. */
+  avatarRef: (tokenId: string) => (el: HTMLElement | null) => void;
 }) {
   const t = useTranslations("migrate");
 
@@ -1286,7 +2309,7 @@ function HoldingsList({
     return (
       <Card className="p-5">
         <ErrorNote>
-          <span>{t("holdingsError")}</span>
+          <span>{errorMessage}</span>
           <Button variant="outline" size="sm" className="ml-auto gap-1" onClick={onRetry}>
             <RefreshCw className="size-3" /> {t("deposit.retry")}
           </Button>
@@ -1296,6 +2319,7 @@ function HoldingsList({
   }
 
   if (coins.length === 0) {
+    if (hideWhenEmpty) return null;
     return (
       <Card className="space-y-2 p-10 text-center text-sm text-muted-foreground">
         <p>{t("noCoins")}</p>
@@ -1305,26 +2329,40 @@ function HoldingsList({
   }
 
   const selectedCount = coins.filter((c) => selected.has(c.address.toLowerCase())).length;
+  // A coin is only pickable once its own ETH value is on screen, so "Select
+  // all" — which picks every coin at once — waits for the last of them.
+  const anyQuotePending = coins.some((c) => !quoteByAddr.has(c.address.toLowerCase()));
 
   return (
     <Card className="gap-0 overflow-hidden p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-medium">{t("hold.zoraTitle")}</span>
-          <span className="text-xs text-muted-foreground">
-            {unroutableCount > 0
-              ? t("hold.selectedCountNoRoute", {
-                  selected: selectedCount,
-                  total: coins.length,
-                  noRoute: unroutableCount,
-                })
-              : t("hold.selectedCount", { selected: selectedCount, total: coins.length })}
-          </span>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-medium">{title}</span>
+            <span className="text-xs text-muted-foreground">
+              {unroutableCount > 0
+                ? t("hold.selectedCountNoRoute", {
+                    selected: selectedCount,
+                    total: coins.length,
+                    noRoute: unroutableCount,
+                  })
+                : t("hold.selectedCount", { selected: selectedCount, total: coins.length })}
+            </span>
+          </div>
+          {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onSelectAll}>
-            {t("selectAll")}
-          </Button>
+          {allowSelectAll && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onSelectAll}
+              disabled={anyQuotePending}
+              title={anyQuotePending ? t("hold.pricingAll") : undefined}
+            >
+              {t("selectAll")}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -1347,33 +2385,60 @@ function HoldingsList({
           const quote = quoteByAddr.get(key);
           const noRoute = quote?.status === "no-route";
           const quoteFailed = quote?.status === "quote-failed";
-          // A selected coin with no quote yet is still being priced: a skeleton,
-          // never a blank that reads as "nothing to get".
-          const quotePending = isChecked && quote === undefined && quotesLoading;
+          // Every coin is quoted up front, so the value shows whether or not the
+          // coin is picked — and a coin with no value yet is still being priced:
+          // a skeleton, never a blank that reads as "nothing to get".
+          const quotePending = quote === undefined;
           return (
             <li key={key}>
               {/* A div, not a button: the Checkbox is itself a button and buttons
                   cannot nest. Keyboard reachable via tabIndex + Enter/Space. */}
+              {/* Until this coin has a price it cannot be picked: the bag sizes
+                  its flight from that value. Non-interactive for real — no
+                  handlers and out of the tab order, not merely
+                  `pointer-events-none`, which a keyboard would walk straight
+                  past. */}
               <div
                 role="button"
-                tabIndex={0}
+                tabIndex={quotePending ? -1 : 0}
                 aria-pressed={isChecked}
-                onClick={() => onToggle(coin.address)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onToggle(coin.address);
-                  }
-                }}
+                aria-disabled={quotePending || undefined}
+                title={quotePending ? t("hold.pricing") : undefined}
+                onClick={quotePending ? undefined : () => onToggle(coin.address)}
+                onKeyDown={
+                  quotePending
+                    ? undefined
+                    : (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onToggle(coin.address);
+                        }
+                      }
+                }
                 className={cn(
-                  "flex w-full cursor-pointer items-center gap-3 p-3 text-left transition-colors hover:bg-accent",
+                  "flex w-full items-center gap-3 p-3 text-left transition-colors",
+                  quotePending ? "cursor-default opacity-50" : "cursor-pointer hover:bg-accent",
                   noRoute && "opacity-60",
                 )}
               >
-                <Checkbox checked={isChecked} tabIndex={-1} className="pointer-events-none" />
-                <CoinAvatar src={coin.logoUrl} symbol={coin.symbol} />
+                <Checkbox
+                  checked={isChecked}
+                  disabled={quotePending}
+                  tabIndex={-1}
+                  className="pointer-events-none"
+                />
+                <span ref={avatarRef(key)} className="inline-flex shrink-0">
+                  <CoinAvatar src={coin.logoUrl} symbol={coin.symbol} />
+                </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{coin.name}</div>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm font-medium">{coin.name}</span>
+                    {badgeLabel && (
+                      <span className="shrink-0 rounded border px-1 py-px text-[10px] font-medium uppercase leading-tight text-muted-foreground">
+                        {badgeLabel}
+                      </span>
+                    )}
+                  </div>
                   <div className="truncate text-xs tabular-nums text-muted-foreground">
                     {formatCoinAmount(BigInt(coin.balance), coin.decimals)}
                   </div>
@@ -1404,6 +2469,7 @@ function HoldingsList({
           );
         })}
       </ul>
+      {footnote && <p className="border-t p-3 text-xs text-muted-foreground">{footnote}</p>}
     </Card>
   );
 }

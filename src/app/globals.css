@@ -419,6 +419,360 @@
   margin: 0.75rem 0;
 }
 
+/* Bag stage — CTA canvas-physics feature (BagStage desktop / BagBar mobile).
+   Ported verbatim from the migrate-design prototype: `_bagcore.js` is the
+   renderer/physics solver, `Main.dc.html` is the desktop artboard, and
+   `Mobile.dc.html` is the phone artboard. Every rule below is namespaced
+   `gb-` — two real bugs in the original prototype came from unscoped class
+   names (`.sep`, `.dot`) colliding with sitewide classes, so this prefix is
+   a correctness requirement, not tidiness. The state/animation modifiers the
+   ported logic emits as strings — `digpt`, `ro-a`, `ro-b`, `live` — stay
+   unprefixed on purpose (that's what the TS writes) but are always scoped
+   under a `gb-` parent selector here, never bare. */
+
+/* Desktop stage (BagStage) */
+.gb-stage {
+  position: relative;
+  padding: 0 20px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.gb-stage__glow {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 380px;
+  height: 300px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 46%,
+    rgba(240, 169, 44, 0.24) 0%,
+    rgba(240, 169, 44, 0.07) 42%,
+    rgba(240, 169, 44, 0) 70%
+  );
+}
+.dark .gb-stage__glow {
+  background: radial-gradient(
+    ellipse at 50% 46%,
+    rgba(255, 193, 74, 0.2) 0%,
+    rgba(255, 164, 36, 0.07) 40%,
+    rgba(255, 164, 36, 0) 70%
+  );
+}
+.gb-stage.live .gb-stage__glow {
+  opacity: 1;
+}
+.gb-stage__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--foreground) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--foreground) 6%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 30px 30px;
+  mask-image: radial-gradient(ellipse at 50% 76%, #000 0%, transparent 64%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 76%, #000 0%, transparent 64%);
+}
+.gb-stage.live .gb-stage__grid {
+  opacity: 1;
+}
+
+.gb-bagcanvas {
+  position: relative;
+  display: block;
+}
+.gb-flightcanvas {
+  position: absolute;
+  inset: 0;
+  /* A canvas is replaced content, so `inset: 0` only positions it — it does
+     not stretch it the way it would a div, and the element would sit at its
+     intrinsic 300x150 until the engine mounts. fitCanvas() sets an inline
+     width/height from the root's size and wins over this; these two are only
+     the pre-mount fallback, so the overlay is never smaller than the page. */
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+}
+
+.gb-bagcap {
+  margin-top: -18px;
+  text-align: center;
+  position: relative;
+}
+.gb-bagcap .gb-amt {
+  font-family: var(--font-oswald), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 52px;
+  line-height: 56px;
+  font-weight: 600;
+  letter-spacing: 0.004em;
+  display: block;
+  white-space: nowrap;
+}
+.gb-bagcap .gb-amt .gb-u {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-text-fill-color: var(--muted-foreground);
+  color: var(--muted-foreground);
+  font-size: 17px;
+  font-weight: 600;
+  margin-left: 6px;
+  letter-spacing: 0;
+  filter: none;
+}
+.gb-bagcap .gb-lab {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-top: 3px;
+}
+.gb-bagcap .gb-sub {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-top: 8px;
+  min-height: 15px;
+  transition: opacity 0.4s ease;
+}
+
+/* Mobile bag band (BagBar), pinned above the sell CTA */
+.gb-bagbar {
+  position: relative;
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  overflow: hidden;
+  z-index: 20;
+  box-shadow: 0 -10px 24px -14px rgba(0, 0, 0, 0.7);
+}
+.gb-bagbar__glow {
+  position: absolute;
+  left: 24%;
+  top: 6px;
+  width: 260px;
+  height: 240px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    rgba(255, 193, 74, 0.22) 0%,
+    rgba(255, 164, 36, 0) 66%
+  );
+}
+.gb-bagbar.live .gb-bagbar__glow {
+  opacity: 1;
+}
+.gb-bagbar__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--foreground) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--foreground) 6%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 26px 26px;
+  mask-image: radial-gradient(ellipse at 24% 58%, #000 0%, transparent 62%);
+  -webkit-mask-image: radial-gradient(ellipse at 24% 58%, #000 0%, transparent 62%);
+}
+.gb-bagbar.live .gb-bagbar__grid {
+  opacity: 1;
+}
+.gb-bagbar__inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 4px;
+}
+.gb-bagbar .gb-bagcanvas {
+  display: block;
+  flex: none;
+}
+
+.gb-cap {
+  min-width: 0;
+  flex: 1;
+}
+.gb-cap .gb-amt {
+  font-family: var(--font-oswald), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 42px;
+  line-height: 46px;
+  font-weight: 600;
+  letter-spacing: 0.004em;
+  display: block;
+  white-space: nowrap;
+}
+.gb-cap .gb-amt .gb-u {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-text-fill-color: var(--muted-foreground);
+  color: var(--muted-foreground);
+  font-size: 14px;
+  font-weight: 600;
+  margin-left: 6px;
+  letter-spacing: 0;
+  filter: none;
+}
+.gb-cap .gb-lab {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+}
+.gb-cap .gb-sub {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-top: 10px;
+  line-height: 15px;
+}
+
+/* Digit styling — identical markup/rules in both artboards, so declared once.
+   `.digpt` / `.ro-a` / `.ro-b` are the ported render logic's state modifiers;
+   they're always applied under a `.gb-bagcap` or `.gb-cap` parent above, so
+   they intentionally stay unprefixed rather than becoming `.gb-digpt` etc. */
+.gb-bagcap .gb-dig,
+.gb-cap .gb-dig {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings:
+    "tnum" 1,
+    "lnum" 1;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.18) 0 1px,
+      rgba(255, 255, 255, 0) 1px 3px
+    ),
+    linear-gradient(
+      176deg,
+      #7a5c14 0%,
+      #b9913c 22%,
+      #6b5012 44%,
+      #c9a44e 56%,
+      #7c5d15 78%,
+      #a8842f 100%
+    );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+  will-change: transform;
+}
+.dark .gb-bagcap .gb-dig,
+.dark .gb-cap .gb-dig {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.13) 0 1px, rgba(0, 0, 0, 0) 1px 3px),
+    linear-gradient(
+      176deg,
+      #fff9e6 0%,
+      #ffe7ab 20%,
+      #f2c163 42%,
+      #fff4d6 56%,
+      #dfa94f 78%,
+      #fff7e0 100%
+    );
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55));
+}
+.gb-bagcap .gb-dig.digpt,
+.gb-cap .gb-dig.digpt {
+  width: 0.34em;
+  height: auto;
+  border-radius: 0;
+  background-color: transparent;
+}
+/* Two names for one animation, on purpose. A CSS animation restarts only
+   when its computed animation-name changes — swapping between two classes
+   that resolve to the SAME name leaves the finished animation in place and
+   nothing replays. That was the bug: the first change animated, every one
+   after it silently did not. */
+.gb-bagcap .gb-dig.ro-a,
+.gb-cap .gb-dig.ro-a {
+  animation:
+    rollDigitA 440ms cubic-bezier(0.22, 1, 0.36, 1) both,
+    rollStrikeA 620ms ease-out both;
+}
+.gb-bagcap .gb-dig.ro-b,
+.gb-cap .gb-dig.ro-b {
+  animation:
+    rollDigitB 440ms cubic-bezier(0.22, 1, 0.36, 1) both,
+    rollStrikeB 620ms ease-out both;
+}
+@keyframes rollDigitA {
+  0% {
+    transform: translateY(0.46em) scaleY(0.76);
+    opacity: 0;
+  }
+  36% {
+    opacity: 1;
+  }
+  74% {
+    transform: translateY(-0.05em) scaleY(1.06);
+  }
+  100% {
+    transform: translateY(0) scaleY(1);
+    opacity: 1;
+  }
+}
+@keyframes rollDigitB {
+  0% {
+    transform: translateY(0.46em) scaleY(0.76);
+    opacity: 0;
+  }
+  36% {
+    opacity: 1;
+  }
+  74% {
+    transform: translateY(-0.05em) scaleY(1.06);
+  }
+  100% {
+    transform: translateY(0) scaleY(1);
+    opacity: 1;
+  }
+}
+@keyframes rollStrikeA {
+  0% {
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55)) brightness(2.6);
+  }
+  100% {
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55)) brightness(1);
+  }
+}
+@keyframes rollStrikeB {
+  0% {
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55)) brightness(2.6);
+  }
+  100% {
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55)) brightness(1);
+  }
+}
+
 /* WCAG 2.3.3 — honor user's reduced-motion preference for CSS animations
    and transitions. JS-driven motion (Framer Motion, GSAP, Three.js) should
    additionally consult `useReducedMotion()` or `matchMedia` when needed. */
@@ -431,4 +785,121 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ---- migrate: the primary CTA's run + completion ---- */
+/* A run has a known number of steps, so the button fills rather than spins.
+   The `gb-` prefix is not decoration: two bugs in this feature came from
+   unprefixed names colliding with unrelated rules elsewhere in this file. */
+/* Position lives on the element as Tailwind utilities — see PrimaryCta. Only
+   the paint and the easing are here, so a dropped rule can never break layout. */
+.gb-cta__fill {
+  background: color-mix(in oklab, var(--primary-foreground) 22%, transparent);
+  transition: width 380ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.gb-cta--done {
+  animation: gbCtaDone 620ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.gb-cta--done .gb-cta__check {
+  animation: gbCtaCheck 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes gbCtaDone {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 14px transparent;
+  }
+}
+@keyframes gbCtaCheck {
+  0% {
+    transform: scale(0.2) rotate(-18deg);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gb-cta__fill {
+    transition: none;
+  }
+  .gb-cta--done,
+  .gb-cta--done .gb-cta__check {
+    animation: none;
+  }
+}
+
+/* ---- migrate: the hero lift ---- */
+/* While the deposit runs, the bag floats to the middle of a dimmed page and
+   plays its burst there. It is TRANSLATED rather than `position: fixed` so it
+   never leaves the flow — taking it out would collapse the card behind the
+   scrim and shift the page under the user. The offsets are measured in JS and
+   arrive as custom properties. */
+.gb-hero {
+  position: relative;
+  z-index: 80;
+  transform: translate3d(var(--gb-hero-x, 0), var(--gb-hero-y, 0), 0) scale(var(--gb-hero-k, 1));
+  transition:
+    transform 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 460ms ease;
+  filter: drop-shadow(0 24px 48px rgba(0, 0, 0, 0.55));
+  will-change: transform;
+}
+/* The return is a SNAP, as asked: the transition lives only on the hero class,
+   so removing it leaves nothing to animate back. */
+
+.gb-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: color-mix(in oklab, var(--background) 82%, transparent);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+  animation: gbScrimIn 460ms ease both;
+}
+@keyframes gbScrimIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The sparks live on the page-sized flight canvas at z-60, which the scrim
+   would otherwise bury. Lift it over both while the bag is up. */
+.gb-flightcanvas--hero {
+  z-index: 90;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gb-hero {
+    transition: none;
+  }
+  .gb-scrim {
+    animation: none;
+  }
+}
+
+/* The lifted column. Its own stacking context is what buried the bag under the
+   scrim, so it is raised above it — and then everything in it EXCEPT the bag
+   is faded out, otherwise the column escapes the dim as a bright rectangle
+   and the bag no longer reads as floating alone. */
+.gb-lift {
+  position: relative;
+  z-index: 85;
+}
+.gb-lift > *:not(.gb-liftcard),
+.gb-liftcard > *:not(.gb-hero) {
+  opacity: 0;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+}
+.gb-liftcard {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }

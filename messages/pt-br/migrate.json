@@ -21,7 +21,8 @@
   },
   "noCoins": "Nenhuma coin da Zora migrável encontrada nesta carteira.",
   "holdingsError": "Não foi possível carregar suas coins da Zora. Nada é presumido. Tente de novo.",
-  "safetyHint": "Apenas coins da Zora verificadas são exibidas; tokens não-Zora e de golpe/airdrop são filtrados.",
+  "safetyHint": "As moedas Zora vêm do indexador da própria Zora. Os tokens Base vêm de uma varredura da sua carteira: só entram na lista se a KyberSwap achar uma rota viva até ETH valendo pelo menos $1, e nunca vêm marcados automaticamente. Confira cada um antes de vender.",
+  "safetyHintZoraOnly": "Só moedas Zora, vindas do indexador da própria Zora. A varredura de outros tokens Base está desligada.",
   "selectAll": "Selecionar tudo",
   "clear": "Limpar",
   "route": {
@@ -33,7 +34,7 @@
     "slippageNote": "Pools rasos movem o preço em vendas grandes; a estimativa pode mudar antes da confirmação da transação.",
     "slippageDetails": "Cada coin tem sua própria margem de slippage, de 0,5% a 5%, definida por quanto a rota se move ao vender tudo.",
     "leftoverNote": "O depósito é o mínimo garantido da cotação de cada rota; o que vier acima disso fica na sua carteira como ETH.",
-    "migrateCta": "Vender {count} coins por ETH",
+    "migrateCta": "Vender {count, plural, one {# moeda} other {# moedas}} por ETH",
     "executing": "Processando…",
     "batchNote": "Uma assinatura: todas as vendas e o depósito rodam numa única transação com gas patrocinado.",
     "sequentialNote": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin, depois o depósito), e o gas é por sua conta. Entre as vendas e o depósito o ETH fica na sua carteira, e o depósito é uma transação à parte.",
@@ -42,8 +43,10 @@
     "batchNoteSellOnly": "Uma assinatura: todas as vendas rodam numa única transação com gas patrocinado.",
     "sequentialNoteSellOnly": "Sua carteira pode pedir até {count} assinaturas (approve, permit e swap por coin), e o gas é por sua conta.",
     "viaKyber": "{count} dessas coins a Zora não conseguiu rotear; a KyberSwap consegue, e será usada para elas.",
-    "sellAndDepositCta": "Vender {count} coins e depositar ≈{eth} ETH",
-    "sellOnlyLink": "Só vender por ETH e deixar na carteira"
+    "sellAndDepositCta": "Vender {count, plural, one {# moeda} other {# moedas}} e depositar ≈{eth} ETH",
+    "sellOnlyLink": "Só vender por ETH e deixar na carteira",
+    "doneCta": "Depósito concluído",
+    "simulated": "Execução simulada — nenhuma transação é enviada"
   },
   "deposit": {
     "live": "Depósitos abertos",
@@ -150,17 +153,37 @@
     "quoteFailed": "Cotação falhou",
     "selectedCountNoRoute": "{selected} de {total} selecionadas · {noRoute} sem rota",
     "deselectUnroutable": "Desmarcar sem rota",
-    "deselectUnroutableCount": "Desmarcar {count} sem rota"
+    "deselectUnroutableCount": "Desmarcar {count} sem rota",
+    "pricing": "Cotando…",
+    "pricingAll": "Aguardando a cotação de todas as moedas",
+    "ethExcluded": "Fora do total",
+    "ethNotCounted": "fora",
+    "ethPortion": "Quanto dele",
+    "walletTitle": "Tokens Base na sua carteira",
+    "walletHint": "Encontrados varrendo sua carteira, sem curadoria de ninguém. Confira cada um antes de vender.",
+    "walletBadge": "Carteira",
+    "walletError": "Não deu para varrer sua carteira atrás de outros tokens Base. As moedas Zora acima não foram afetadas.",
+    "walletHidden": "{count, plural, one {# outro token ficou de fora} other {# outros tokens ficaram de fora}}: sem rota até ETH, ou valendo menos de {min}."
   },
   "receipt": {
     "title": "Seu depósito na migração",
-    "hint": "Para onde tudo vai",
     "walletEth": "ETH na carteira",
     "coinsSold": "+ {count} coins da Zora, vendidas",
     "coinsNone": "+ coins da Zora, vendidas",
     "oldGnarsSold": "+ $gnars antigo, vendido",
     "nothingSelected": "Nada selecionado",
     "available": "Disponível para depositar",
-    "gasReserve": "− reserva de gas"
+    "gasReserve": "− reserva de gas",
+    "walletExcluded": "ETH na carteira (fora)",
+    "walletEthPortion": "ETH na carteira ({pct}%)"
+  },
+  "bag": {
+    "headHintLive": "enche conforme as moedas caem",
+    "headHintEmpty": "vazio até você escolher",
+    "breakdownSell": "{count} venda + {amount} ETH da sua carteira",
+    "breakdownSells": "{count} vendas + {amount} ETH da sua carteira",
+    "breakdownEmpty": "{amount} ETH da sua carteira · escolha uma moeda para somar",
+    "soundMute": "Silenciar o som do saquinho",
+    "soundUnmute": "Ativar o som do saquinho"
   }
 }
