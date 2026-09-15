@@ -10,7 +10,8 @@
       "subnetEarnings": "Ganhos da Subnet",
       "acrossAssets": "em {count} ativos",
       "auctionsSettled": "{count} leilões concluídos",
-      "morpheusClaims": "Morpheus · {count} resgates",
+      "morpheus": "Morpheus",
+      "morpheusMorClaimed": "Morpheus · {amount} MOR reivindicado",
       "defiUnavailable": "Posições DeFi ilegíveis — o total mostra só a carteira",
       "inWallet": "Em carteira",
       "inDefi": "Em DeFi"

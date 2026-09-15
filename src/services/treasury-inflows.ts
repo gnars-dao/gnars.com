@@ -495,7 +495,48 @@ export const loadTreasuryInflows = cache(async (): Promise<InflowPage> => {
 
 export interface SubnetEarnings {
   totalUsdc: number;
-  claimCount: number;
+  /** Total MOR claimed by the Gnars builder, when the Morpheus API responds. */
+  morClaimed: number | null;
+}
+
+const MORPHEUS_BUILDER_HISTORY_URL =
+  "https://dashboard.mor.org/api/builders/goldsky/0xf129111951997d1c386eb9b7de27d4c74490c42ad0ffbcb65e380d17f8a8ea3d/full?network=base";
+
+function readMorClaimed(payload: unknown): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const preferredKeys = new Set([
+    "morclaimed",
+    "totalmorclaimed",
+    "totalclaimed",
+    "claimedmor",
+    "totalrewards",
+    "rewardsclaimed",
+  ]);
+  const values: number[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+      if (preferredKeys.has(normalized)) {
+        const amount = typeof child === "number" ? child : Number(child);
+        if (Number.isFinite(amount)) values.push(amount);
+      } else {
+        visit(child);
+      }
+    }
+  };
+  visit(payload);
+  return values.length > 0 ? values[0] : null;
+}
+
+async function loadMorClaimed(): Promise<number | null> {
+  try {
+    const response = await fetch(MORPHEUS_BUILDER_HISTORY_URL, { next: { revalidate: 300 } });
+    if (!response.ok) return null;
+    return readMorClaimed(await response.json());
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -562,13 +603,11 @@ export const loadSubnetEarnings = cache(async (): Promise<SubnetEarnings | null>
       ),
     );
     let totalUsdc = 0;
-    let claimCount = 0;
     for (let i = 0; i < transfers.length; i += 1) {
       if (sources[i] !== "subnet") continue;
       totalUsdc += transfers[i].value;
-      claimCount += 1;
     }
-    return { totalUsdc, claimCount };
+    return { totalUsdc, morClaimed: await loadMorClaimed() };
   } catch {
     return null;
   }

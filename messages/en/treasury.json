@@ -10,7 +10,8 @@
       "subnetEarnings": "Subnet Earnings",
       "acrossAssets": "across {count} assets",
       "auctionsSettled": "{count} auctions settled",
-      "morpheusClaims": "Morpheus · {count} claims",
+      "morpheus": "Morpheus",
+      "morpheusMorClaimed": "Morpheus · {amount} MOR claimed",
       "defiUnavailable": "DeFi positions unreadable — the total shows the wallet only",
       "inWallet": "In wallet",
       "inDefi": "In DeFi"

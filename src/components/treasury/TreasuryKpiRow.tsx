@@ -155,7 +155,12 @@ export async function TreasuryKpiRow() {
           className="text-[var(--chart-2)]"
         />
       ),
-      note: subnet ? t("morpheusClaims", { count: subnet.claimCount }) : null,
+      note:
+        subnet?.morClaimed != null
+          ? t("morpheusMorClaimed", { amount: subnet.morClaimed.toLocaleString(locale) })
+          : subnet
+            ? t("morpheus")
+            : null,
       mark: <UsdcMark />,
     },
   ];
