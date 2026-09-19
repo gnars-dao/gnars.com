@@ -694,13 +694,20 @@ per-instance limits for a verified account-wide cap.
   `properties` and standard `attributes`. Inline JSON and fixed IPFS gateways are
   bounded; arbitrary HTTP metadata URLs are not fetched. Failed metadata reads
   return an error, not an empty trait set. Successful reads cache for five minutes.
-- `/api/marketplace/activity` provides paginated **OpenSea-indexed** sales,
-  transfers, mints and burns. It does not guarantee complete history for the
-  custom Gnars contract. A complete native sales ledger remains separate work.
-  Cursors and returned events are bound to the requested Base collection/token.
+- `/api/marketplace/activity` combines OpenSea-indexed sales/transfers/mints/burns
+  with finalized sales from the custom Gnars contract's native ledger. Each
+  source advances independently; cursors are bound to the Base collection/token
+  and native pagination pins the indexed upper block. The ordered merge retains
+  unconsumed positions, including an OpenSea page offset and content fingerprint;
+  a changed partially consumed provider page requires refreshing instead of
+  silently skipping records. A missing source is
+  reported explicitly with retry; partial results are never cached or presented
+  as an empty complete history. Both sources failing returns 503.
 - Sales retain their actual payment token and decimals. The UI suppresses a
   matching transfer only when the same transaction and parties have a sale,
-  including across pages. Transfers alone never imply a sale.
+  including across pages. Native sales supersede matching OpenSea summaries,
+  while distinct native log IDs remain separate. Transfers alone never imply a
+  sale. The native indexed block is linked so historical coverage is visible.
 - Collection filters use the complete, versioned snapshot described below, not
   the traits of currently visible cards. No rarity percentages are inferred.
 
@@ -759,13 +766,25 @@ Bundles, barter and ambiguous recipients retain raw data without an invented
 per-NFT price. Unknown ERC-20 symbols/decimals are not guessed. Matching malformed
 logs fail the scan instead of disappearing from coverage.
 
-This local backfill is not yet the public activity feed: database publication,
-scheduled catch-up and merged native/OpenSea pagination remain to be connected.
-It does not scan the canonical OpenSea Seaport or claim all wallet transfers.
-Local checkpoint files are not authoritative publication evidence. A future
-publisher must re-read every covered log range (not only verify saved events),
-or replace file import with transactional ingestion directly from the RPC;
-otherwise a manually removed event could leave a false completeness claim.
+The public ledger is populated separately, without trusting local event files:
+apply `scripts/marketplace-history-schema.sql`, then run
+`scripts/marketplace-history-sync.ts <deployment-tx> [steps] [blocks]` with an
+explicit `MARKETPLACE_MIGRATION_DATABASE_URL` and Base RPC. It verifies the
+creation receipt, reads contiguous finalized ranges directly from the RPC, and
+commits each range's events and checkpoint together. An advisory writer lock,
+compare-and-swap checkpoint and unique event keys prevent concurrent/duplicate
+ingestion. Errors roll back the complete range. A saved finalized target prevents
+an unfinished backfill from being reported as healthy empty history. Repeating the command resumes;
+it never imports the local JSON backfill. Runtime roles have SELECT only.
+
+The reader uses a consistent database snapshot and descending block/log keyset
+pagination. Native ETH and known Base WETH display their verified 18 decimals;
+other ERC-20 amounts remain in the raw ledger without guessed display metadata.
+Bundles and barter are preserved raw but are not projected as individual NFT
+sales. The native index covers the configured custom Seaport, not canonical
+OpenSea Seaport or unrelated wallet transfers. Catch-up still requires running
+the sync worker; automatic scheduling remains operational work. No browser
+action is responsible for ingesting a sale.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),

@@ -241,7 +241,7 @@ export default function MarketplaceDetail({
       }}
     >
       <DrawerContent
-        className="overflow-hidden shadow-2xl data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh] data-[vaul-drawer-direction=right]:w-[min(560px,100vw)] data-[vaul-drawer-direction=right]:sm:max-w-[560px] motion-reduce:!animate-none motion-reduce:!transition-none"
+        className="overflow-clip shadow-2xl data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh] data-[vaul-drawer-direction=right]:w-[min(560px,100vw)] data-[vaul-drawer-direction=right]:sm:max-w-[560px] motion-reduce:!animate-none motion-reduce:!transition-none"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           titleRef.current?.focus({ preventScroll: true });

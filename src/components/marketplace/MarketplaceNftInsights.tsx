@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ExternalLink, LoaderCircle, RefreshCw } from "lucide-react";
 import { formatUnits } from "viem";
 import { AddressDisplay } from "@/components/ui/address-display";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "@/i18n/navigation";
+import { MarketplaceApiError, parseMarketplaceApiError } from "@/lib/marketplace/errors";
 import {
   isNftInsightIdentity,
   marketplaceActivitySchema,
@@ -25,6 +26,7 @@ export function MarketplaceNftInsights({
 }) {
   const t = useTranslations("marketplace.insights");
   const locale = useLocale();
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState("traits");
   const collection = collectionAddress.toLowerCase();
   const traits = useQuery({
@@ -42,14 +44,16 @@ export function MarketplaceNftInsights({
     staleTime: 300_000,
     retry: 1,
   });
+  const activityKey = ["marketplace", "activity", collection, tokenId];
   const activity = useInfiniteQuery({
-    queryKey: ["marketplace", "activity", collection, tokenId],
+    queryKey: activityKey,
     initialPageParam: null as string | null,
     queryFn: async ({ signal, pageParam }) => {
       const params = new URLSearchParams({ collection, tokenId });
       if (pageParam) params.set("cursor", pageParam);
       const response = await fetch(`/api/marketplace/activity?${params}`, { signal });
-      if (!response.ok) throw new Error("Activity unavailable");
+      if (!response.ok)
+        throw parseMarketplaceApiError(await response.json().catch(() => null), response.status);
       const result = marketplaceActivitySchema.parse(await response.json());
       if (!isNftInsightIdentity(result, collection, tokenId))
         throw new Error("NFT identity mismatch");
@@ -58,9 +62,26 @@ export function MarketplaceNftInsights({
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: tab === "activity",
     staleTime: 60_000,
-    retry: 1,
+    retry: (count, error) =>
+      !(error instanceof MarketplaceApiError && error.code === "ACTIVITY_CURSOR_EXPIRED") &&
+      count < 1,
   });
+  const cursorExpired =
+    activity.error instanceof MarketplaceApiError &&
+    activity.error.code === "ACTIVITY_CURSOR_EXPIRED";
+  function retryActivity() {
+    if (cursorExpired) void queryClient.resetQueries({ queryKey: activityKey, exact: true });
+    else if (activity.isFetchNextPageError) void activity.fetchNextPage();
+    else void activity.refetch();
+  }
   const events = mergeNftActivity(activity.data?.pages.flatMap((page) => page.events) ?? []);
+  const pages = activity.data?.pages ?? [];
+  const combined = pages.some((page) => page.source === "combined");
+  const latestPage = pages.at(-1);
+  const coverage = latestPage?.coverage;
+  const unavailable = (["gnars", "opensea"] as const).filter(
+    (source) => latestPage?.sources?.[source].available === false,
+  );
 
   function errorState(message: string, retry: () => void, disabled: boolean) {
     return (
@@ -117,7 +138,30 @@ export function MarketplaceNftInsights({
         )}
       </TabsContent>
       <TabsContent value="activity" className="min-w-0 space-y-3 pt-3">
-        <p className="text-xs text-muted-foreground">{t("attribution")}</p>
+        <p className="text-xs text-muted-foreground">
+          {t(combined ? "combinedAttribution" : "attribution")}
+        </p>
+        {combined && coverage && (
+          <a
+            href={`https://basescan.org/block/${coverage.indexedThrough}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-8 items-center gap-1 text-xs text-muted-foreground underline underline-offset-4"
+          >
+            {t("indexedThrough", { block: coverage.indexedThrough })}
+            <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+          </a>
+        )}
+        {unavailable.length > 0 &&
+          errorState(
+            t("partialActivity", {
+              sources: unavailable
+                .map((source) => (source === "gnars" ? "Gnars" : "OpenSea"))
+                .join(", "),
+            }),
+            retryActivity,
+            activity.isFetching,
+          )}
         {activity.isPending && (
           <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" />
@@ -126,11 +170,8 @@ export function MarketplaceNftInsights({
         )}
         {activity.isError &&
           errorState(
-            t("activityError"),
-            () => {
-              if (activity.isFetchNextPageError) void activity.fetchNextPage();
-              else void activity.refetch();
-            },
+            t(cursorExpired ? "activityExpired" : "activityError"),
+            retryActivity,
             activity.isFetching,
           )}
         {events.length > 0 && (
@@ -146,6 +187,9 @@ export function MarketplaceNftInsights({
                     </span>
                   )}
                 </div>
+                {event.source === "gnars-contract" && (
+                  <p className="text-xs text-muted-foreground">{t("nativeSource")}</p>
+                )}
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
                   {(["from", "to"] as const).map(
                     (party) =>
@@ -198,10 +242,14 @@ export function MarketplaceNftInsights({
             ))}
           </ol>
         )}
-        {!activity.isPending && !activity.isError && events.length === 0 && (
-          <p className="text-xs text-muted-foreground">{t("emptyActivity")}</p>
-        )}
-        {activity.hasNextPage && (
+        {!activity.isPending &&
+          !activity.isError &&
+          !activity.hasNextPage &&
+          unavailable.length === 0 &&
+          events.length === 0 && (
+            <p className="text-xs text-muted-foreground">{t("emptyActivity")}</p>
+          )}
+        {activity.hasNextPage && !cursorExpired && (
           <Button
             size="sm"
             variant="outline"

@@ -15,6 +15,54 @@ const event: MarketplaceActivityEvent = {
   to: `0x${"22".repeat(20)}`,
 };
 describe("NFT insights", () => {
+  it("prefers native sales regardless of provider page order", () => {
+    const native = {
+      ...event,
+      id: "native:1",
+      type: "sale" as const,
+      source: "gnars-contract" as const,
+    };
+    const provider = { ...native, id: "provider", source: "opensea" as const };
+    expect(mergeNftActivity([provider, event, native])).toEqual([native]);
+    expect(mergeNftActivity([native, event, provider])).toEqual([native]);
+  });
+  it("preserves separate native fills in one transaction and unrelated transfers", () => {
+    const native = {
+      ...event,
+      id: "native:1",
+      type: "sale" as const,
+      source: "gnars-contract" as const,
+    };
+    const second = { ...native, id: "native:2" };
+    const other = { ...event, id: "other", from: `0x${"33".repeat(20)}` };
+    expect(
+      mergeNftActivity([
+        native,
+        second,
+        event,
+        other,
+        { ...native, id: "provider", source: "opensea" },
+      ]),
+    ).toEqual([native, second, other]);
+  });
+  it("accepts combined source availability and canonical coverage", () => {
+    const page = {
+      collectionAddress: event.from,
+      tokenId: "1",
+      source: "combined",
+      nextCursor: null,
+      events: [],
+      sources: { gnars: { available: true }, opensea: { available: false } },
+      coverage: { startBlock: "1", indexedThrough: "42", blockHash: event.transactionHash },
+    };
+    expect(marketplaceActivitySchema.parse(page)).toEqual(page);
+    expect(
+      marketplaceActivitySchema.safeParse({
+        ...page,
+        coverage: { ...page.coverage, blockHash: "invalid" },
+      }).success,
+    ).toBe(false);
+  });
   it("requires both collection and token identity", () => {
     const result = { collectionAddress: `0x${"ab".repeat(20)}`, tokenId: "1" };
     expect(isNftInsightIdentity(result, result.collectionAddress.toUpperCase(), "01")).toBe(true);

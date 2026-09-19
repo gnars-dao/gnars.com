@@ -14,13 +14,27 @@ export const marketplaceTraitsSchema = z.object({
 });
 export const marketplaceActivitySchema = z.object({
   ...identity,
-  source: z.literal("opensea"),
+  source: z.enum(["opensea", "combined"]),
+  sources: z
+    .object({
+      opensea: z.object({ available: z.boolean() }),
+      gnars: z.object({ available: z.boolean() }),
+    })
+    .optional(),
+  coverage: z
+    .object({
+      startBlock: uint,
+      indexedThrough: uint,
+      blockHash: z.string().regex(/^0x[\da-fA-F]{64}$/),
+    })
+    .optional(),
   nextCursor: z.string().max(8192).nullable(),
   events: z
     .array(
       z.object({
         id: z.string().max(512),
         type: z.enum(["sale", "transfer", "mint", "burn"]),
+        source: z.enum(["gnars-contract", "opensea"]).optional(),
         transactionHash: z.string().regex(/^0x[\da-fA-F]{64}$/),
         timestamp: z.number().int().positive().max(8640000000000),
         from: address.nullable(),
@@ -56,7 +70,19 @@ export function mergeNftActivity(events: MarketplaceActivityEvent[]) {
   const movement = (event: MarketplaceActivityEvent) =>
     [event.transactionHash, event.from ?? "", event.to ?? ""].join(":").toLowerCase();
   const sales = new Set(unique.filter((event) => event.type === "sale").map(movement));
+  // Native log IDs distinguish multiple fills; only remove overlapping provider summaries.
+  const nativeSales = new Set(
+    unique
+      .filter((event) => event.type === "sale" && event.source === "gnars-contract")
+      .map(movement),
+  );
   return unique
+    .filter(
+      (event) =>
+        event.type !== "sale" ||
+        event.source === "gnars-contract" ||
+        !nativeSales.has(movement(event)),
+    )
     .filter((event) => event.type !== "transfer" || !sales.has(movement(event)))
     .sort((a, b) => b.timestamp - a.timestamp);
 }

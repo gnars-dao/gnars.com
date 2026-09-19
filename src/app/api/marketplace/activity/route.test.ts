@@ -3,7 +3,10 @@ import { RequestSecurityError } from "@/lib/server/request-security";
 import { marketplaceUnavailable } from "@/services/marketplace-common";
 import { GET } from "./route";
 
-const mocks = vi.hoisted(() => ({ rate: vi.fn(), provider: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rate: vi.fn(), provider: vi.fn(), native: vi.fn() }));
+vi.mock("@/services/marketplace-native-activity", () => ({
+  getNativeMarketplaceActivity: mocks.native,
+}));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
 vi.mock("@/lib/server/request-security", async (original) => ({
   ...(await original<typeof import("@/lib/server/request-security")>()),
@@ -17,6 +20,11 @@ const request = (query: Record<string, string>) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.provider.mockResolvedValue({ asset_events: [], next: null });
+  mocks.native.mockResolvedValue({
+    events: [],
+    nextCursor: null,
+    coverage: { startBlock: "100", indexedThrough: "200", blockHash: `0x${"a".repeat(64)}` },
+  });
 });
 
 describe("marketplace activity GET", () => {
@@ -29,7 +37,9 @@ describe("marketplace activity GET", () => {
       tokenId: "1830",
       events: [],
       nextCursor: null,
-      source: "opensea",
+      source: "combined",
+      sources: { opensea: { available: true }, gnars: { available: true } },
+      coverage: { startBlock: "100", indexedThrough: "200", blockHash: `0x${"a".repeat(64)}` },
     });
     expect(response.headers.get("cache-control")).toBe(
       "public, s-maxage=30, stale-while-revalidate=30",
@@ -55,6 +65,7 @@ describe("marketplace activity GET", () => {
   });
   it("keeps provider failure explicit and uncached", async () => {
     mocks.provider.mockRejectedValue(marketplaceUnavailable());
+    mocks.native.mockRejectedValue(marketplaceUnavailable());
     const response = await GET(request(params));
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -62,6 +73,13 @@ describe("marketplace activity GET", () => {
       retryable: true,
       code: "MARKETPLACE_UNAVAILABLE",
     });
+  });
+  it("does not cache partial results", async () => {
+    mocks.native.mockRejectedValue(marketplaceUnavailable());
+    const response = await GET(request(params));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ sources: { gnars: { available: false } } });
   });
   it("rate limits before fetching upstream", async () => {
     mocks.rate.mockRejectedValueOnce(new RequestSecurityError(429, "Too many requests.", 60));
