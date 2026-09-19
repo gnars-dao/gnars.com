@@ -13,12 +13,15 @@ const COLLECTION = "0x4444444444444444444444444444444444444444";
 const HASH = `0x${"a".repeat(64)}`;
 type RpcInput = { method: string; params?: unknown[]; id?: number };
 
-async function setup(page: Page, admin: boolean) {
+async function setup(page: Page, admin: boolean, partialFeed = false) {
   const account = privateKeyToAccount(generatePrivateKey());
   const signatures: string[] = [];
   const transactions: RpcInput[] = [];
   const moderations: Record<string, unknown>[] = [];
   const management: { url: string; authorization: WalletAuthorization }[] = [];
+  let managementResponse: "partial" | "healthy" | "malformed" | "empty" = partialFeed
+    ? "partial"
+    : "healthy";
   const offer = {
     id: `community:${PROTOCOL}:${HASH}`,
     source: "gnars-contract",
@@ -191,6 +194,29 @@ async function setup(page: Page, admin: boolean) {
       const header = req.headers()["x-wallet-authorization"];
       expect(header).toBeTruthy();
       management.push({ url: req.url(), authorization: JSON.parse(header) });
+      if (managementResponse === "malformed")
+        return route.fulfill({ json: { items: [item], nextCursor: null } });
+      if (managementResponse === "empty" && !url.searchParams.has("cursor"))
+        return route.fulfill({ json: { items: [], nextCursor: "next", available: true } });
+      if (partialFeed) {
+        const next = url.searchParams.has("cursor");
+        return route.fulfill({
+          json: {
+            items: next
+              ? [
+                  {
+                    ...item,
+                    tokenId: "43",
+                    name: "Community NFT #43",
+                    offers: [{ ...offer, id: "second", orderHash: `0x${"b".repeat(64)}` }],
+                  },
+                ]
+              : [item],
+            nextCursor: next ? null : "next",
+            available: next || managementResponse === "healthy",
+          },
+        });
+      }
       return route.fulfill({ json: { items: [item], nextCursor: null, available: true } });
     }
     if (url.pathname.startsWith("/api/marketplace/community/orders/"))
@@ -231,7 +257,16 @@ async function setup(page: Page, admin: boolean) {
   await expect(
     page.getByRole("button", { name: "Carregar meus anúncios da comunidade", exact: true }),
   ).toHaveCount(0);
-  return { account, signatures, transactions, moderations, management };
+  return {
+    account,
+    signatures,
+    transactions,
+    moderations,
+    management,
+    setManagementResponse: (value: typeof managementResponse) => {
+      managementResponse = value;
+    },
+  };
 }
 
 test.describe("community management signing safety", () => {
@@ -239,6 +274,64 @@ test.describe("community management signing safety", () => {
     process.env.MARKETPLACE_MANAGEMENT_SMOKE !== "1",
     "Requires local app with custom contract configured",
   );
+  for (const width of [390, 1440]) {
+    test(`partial seller pages retain cancellation access and retry at ${width}px`, async ({
+      page,
+    }) => {
+      test.setTimeout(90000);
+      await page.setViewportSize({ width, height: 900 });
+      const wallet = await setup(page, false, true);
+      await page.getByRole("tab", { name: "Meus anúncios", exact: true }).click();
+      const load = page.getByRole("button", {
+        name: "Carregar meus anúncios da comunidade",
+        exact: true,
+      });
+      const section = page.locator("section").filter({ has: load });
+      await load.click();
+      await expect(section.getByText("Community NFT #42", { exact: true })).toBeVisible();
+      await expect(section.getByRole("alert")).toBeVisible();
+      await expect(
+        section.getByRole("button", { name: "Cancelar anúncio", exact: true }),
+      ).toBeEnabled();
+      await expect(
+        section.getByText("Nenhum anúncio ativo encontrado.", { exact: true }),
+      ).toHaveCount(0);
+      await section.getByRole("button", { name: "Carregar mais", exact: true }).click();
+      await expect(section.getByText("Community NFT #43", { exact: true })).toBeVisible();
+      await expect(section.getByRole("alert")).toBeVisible();
+      expect(
+        wallet.management.map((request) => new URL(request.url).searchParams.get("cursor")),
+      ).toEqual([null, "next"]);
+      wallet.setManagementResponse("malformed");
+      await load.click();
+      await expect.poll(() => wallet.management.length).toBe(3);
+      await expect(section.getByText("Community NFT #43", { exact: true })).toBeVisible();
+      await expect(section.getByRole("alert")).toBeVisible();
+      wallet.setManagementResponse("healthy");
+      await load.click();
+      await expect(section.getByRole("alert")).toHaveCount(0);
+      await expect(section.getByText("Community NFT #42", { exact: true })).toBeVisible();
+      expect(wallet.transactions).toHaveLength(0);
+      expect(wallet.signatures).toHaveLength(4);
+      wallet.setManagementResponse("empty");
+      await load.click();
+      await expect(section.getByText("Community NFT #42", { exact: true })).toHaveCount(0);
+      await expect(
+        section.getByText("Nenhum anúncio ativo encontrado.", { exact: true }),
+      ).toHaveCount(0);
+      await section.getByRole("button", { name: "Carregar mais", exact: true }).click();
+      await expect(section.getByText("Community NFT #43", { exact: true })).toBeVisible();
+      expect(wallet.transactions).toHaveLength(0);
+      expect(wallet.signatures).toHaveLength(6);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({
+        path: `/tmp/marketplace-management-partial-${width}.png`,
+        fullPage: true,
+      });
+    });
+  }
   test("admin hide signs only explicit confirmation and binds exact moderation payload", async ({
     page,
   }) => {

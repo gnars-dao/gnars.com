@@ -316,6 +316,10 @@ The seller-management section under `selling` signs a read-only request to
 listings so moderation never removes their cancellation controls. This request
 does not require six Gnars or an enabled current fee policy. Seller identity is
 derived from the signature, never a query-string wallet.
+Partial pages retain verified listings, cancellation controls and pagination with
+a warning until a full refresh succeeds. Malformed responses retain existing
+rows as an error, and an intermediate empty page with a cursor is not presented
+as an empty inventory.
 
 Verification commands:
 
@@ -801,9 +805,9 @@ sales. The native index covers the configured custom Seaport, not canonical
 OpenSea Seaport or unrelated wallet transfers. Catch-up still requires running
 the sync worker. No browser action is responsible for ingesting a sale.
 
-`.github/workflows/marketplace-history.yml` prepares a 15-minute scheduled worker,
+`.github/workflows/marketplace-history.yml` runs a 15-minute scheduled worker,
 with manual dispatch, main-branch/repository guards and non-cancelling concurrency.
-It remains disabled until repository variable `MARKETPLACE_INDEXER_ENABLED=true`.
+It is guarded by repository variable `MARKETPLACE_INDEXER_ENABLED=true`.
 Provision GitHub secrets `MARKETPLACE_INDEXER_DATABASE_URL`,
 `MARKETPLACE_INDEXER_BASE_RPC` and `MARKETPLACE_DATABASE_SSL_CA` first. The RPC must
 support 10-block log ranges. Each run scans up to 200 ranges, allowing catch-up
@@ -830,6 +834,18 @@ can be delayed, so this is eventual history, not transaction confirmation.
 The daily trait workflow uses the same scoped secrets and enable flag. Verify a
 new published snapshot block as well as history advancement before declaring both
 schedules operational. Reusing a completed trait file does not advance its block.
+
+Production activation was verified on 2026-09-19: the dedicated
+`gnars_marketplace_worker` login inherits only the indexer role, uses the session
+pooler with certificate verification, and has no order/signature-table access,
+DELETE, schema CREATE, role-administration or bypass-RLS privileges. The web
+runtime is not a member of that role. All three worker secrets and the enable
+variable are configured in GitHub, not exposed to browser code.
+[History run 35472983051](https://github.com/gnars-dao/gnars.com/actions/runs/35472983051)
+advanced finalized coverage from block 51531035 to 51532782, and
+[trait run 35472872526](https://github.com/gnars-dao/gnars.com/actions/runs/35472872526)
+published a fresh snapshot at block 51532782. These successful manual dispatches
+verify the production workers; scheduled-run health still needs ongoing monitoring.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),

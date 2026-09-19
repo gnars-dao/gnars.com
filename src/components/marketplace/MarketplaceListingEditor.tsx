@@ -330,6 +330,7 @@ export function MarketplaceListingEditor({
         <>
           <p className="text-xs text-muted-foreground">{t("gas")}</p>
           <Button
+            key={cancelled ? "publish-replacement" : "cancel-current"}
             className="w-full"
             onClick={() => void submit()}
             disabled={

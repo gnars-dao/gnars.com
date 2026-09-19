@@ -38,6 +38,7 @@ function SellerListings() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  const [partial, setPartial] = useState(false);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [cancelAttempt, setCancelAttempt] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -53,6 +54,7 @@ function SellerListings() {
       setItems([]);
       setLoaded(false);
       setCursor(null);
+      setPartial(false);
     }
   }, [actions.phase, actions.recovery?.kind]);
   const unresolved =
@@ -84,10 +86,17 @@ function SellerListings() {
       });
       if (!response.ok) throw new Error("Seller listings unavailable");
       const result: CommunityMarketplacePage = await response.json();
-      if (!result.available) throw new Error("Seller listings unavailable");
+      if (
+        !result ||
+        typeof result.available !== "boolean" ||
+        !Array.isArray(result.items) ||
+        (result.nextCursor !== null && typeof result.nextCursor !== "string")
+      )
+        throw new Error("Seller listings unavailable");
       if (!active.current) return;
       setItems((previous) => mergeMarketplaceItems([...(more ? previous : []), ...result.items]));
       setCursor(result.nextCursor);
+      setPartial((previous) => (more && previous) || !result.available);
       setLoaded(true);
     } catch {
       if (active.current) setError(true);
@@ -110,12 +119,14 @@ function SellerListings() {
         {busy ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
         {t("community.manage")}
       </Button>
-      {error && (
+      {(error || partial) && (
         <p role="alert" className="text-sm text-destructive">
           {t("community.managementError")}
         </p>
       )}
-      {loaded && !items.length && <p className="text-sm text-muted-foreground">{t("empty")}</p>}
+      {loaded && !items.length && !cursor && !error && !partial && (
+        <p className="text-sm text-muted-foreground">{t("empty")}</p>
+      )}
       {items.map((item) => (
         <div key={`${item.collectionAddress}:${item.tokenId}`} className="flex gap-4 border-b pb-5">
           <div className="w-20 shrink-0 self-start overflow-hidden rounded-md">

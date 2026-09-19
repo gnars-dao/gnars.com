@@ -632,6 +632,9 @@ async function setupWallet(
     journalKey,
     approvalHash,
     state: () => ({ approved, cancelled, filled, nftOwner }),
+    cancelExternally: () => {
+      cancelled = true;
+    },
     releaseConfirmation: () => {
       holdConfirmation = false;
     },
@@ -717,6 +720,36 @@ for (const mobile of [false, true]) {
     expect(wallet.rpcErrors).toEqual([]);
   });
 }
+
+test("listing edit cannot turn a held cancellation click into a replacement signature", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, { existingListing: true });
+  const drawer = await connectAndInspect(page);
+  await drawer.getByRole("button", { name: "Editar anúncio", exact: true }).click();
+  const cancel = drawer.getByRole("button", { name: "Cancelar ordem atual para substituir" });
+  await expect(cancel).toBeEnabled();
+  await cancel.scrollIntoViewIfNeeded();
+  const original = await cancel.elementHandle();
+  const bounds = await cancel.boundingBox();
+  expect(bounds).toBeTruthy();
+  await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+  await page.mouse.down();
+  wallet.cancelExternally();
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("offline"));
+    window.dispatchEvent(new Event("online"));
+  });
+  const publish = drawer.getByRole("button", { name: "Revisar e assinar substituição" });
+  await expect(publish).toBeEnabled({ timeout: 30000 });
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(false);
+  await page.mouse.up();
+  await expect(publish).toBeEnabled();
+  expect(wallet.signedRequests).toHaveLength(0);
+  expect(wallet.publications).toHaveLength(0);
+  expect(wallet.transactions).toHaveLength(0);
+});
 
 test("listing edit rejected cancellation preserves draft without signing replacement", async ({
   page,
