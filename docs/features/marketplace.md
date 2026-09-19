@@ -762,6 +762,10 @@ logs fail the scan instead of disappearing from coverage.
 This local backfill is not yet the public activity feed: database publication,
 scheduled catch-up and merged native/OpenSea pagination remain to be connected.
 It does not scan the canonical OpenSea Seaport or claim all wallet transfers.
+Local checkpoint files are not authoritative publication evidence. A future
+publisher must re-read every covered log range (not only verify saved events),
+or replace file import with transactional ingestion directly from the RPC;
+otherwise a manually removed event could leave a false completeness claim.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),

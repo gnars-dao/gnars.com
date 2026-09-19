@@ -68,6 +68,7 @@ export async function scanNativeHistoryRange(
     const number = BigInt(checkpoint.indexedThrough);
     if (
       number > target.number ||
+      (number === target.number && target.hash !== checkpoint.blockHash) ||
       validateBlock(await io.block(number), number).hash !== checkpoint.blockHash
     )
       throw new Error("History checkpoint is not canonical and finalized");

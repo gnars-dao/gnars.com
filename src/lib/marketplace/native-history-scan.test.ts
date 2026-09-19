@@ -160,6 +160,15 @@ describe("native history contiguous scan", () => {
     expect(io.logs).not.toHaveBeenCalled();
   });
 
+  it("rejects conflicting finalized evidence when already caught up", async () => {
+    const io = setup(119n);
+    io.finalized.mockResolvedValue({ number: 119n, hash: other, timestamp: 1000n });
+    await expect(
+      scanNativeHistoryRange({ ...initial, indexedThrough: "119", blockHash: hash }, io),
+    ).rejects.toThrow("canonical and finalized");
+    expect(io.logs).not.toHaveBeenCalled();
+  });
+
   it("rejects reorg during an empty range", async () => {
     const io = setup();
     io.block
