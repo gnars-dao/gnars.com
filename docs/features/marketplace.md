@@ -34,6 +34,22 @@ Cards show the best loaded supported offer and its source. This is not a claim
 that the entire collection has been globally sorted or that every order type is
 supported.
 
+For-sale browsing requests `sort=price-asc` and optional inclusive `minPriceWei`
+and `maxPriceWei` bounds. The ETH controls accept dot or comma decimals without
+floating-point conversion; reversed ranges and more than 18 decimals are rejected.
+Applied bounds survive URL reload/navigation and reset pagination in both native
+and community feeds. Inventory and seller management keep their existing order.
+Exact-token searches apply the range to that token's returned offers.
+
+Price order is **within each section**, not across the three sections: Gnars,
+community, then OpenSea. The native feed combines canonical and custom order books
+before applying its price keyset and limit. Community bounds are also applied in
+SQL before pagination. OpenSea scans its ascending best-listing feed with a bounded
+request budget; a page with no matches can still have a continuation. The UI offers
+load-more rather than declaring that such a page exhausted all matching listings.
+These are live feeds, not price snapshots: new or cancelled orders can change
+between page reads, and checkout always revalidates the selected order.
+
 Cards use NFT artwork with a lightweight metallic reflection, never a webcam.
 Mouse pointers control the sheen; touch and reduced-motion users receive a static
 surface. Compact prices are display-only approximations; exact wei values remain

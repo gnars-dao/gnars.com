@@ -1,4 +1,15 @@
 {
+  "filters": {
+    "label": "Price range",
+    "min": "Min price (ETH)",
+    "max": "Max price (ETH)",
+    "any": "Any",
+    "apply": "Apply",
+    "clear": "Clear",
+    "sort": "Price: low to high",
+    "emptyPage": "No matching listings on this page. Load more.",
+    "invalid": "Enter non-negative ETH amounts with up to 18 decimal places. The maximum must be at least the minimum."
+  },
   "nftVideo": "Video: {name}",
   "videoUnavailable": "The video could not be played. The cover is still available.",
   "share": {

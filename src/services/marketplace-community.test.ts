@@ -565,6 +565,44 @@ describe("community publication", () => {
     expect(sql.indexOf("strpos(")).toBeLessThan(sql.indexOf("ORDER BY id DESC LIMIT"));
     expect(sql).not.toContain("SkateHive");
   });
+  it("uses an inclusive price keyset and rejects cursor reuse with another search or owner", async () => {
+    records = Array.from({ length: 24 }, (_, index) => ({
+      ...row(),
+      id: String(index + 1),
+      price_wei: "10000",
+    }));
+    const filters = { sort: "price-asc" as const, minPriceWei: "10000", maxPriceWei: "20000" };
+    const first = await listCommunityMarketplace(undefined, seller, "Community", filters);
+    expect(first.nextCursor).toBeTruthy();
+    const [sql, values] = mocks.query.mock.calls.find(([sql]) =>
+      sql.startsWith("SELECT * FROM public.marketplace_community_orders"),
+    )!;
+    expect(sql).toContain("price_wei >= $3::numeric AND price_wei <= $4::numeric");
+    expect(sql).toContain("ORDER BY price_wei ASC, id ASC LIMIT 24");
+    expect(values).toEqual([
+      protocol.toLowerCase(),
+      expect.any(Number),
+      "10000",
+      "20000",
+      seller,
+      "Community",
+    ]);
+    records = [];
+    await listCommunityMarketplace(first.nextCursor!, seller, "Community", filters);
+    expect(mocks.query.mock.lastCall![0]).toContain("(price_wei, id) > ($4::numeric, $3::bigint)");
+    await expect(
+      listCommunityMarketplace(first.nextCursor!, seller, "Other", filters),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      listCommunityMarketplace(first.nextCursor!, undefined, "Community", filters),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      listCommunityMarketplace(first.nextCursor!, seller, "Community", {
+        ...filters,
+        maxPriceWei: "30000",
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
   it("denies a five-Gnar signer before metadata or writes", async () => {
     mocks.read.mockImplementation(async ({ functionName }) =>
       functionName === "balanceOf" ? 5n : true,
@@ -896,6 +934,25 @@ describe("freshly minted community metadata", () => {
 });
 
 describe("community discovery and settlement", () => {
+  it("keeps equal-price scan order across cached and reconciled listings", async () => {
+    records = [
+      { ...row(), checked_at: new Date(Date.now() - 30_000) },
+      { ...row(otherCollection), id: "2" },
+    ].map((record) => ({ ...record, price_wei: "10000" }));
+    mocks.multicall.mockResolvedValue(
+      [[false, false, 0n, 0n], 0n, seller, protocol, false].map((result) => ({
+        status: "success",
+        result,
+      })),
+    );
+    const result = await listCommunityMarketplace(undefined, undefined, undefined, {
+      sort: "price-asc",
+    });
+    expect(result.items.map((item) => item.collectionAddress)).toEqual([
+      collection,
+      otherCollection,
+    ]);
+  });
   it("batches stale collection-qualified chain checks at one block and performs one bulk update", async () => {
     records = [row(), { ...row(otherCollection), id: "2" }].map((record) => ({
       ...record,

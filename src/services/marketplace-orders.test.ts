@@ -8,6 +8,7 @@ import {
   getMarketplaceOrder,
   getMarketplaceSweepCandidates,
   listMarketplaceOrders,
+  listNativeMarketplaceOrders,
   localMarketplaceOffer,
   marketplaceContractStorageReady,
   marketplaceStorageReady,
@@ -42,7 +43,8 @@ vi.mock("@/lib/marketplace/seaport", () => ({
   validateListingStructure: mocks.structure,
   getListingStatus: mocks.status,
   getListingOrderHash: mocks.hash,
-  getListingPriceWei: () => 100n,
+  getListingPriceWei: (value: { parameters: { consideration?: { startAmount: string }[] } }) =>
+    BigInt(value.parameters.consideration?.[0]?.startAmount ?? "100"),
 }));
 vi.mock("@/services/marketplace-common", async (original) => ({
   ...(await original<typeof import("./marketplace-common")>()),
@@ -77,6 +79,91 @@ beforeEach(() => {
         rows: [{ id: "1", order_hash: hash, signed_order: listing, status: "active" }],
       };
     return { rowCount: 1, rows: [] };
+  });
+});
+
+describe("native listing price pagination", () => {
+  it("unifies both orderbooks before limiting and binds the scan frontier to filters", async () => {
+    const protocol = "0xc35813d40961151c11c97cb9d67d0d25cd4cc86e";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol);
+    const rows = Array.from({ length: 24 }, (_, index) => {
+      const token = String(index + 1);
+      return {
+        id: token,
+        price_wei: String(100 + index),
+        source: index % 2 ? "gnars-contract" : "gnars",
+        protocol_address: index % 2 ? protocol : null,
+        order_hash: `0x${token.padStart(64, "0")}`,
+        signed_order: {
+          ...listing,
+          parameters: {
+            ...listing.parameters,
+            offer: [{ identifierOrCriteria: token }],
+            consideration: [{ startAmount: String(100 + index) }],
+          },
+        },
+        status: "active",
+        checked_at: new Date(),
+      };
+    });
+    mocks.hash.mockImplementation(
+      (parameters) => `0x${parameters.offer[0].identifierOrCriteria.padStart(64, "0")}`,
+    );
+    mocks.query.mockResolvedValue({ rows });
+    const filters = { sort: "price-asc" as const, minPriceWei: "100", maxPriceWei: "200" };
+    const first = await listNativeMarketplaceOrders(undefined, filters, [
+      "gnars",
+      "gnars-contract",
+    ]);
+    expect(first.offers.map((row) => row.tokenId)).toEqual(rows.map((row) => row.id));
+    expect(first.nextCursor).toBeTruthy();
+    const [sql, values] = mocks.query.mock.calls[0];
+    expect(sql).toContain(" UNION ALL ");
+    expect(sql).toContain("ORDER BY price_wei ASC, id ASC, source ASC LIMIT 24");
+    expect(sql).toContain("price_wei >= $2::numeric");
+    expect(sql).toContain("price_wei <= $3::numeric");
+    expect(values).toEqual([expect.any(Number), "100", "200", protocol]);
+    const next = {
+      ...rows[0],
+      id: "25",
+      price_wei: "124",
+      order_hash: `0x${"25".padStart(64, "0")}`,
+      signed_order: {
+        ...listing,
+        parameters: {
+          ...listing.parameters,
+          offer: [{ identifierOrCriteria: "25" }],
+          consideration: [{ startAmount: "124" }],
+        },
+      },
+    };
+    mocks.query.mockResolvedValue({ rows: [next] });
+    const second = await listNativeMarketplaceOrders(first.nextCursor!, filters, [
+      "gnars",
+      "gnars-contract",
+    ]);
+    const prices = [...first.offers, ...second.offers].map((row) => BigInt(row.offer.priceWei));
+    expect(prices).toHaveLength(25);
+    expect(prices.every((value, index) => index === 0 || prices[index - 1] <= value)).toBe(true);
+    expect(mocks.query.mock.lastCall![0]).toContain(
+      "WHERE (price_wei, id, source) > ($7::numeric, $5::bigint, $6::text)",
+    );
+    await expect(
+      listNativeMarketplaceOrders(first.nextCursor!, { ...filters, minPriceWei: "101" }, ["gnars"]),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+  it("keeps an empty invalid page's frontier so a later valid page remains reachable", async () => {
+    mocks.query.mockResolvedValue({
+      rows: Array.from({ length: 24 }, (_, index) => ({
+        id: String(index + 1),
+        price_wei: "100",
+        source: "gnars",
+        order_hash: hash,
+        signed_order: null,
+      })),
+    });
+    const page = await listNativeMarketplaceOrders(undefined, { sort: "price-asc" }, ["gnars"]);
+    expect(page).toMatchObject({ offers: [], partial: true, nextCursor: expect.any(String) });
   });
 });
 
@@ -201,6 +288,14 @@ describe("batched marketplace catalogue reconciliation", () => {
     expect(mocks.query.mock.calls.some(([sql]) => sql.includes("UPDATE marketplace_orders"))).toBe(
       false,
     );
+  });
+  it("preserves scan order when the first row needs reconciliation and the next is cached", async () => {
+    rows([stored("1"), stored("2", { fresh: true })]);
+    mocks.multicall.mockResolvedValueOnce(successfulReads());
+    expect((await listMarketplaceOrders()).offers.map((offer) => offer.tokenId)).toEqual([
+      "1",
+      "2",
+    ]);
   });
   it("filters native selling pages by seller using a bound SQL parameter", async () => {
     rows([stored("1", { fresh: true })]);

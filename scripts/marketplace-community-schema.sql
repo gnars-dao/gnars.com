@@ -34,6 +34,9 @@ CREATE INDEX IF NOT EXISTS marketplace_community_live_token
   WHERE NOT hidden AND status IN ('active', 'invalid-owner', 'unapproved');
 CREATE INDEX IF NOT EXISTS marketplace_community_seller
   ON public.marketplace_community_orders (seller, expires_at);
+CREATE INDEX IF NOT EXISTS marketplace_community_live_price
+  ON public.marketplace_community_orders (chain_id, protocol_address, price_wei, id)
+  WHERE NOT hidden AND status IN ('active', 'invalid-owner', 'unapproved');
 
 CREATE TABLE IF NOT EXISTS public.marketplace_community_moderation (
   nonce UUID PRIMARY KEY,

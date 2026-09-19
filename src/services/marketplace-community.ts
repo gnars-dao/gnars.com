@@ -14,6 +14,7 @@ import {
 import { z } from "zod";
 import { BUILDER_CODE, DAO_ADDRESSES } from "@/lib/config";
 import { IPFS_GATEWAYS, ipfsToHttp } from "@/lib/ipfs";
+import type { MarketplaceBrowseFilters } from "@/lib/marketplace/browse-filters";
 import {
   communityCommentEditPayload,
   communityCommentEditSchema,
@@ -65,6 +66,7 @@ import type {
   MarketplaceOffer,
   MarketplacePage,
 } from "@/types/marketplace";
+import { browseIdentity, decodeBrowseCursor, encodeBrowseCursor } from "./marketplace-pagination";
 
 export const COMMUNITY_CACHE_TAG = "marketplace-community";
 let pool: Pool | undefined;
@@ -423,6 +425,7 @@ export async function quoteCommunityListing(input: z.infer<typeof communityQuote
 
 type Row = {
   id: string;
+  price_wei?: string;
   protocol_address: string;
   order_hash: Hex;
   collection_address: Address;
@@ -470,6 +473,7 @@ function decodeRow(row: Row) {
   if (
     getListingOrderHash(listing.parameters).toLowerCase() !== row.order_hash.toLowerCase() ||
     listing.parameters.offer[0].identifierOrCriteria !== row.token_id ||
+    (row.price_wei !== undefined && getListingPriceWei(listing).toString() !== row.price_wei) ||
     !isAddressEqual(listing.parameters.offerer, row.seller)
   )
     throw marketplaceUnavailable("Stored community order identity mismatch.");
@@ -796,11 +800,13 @@ async function itemsFromRows(
   includeHidden = false,
 ): Promise<{ items: MarketplaceItem[]; available: boolean }> {
   const items = new Map<string, MarketplaceItem>();
+  const positions = new Map<string, number>();
   let available = true;
   const stale: Array<{ row: Row; decoded: ReturnType<typeof decodeRow> }> = [];
   const add = (row: Row, decoded: ReturnType<typeof decodeRow>) => {
     const metadata = storedMetadata.parse(row.metadata);
     const identity = `${decoded.collection.toLowerCase()}:${row.token_id}`;
+    positions.set(identity, Math.min(positions.get(identity) ?? Infinity, rows.indexOf(row)));
     const item = items.get(identity) ?? {
       ...metadata,
       image: safeImage(metadata.image),
@@ -940,7 +946,9 @@ async function itemsFromRows(
           available = false;
         });
   }
-  const projected = [...items.values()];
+  const projected = [...items.entries()]
+    .sort(([a], [b]) => positions.get(a)! - positions.get(b)!)
+    .map(([, item]) => item);
   // Repair old indexer placeholders at read time, without rewriting signed orders or comments.
   await Promise.all(
     projected.map(async (item) => {
@@ -995,7 +1003,19 @@ export async function listCommunityMarketplace(
   cursor?: string,
   owner?: Address,
   search?: string,
+  filters: MarketplaceBrowseFilters = {},
 ): Promise<CommunityMarketplacePage> {
+  const filtered = Object.values(filters).some((value) => value !== undefined);
+  const identity = JSON.stringify([
+    browseIdentity(filters, owner, search),
+    getMarketplaceProtocolAddress("gnars-contract").toLowerCase(),
+  ]);
+  const position = filtered ? decodeBrowseCursor(cursor, identity) : undefined;
+  const ascending = filters.sort === "price-asc";
+  if (position && ascending !== (position.price !== undefined))
+    throw new RequestSecurityError(400, "Invalid marketplace cursor.");
+  if (!filtered && cursor && !/^(0|[1-9][0-9]{0,77})$/.test(cursor))
+    throw new RequestSecurityError(400, "Invalid marketplace cursor.");
   if (!(await communityMarketplaceReady()))
     return { items: [], nextCursor: null, available: false };
   const values: (string | number)[] = [
@@ -1004,8 +1024,21 @@ export async function listCommunityMarketplace(
   ];
   let filter = "";
   if (cursor) {
-    values.push(cursor);
-    filter += ` AND id < $${values.length}`;
+    values.push(position?.id ?? cursor);
+    const id = `$${values.length}`;
+    if (ascending) {
+      values.push(position!.price!);
+      filter += ` AND (price_wei, id) > ($${values.length}::numeric, ${id}::bigint)`;
+    } else filter += ` AND id < ${id}`;
+  }
+  for (const [bound, operator] of [
+    [filters.minPriceWei, ">="],
+    [filters.maxPriceWei, "<="],
+  ] as const) {
+    if (bound !== undefined) {
+      values.push(bound);
+      filter += ` AND price_wei ${operator} $${values.length}::numeric`;
+    }
   }
   if (owner) {
     values.push(owner.toLowerCase());
@@ -1019,12 +1052,23 @@ export async function listCommunityMarketplace(
       OR collection_address = lower(${term}) OR token_id::text = ${term})`;
   }
   const result = await database().query<Row>(
-    `SELECT * FROM public.marketplace_community_orders WHERE chain_id = 8453 AND protocol_address = $1 AND expires_at > $2 AND NOT hidden AND status IN ('active', 'invalid-owner', 'unapproved')${filter} ORDER BY id DESC LIMIT ${MARKETPLACE_PAGE_SIZE}`,
+    `SELECT * FROM public.marketplace_community_orders WHERE chain_id = 8453 AND protocol_address = $1 AND expires_at > $2 AND NOT hidden AND status IN ('active', 'invalid-owner', 'unapproved')${filter} ORDER BY ${ascending ? "price_wei ASC, id ASC" : "id DESC"} LIMIT ${MARKETPLACE_PAGE_SIZE}`,
     values,
   );
   return {
     ...(await itemsFromRows(result.rows)),
-    nextCursor: result.rows.length === MARKETPLACE_PAGE_SIZE ? result.rows.at(-1)!.id : null,
+    nextCursor:
+      result.rows.length === MARKETPLACE_PAGE_SIZE
+        ? filtered
+          ? encodeBrowseCursor(
+              {
+                id: result.rows.at(-1)!.id,
+                ...(ascending ? { price: result.rows.at(-1)!.price_wei! } : {}),
+              },
+              identity,
+            )
+          : result.rows.at(-1)!.id
+        : null,
   };
 }
 

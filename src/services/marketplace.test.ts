@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   ownerListings: vi.fn(),
   selling: vi.fn(),
   local: vi.fn(),
+  native: vi.fn(),
   key: vi.fn(),
   configured: vi.fn(),
   ready: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("@/services/marketplace-opensea", () => ({
 }));
 vi.mock("@/services/marketplace-orders", () => ({
   listMarketplaceOrders: mocks.local,
+  listNativeMarketplaceOrders: mocks.native,
   marketplaceStorageConfigured: mocks.configured,
   marketplaceStorageReady: mocks.ready,
   marketplaceContractStorageReady: mocks.customReady,
@@ -59,6 +61,37 @@ beforeEach(() => {
 });
 
 describe("marketplace source availability", () => {
+  it("binds price cursors and roundtrips full provider cursors without advancing exhausted feeds", async () => {
+    mocks.key.mockReturnValue(true);
+    mocks.ready.mockResolvedValue(true);
+    mocks.native.mockResolvedValue({ offers: [], nextCursor: "native-next", partial: false });
+    mocks.external.mockResolvedValue({ offers: [], nextCursor: "a".repeat(1024), partial: false });
+    const filters = { sort: "price-asc" as const, minPriceWei: "0", maxPriceWei: "100" };
+    const first = await loadMarketplacePage({ view: "listings", ...filters });
+    expect(first.nextCursor).toBeTruthy();
+    mocks.native.mockResolvedValue({ offers: [], nextCursor: null, partial: false });
+    mocks.external.mockResolvedValue({ offers: [], nextCursor: null, partial: false });
+    await loadMarketplacePage({ view: "listings", ...filters, cursor: first.nextCursor! });
+    expect(mocks.native).toHaveBeenLastCalledWith("native-next", filters, ["gnars"]);
+    expect(mocks.external).toHaveBeenLastCalledWith("a".repeat(1024), filters);
+    await expect(
+      loadMarketplacePage({
+        view: "listings",
+        ...filters,
+        maxPriceWei: "101",
+        cursor: first.nextCursor!,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+  it("pauses a combined native feed while one configured source is unavailable", async () => {
+    mocks.ready.mockResolvedValue(true);
+    mocks.customAddress.mockReturnValue("0x3333333333333333333333333333333333333333");
+    mocks.customReady.mockResolvedValue(false);
+    const page = await loadMarketplacePage({ view: "listings", sort: "price-asc" });
+    expect(mocks.native).not.toHaveBeenCalled();
+    expect(page.sources.gnars.partial).toBe(true);
+    expect(page.sources["gnars-contract"]?.error).toBe("unavailable");
+  });
   it("requires both a configured custom deployment and its storage before enabling trading", async () => {
     mocks.ready.mockResolvedValue(true);
     mocks.customReady.mockResolvedValue(true);

@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS marketplace_orders (
 CREATE INDEX IF NOT EXISTS marketplace_orders_live_page
   ON marketplace_orders (id DESC) WHERE status IN ('active', 'invalid-owner', 'unapproved');
 CREATE INDEX IF NOT EXISTS marketplace_orders_seller ON marketplace_orders (seller, expires_at);
+CREATE INDEX IF NOT EXISTS marketplace_orders_live_price
+  ON marketplace_orders (chain_id, price_wei, id)
+  WHERE status IN ('active', 'invalid-owner', 'unapproved');
 
 CREATE TABLE IF NOT EXISTS marketplace_rate_limits (
   bucket TEXT PRIMARY KEY,

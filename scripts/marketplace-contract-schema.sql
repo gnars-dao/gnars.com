@@ -29,6 +29,9 @@ CREATE INDEX IF NOT EXISTS marketplace_contract_orders_live_page
   WHERE status IN ('active', 'invalid-owner', 'unapproved');
 CREATE INDEX IF NOT EXISTS marketplace_contract_orders_seller
   ON public.marketplace_contract_orders (seller, expires_at);
+CREATE INDEX IF NOT EXISTS marketplace_contract_orders_live_price
+  ON public.marketplace_contract_orders (chain_id, protocol_address, price_wei, id)
+  WHERE status IN ('active', 'invalid-owner', 'unapproved');
 CREATE INDEX IF NOT EXISTS marketplace_contract_orders_live_token
   ON public.marketplace_contract_orders (protocol_address, token_id, price_wei, id DESC)
   WHERE status IN ('active', 'invalid-owner', 'unapproved');

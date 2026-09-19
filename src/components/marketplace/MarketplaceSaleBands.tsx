@@ -8,6 +8,7 @@ import type { Address } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatMarketplacePrice } from "@/lib/marketplace-display";
+import type { MarketplaceBrowseFilters } from "@/lib/marketplace/browse-filters";
 import { mergeMarketplaceItems } from "@/lib/marketplace/merge-items";
 import { cn } from "@/lib/utils";
 import type { CommunityMarketplacePage, MarketplaceItem } from "@/types/marketplace";
@@ -18,28 +19,50 @@ import {
 } from "./marketplace-sweep-model";
 import { MarketplaceCard } from "./MarketplaceCard";
 
+function sortByMatchingPrice(items: MarketplaceItem[]) {
+  const bestPrice = (item: MarketplaceItem) =>
+    item.offers.reduce<bigint | undefined>(
+      (best, offer) =>
+        best === undefined || BigInt(offer.priceWei) < best ? BigInt(offer.priceWei) : best,
+      undefined,
+    );
+  return [...items].sort((a, b) => {
+    const left = bestPrice(a);
+    const right = bestPrice(b);
+    if (left === undefined) return right === undefined ? 0 : 1;
+    if (right === undefined) return -1;
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+}
+
 export function MarketplaceSaleBands({
   items,
   pending,
   failed,
   complete,
+  hasMore,
   onRetry,
   onSelect,
   sweepSelections = [],
   sweepEnabled,
   sweepBuyer,
   onSweepSelect,
+  filters,
+  enabled,
 }: {
   items: MarketplaceItem[];
   pending: boolean;
   failed: boolean;
   complete: boolean;
+  hasMore: boolean;
   onRetry: () => void;
   onSelect: (item: MarketplaceItem, event: MouseEvent<HTMLButtonElement>) => void;
   sweepSelections?: MarketplaceSweepSelection[];
   sweepEnabled?: { native: boolean; opensea: boolean };
   sweepBuyer?: Address;
   onSweepSelect?: (selection: MarketplaceSweepSelection) => void;
+  filters: MarketplaceBrowseFilters;
+  enabled: boolean;
 }) {
   const t = useTranslations("marketplace");
   const [search, setSearch] = useState("");
@@ -68,12 +91,16 @@ export function MarketplaceSaleBands({
     window.history.replaceState(window.history.state, "", url);
   }
   const community = useInfiniteQuery({
-    queryKey: ["marketplace", "community", "listings", search],
+    queryKey: ["marketplace", "community", "listings", search, filters],
+    enabled: enabled && searchReady,
     initialPageParam: "",
     queryFn: async ({ pageParam, signal }): Promise<CommunityMarketplacePage> => {
       const params = new URLSearchParams();
       if (pageParam) params.set("cursor", pageParam);
       if (search) params.set("q", search);
+      if (filters.sort) params.set("sort", filters.sort);
+      if (filters.minPriceWei) params.set("minPriceWei", filters.minPriceWei);
+      if (filters.maxPriceWei) params.set("maxPriceWei", filters.maxPriceWei);
       const response = await fetch(`/api/marketplace/community?${params}`, { signal });
       if (!response.ok) throw new Error("Community listings unavailable");
       const page: CommunityMarketplacePage = await response.json();
@@ -91,36 +118,43 @@ export function MarketplaceSaleBands({
   const groups = [
     {
       key: "native",
-      items: items
-        .map((item) => ({
-          ...item,
-          offers: item.offers.filter((offer) => offer.source !== "opensea"),
-        }))
-        .filter((item) => item.offers.length),
+      items: sortByMatchingPrice(
+        items
+          .map((item) => ({
+            ...item,
+            offers: item.offers.filter((offer) => offer.source !== "opensea"),
+          }))
+          .filter((item) => item.offers.length),
+      ),
       pending,
       failed,
       complete,
+      hasMore,
       retry: onRetry,
     },
     {
       key: "community",
-      items: communityItems,
+      items: sortByMatchingPrice(communityItems),
       pending: community.isPending,
       failed: community.isError,
       complete: !community.isError,
+      hasMore: community.hasNextPage,
       retry: () => void community.refetch(),
     },
     {
       key: "opensea",
-      items: items
-        .map((item) => ({
-          ...item,
-          offers: item.offers.filter((offer) => offer.source === "opensea"),
-        }))
-        .filter((item) => item.offers.length),
+      items: sortByMatchingPrice(
+        items
+          .map((item) => ({
+            ...item,
+            offers: item.offers.filter((offer) => offer.source === "opensea"),
+          }))
+          .filter((item) => item.offers.length),
+      ),
       pending,
       failed,
       complete,
+      hasMore,
       retry: onRetry,
     },
   ];
@@ -262,7 +296,13 @@ export function MarketplaceSaleBands({
           ) : (
             !group.failed && (
               <p className="py-8 text-sm text-muted-foreground">
-                {t(group.complete ? "empty" : "availabilityUnknown")}
+                {t(
+                  group.hasMore
+                    ? "filters.emptyPage"
+                    : group.complete
+                      ? "empty"
+                      : "availabilityUnknown",
+                )}
               </p>
             )
           )}

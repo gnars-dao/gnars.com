@@ -3,6 +3,7 @@ import { revalidateTag, unstable_cache } from "next/cache";
 import { getAddress, zeroAddress, type Address, type Hex } from "viem";
 import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
+import type { MarketplaceBrowseFilters } from "@/lib/marketplace/browse-filters";
 import {
   buildOpenSeaListingQuote,
   getOpenSeaCancellation,
@@ -369,7 +370,7 @@ function parseOpenSeaPage(raw: unknown) {
 }
 
 export const listOpenSeaMarketplace = unstable_cache(
-  async (cursor?: string) => {
+  async (cursor?: string, filters: MarketplaceBrowseFilters = {}) => {
     const byToken = new Map<string, { tokenId: string; offer: MarketplaceOffer }>();
     let nextCursor: string | null = cursor ?? null;
     let partial = false;
@@ -392,6 +393,9 @@ export const listOpenSeaMarketplace = unstable_cache(
       }
       partial ||= page.partial;
       for (const row of page.offers) {
+        const price = BigInt(row.offer.priceWei);
+        if (filters.minPriceWei !== undefined && price < BigInt(filters.minPriceWei)) continue;
+        if (filters.maxPriceWei !== undefined && price > BigInt(filters.maxPriceWei)) continue;
         const existing = byToken.get(row.tokenId);
         if (!existing || BigInt(row.offer.priceWei) < BigInt(existing.offer.priceWei))
           byToken.set(row.tokenId, row);
@@ -402,7 +406,7 @@ export const listOpenSeaMarketplace = unstable_cache(
     }
     return { offers: [...byToken.values()], nextCursor, partial };
   },
-  ["marketplace-opensea-best-v2"],
+  ["marketplace-opensea-best-v3"],
   { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG] },
 );
 

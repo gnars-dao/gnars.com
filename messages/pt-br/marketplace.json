@@ -1,4 +1,15 @@
 {
+  "filters": {
+    "label": "Faixa de preço",
+    "min": "Preço mín. (ETH)",
+    "max": "Preço máx. (ETH)",
+    "any": "Qualquer",
+    "apply": "Aplicar",
+    "clear": "Limpar",
+    "sort": "Preço: menor para maior",
+    "emptyPage": "Nenhum anúncio correspondente nesta página. Carregue mais.",
+    "invalid": "Informe valores de ETH não negativos com até 18 casas decimais. O máximo deve ser maior ou igual ao mínimo."
+  },
   "nftVideo": "Vídeo: {name}",
   "videoUnavailable": "Não foi possível reproduzir o vídeo. A capa continua disponível.",
   "share": {

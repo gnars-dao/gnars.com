@@ -60,6 +60,34 @@ beforeEach(() => {
   mocks.catalogue.mockResolvedValue({ items: [], nextCursor: null, available: true });
 });
 describe("community route boundaries", () => {
+  it.each([
+    "minPriceWei=2&maxPriceWei=1",
+    "minPriceWei=-1",
+    "maxPriceWei=1.5",
+    "sort=price-desc",
+    "minPriceWei=01",
+  ])("rejects invalid price filters %s", async (query) => {
+    expect(
+      (await catalogue(new Request(`https://gnars.com/api/marketplace/community?${query}`))).status,
+    ).toBe(400);
+    expect(mocks.catalogue).not.toHaveBeenCalled();
+  });
+  it("passes exact inclusive wei bounds to the cached service", async () => {
+    expect(
+      (
+        await catalogue(
+          new Request(
+            "https://gnars.com/api/marketplace/community?sort=price-asc&minPriceWei=0&maxPriceWei=100",
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(mocks.catalogue).toHaveBeenCalledWith(undefined, undefined, undefined, {
+      sort: "price-asc",
+      minPriceWei: "0",
+      maxPriceWei: "100",
+    });
+  });
   it("validates collection feed filters and never accepts caller-controlled protocols", async () => {
     expect(
       (await catalogue(new Request(`https://gnars.com/api/marketplace/community?owner=${address}`)))

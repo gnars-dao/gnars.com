@@ -493,6 +493,29 @@ describe("bounded OpenSea inventory feeds", () => {
       offers: [{ tokenId: "12" }],
     });
   });
+  it("scans through excluded pages with inclusive bounds and preserves continuation at the work cap", async () => {
+    const price = "10000000000000000";
+    for (let index = 0; index < 3; index++)
+      fetchMock.mockResolvedValueOnce(
+        Response.json({ listings: [listing()], next: `scan-${index + 1}` }),
+      );
+    const excluded = await listOpenSeaMarketplace(undefined, {
+      sort: "price-asc",
+      minPriceWei: "10000000000000001",
+    });
+    expect(excluded).toMatchObject({ offers: [], nextCursor: "scan-3", partial: false });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [], next: "empty-page" }));
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [listing()], next: null }));
+    const inclusive = await listOpenSeaMarketplace("scan-3", {
+      sort: "price-asc",
+      minPriceWei: price,
+      maxPriceWei: price,
+    });
+    expect(inclusive.offers).toHaveLength(1);
+    expect(inclusive.offers[0].offer.priceWei).toBe(price);
+    expect(inclusive.nextCursor).toBeNull();
+  });
   it("preserves the next cursor on a later provider failure", async () => {
     fetchMock.mockResolvedValueOnce(Response.json({ listings: [listing()], next: "retry-page" }));
     fetchMock.mockRejectedValueOnce(new Error("offline"));

@@ -1,6 +1,10 @@
 import type { Address } from "viem";
 import { z } from "zod";
-import { enforceRateLimit } from "@/lib/server/request-security";
+import {
+  marketplaceBrowseFilterShape,
+  parseMarketplaceBrowseFilters,
+} from "@/lib/marketplace/browse-filters";
+import { enforceRateLimit, RequestSecurityError } from "@/lib/server/request-security";
 import { loadMarketplacePage } from "@/services/marketplace";
 import {
   marketplaceAddressSchema,
@@ -13,7 +17,8 @@ const querySchema = z
   .object({
     view: z.enum(["listings", "catalogue", "owned", "selling"]).default("listings"),
     owner: marketplaceAddressSchema.optional(),
-    cursor: z.string().max(2048).optional(),
+    cursor: z.string().max(8192).optional(),
+    ...marketplaceBrowseFilterShape,
   })
   .strict();
 
@@ -24,6 +29,15 @@ export async function GET(request: Request) {
       querySchema,
       Object.fromEntries(new URL(request.url).searchParams),
     );
+    try {
+      parseMarketplaceBrowseFilters({
+        sort: query.sort,
+        minPriceWei: query.minPriceWei,
+        maxPriceWei: query.maxPriceWei,
+      });
+    } catch {
+      throw new RequestSecurityError(400, "Invalid marketplace price range.");
+    }
     const page = await loadMarketplacePage({ ...query, owner: query.owner as Address | undefined });
     const degraded = Object.values(page.sources).some(
       (source) => source.error === "unavailable" || source.partial,

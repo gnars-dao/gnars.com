@@ -3,6 +3,10 @@ import { unstable_cache } from "next/cache";
 import { erc721Abi, type Address } from "viem";
 import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
+import {
+  parseMarketplaceBrowseFilters,
+  type MarketplaceBrowseFilters,
+} from "@/lib/marketplace/browse-filters";
 import { getGnarsMarketplaceAddress } from "@/lib/marketplace/routing";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import { getMarketplaceCatalogue, getMarketplaceMetadata } from "@/services/marketplace-catalogue";
@@ -21,6 +25,7 @@ import {
 } from "@/services/marketplace-opensea";
 import {
   listMarketplaceOrders,
+  listNativeMarketplaceOrders,
   marketplaceContractStorageReady,
   marketplaceStorageConfigured,
   marketplaceStorageReady,
@@ -30,6 +35,7 @@ import type {
   MarketplaceItem,
   MarketplacePage,
 } from "@/types/marketplace";
+import { browseIdentity } from "./marketplace-pagination";
 
 export type MarketplaceView = "listings" | "catalogue" | "owned" | "selling";
 const cursorSchema = z
@@ -40,15 +46,29 @@ const cursorSchema = z
     gnars: marketplaceUintSchema.nullable().optional(),
     "gnars-contract": marketplaceUintSchema.nullable().optional(),
     catalogue: marketplaceUintSchema.optional(),
+    native: z.string().max(2048).nullable().optional(),
+    filters: z.string().optional(),
   })
   .strict();
 
-function decodeCursor(raw: string | undefined, view: MarketplaceView, owner?: Address) {
+function decodeCursor(
+  raw: string | undefined,
+  view: MarketplaceView,
+  owner?: Address,
+  filters: MarketplaceBrowseFilters = {},
+) {
   if (!raw) return { view };
   try {
-    if (raw.length > 2048) throw new Error("Cursor too long");
+    if (raw.length > 8192) throw new Error("Cursor too long");
     const cursor = cursorSchema.parse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
     if (cursor.view !== view) throw new Error("Cursor view mismatch");
+    if (
+      cursor.filters !==
+      (Object.values(filters).some((value) => value !== undefined)
+        ? browseIdentity(filters, owner)
+        : undefined)
+    )
+      throw new Error("Cursor filters mismatch");
     if (view === "selling" && cursor.owner !== owner?.toLowerCase())
       throw new Error("Cursor owner mismatch");
     return cursor;
@@ -95,19 +115,39 @@ const cachedLocalOrders = unstable_cache(listMarketplaceOrders, ["marketplace-or
   revalidate: 15,
   tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_ORDERS_CACHE_TAG],
 });
+const cachedNativeOrders = unstable_cache(
+  listNativeMarketplaceOrders,
+  ["marketplace-native-price-v1"],
+  {
+    revalidate: 15,
+    tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_ORDERS_CACHE_TAG],
+  },
+);
 
 export async function loadMarketplacePage({
   view,
   owner,
   cursor: rawCursor,
+  sort,
+  minPriceWei,
+  maxPriceWei,
 }: {
   view: MarketplaceView;
   owner?: Address;
   cursor?: string;
-}): Promise<MarketplacePage> {
+} & MarketplaceBrowseFilters): Promise<MarketplacePage> {
   if ((view === "owned" || view === "selling") && !owner)
     throw new RequestSecurityError(400, "Wallet address is required.");
-  const cursor = decodeCursor(rawCursor, view, owner);
+  let filters: MarketplaceBrowseFilters;
+  try {
+    filters = parseMarketplaceBrowseFilters({ sort, minPriceWei, maxPriceWei });
+  } catch {
+    throw new RequestSecurityError(400, "Invalid marketplace price range.");
+  }
+  const filtered = Object.values(filters).some((value) => value !== undefined);
+  if (filtered && view !== "listings")
+    throw new RequestSecurityError(400, "Price filters require the listings view.");
+  const cursor = decodeCursor(rawCursor, view, owner, filters);
   const readiness = await getMarketplaceReadiness();
   const sources: MarketplacePage["sources"] = {
     catalogue: { available: true },
@@ -162,14 +202,34 @@ export async function loadMarketplacePage({
         ? await (
             view === "selling" && owner
               ? listOpenSeaOwnerMarketplace(owner, cursor.opensea)
-              : listOpenSeaMarketplace(cursor.opensea)
+              : filtered
+                ? listOpenSeaMarketplace(cursor.opensea, filters)
+                : listOpenSeaMarketplace(cursor.opensea)
           ).catch(() => {
             sources.opensea = { available: false, error: "unavailable" };
             return null;
           })
         : null;
+    const nativeSources = (["gnars", "gnars-contract"] as const).filter(
+      (source) => sources[source]?.available,
+    );
+    const nativeBlocked =
+      filtered &&
+      (["gnars", "gnars-contract"] as const).some(
+        (source) => sources[source]?.error === "unavailable",
+      );
+    if (nativeBlocked) for (const source of nativeSources) sources[source]!.partial = true;
+    const native =
+      filtered && !nativeBlocked && cursor.native !== null && nativeSources.length
+        ? await cachedNativeOrders(cursor.native, filters, nativeSources).catch((error) => {
+            if (error instanceof RequestSecurityError && error.status === 400) throw error;
+            for (const source of nativeSources)
+              sources[source] = { available: false, error: "unavailable" };
+            return null;
+          })
+        : null;
     const local =
-      sources.gnars.available && cursor.gnars !== null
+      !filtered && sources.gnars.available && cursor.gnars !== null
         ? await (
             view === "selling"
               ? cachedLocalOrders(cursor.gnars, undefined, owner)
@@ -180,7 +240,7 @@ export async function loadMarketplacePage({
           })
         : null;
     const custom =
-      sources["gnars-contract"]?.available && cursor["gnars-contract"] !== null
+      !filtered && sources["gnars-contract"]?.available && cursor["gnars-contract"] !== null
         ? await cachedLocalOrders(
             cursor["gnars-contract"],
             undefined,
@@ -192,6 +252,7 @@ export async function loadMarketplacePage({
           })
         : null;
     const offers = [
+      ...(native?.offers ?? []),
       ...(local?.offers ?? []),
       ...(custom?.offers ?? []),
       ...(external?.offers ?? []),
@@ -199,6 +260,7 @@ export async function loadMarketplacePage({
     if (external?.partial) sources.opensea.partial = true;
     if (local?.partial) sources.gnars.partial = true;
     if (custom?.partial) sources["gnars-contract"]!.partial = true;
+    if (native?.partial) for (const source of nativeSources) sources[source]!.partial = true;
     const tokens = [...new Set(offers.map((row) => row.tokenId))];
     try {
       items = await getMarketplaceMetadata(tokens);
@@ -219,9 +281,19 @@ export async function loadMarketplacePage({
     }
     // The indexer orders metadata by token ID; preserve the orderbook's ordering.
     items = tokens.map((tokenId) => byId.get(tokenId)!);
-    if (external?.nextCursor || local?.nextCursor || custom?.nextCursor)
+    if (external?.nextCursor || local?.nextCursor || custom?.nextCursor || native?.nextCursor)
       nextCursor = encodeCursor({
         view,
+        ...(filtered
+          ? {
+              filters: browseIdentity(filters, owner),
+              native:
+                nativeBlocked ||
+                nativeSources.some((source) => sources[source]?.error === "unavailable")
+                  ? cursor.native
+                  : (native?.nextCursor ?? null),
+            }
+          : {}),
         ...(view === "selling" ? { owner: owner!.toLowerCase() } : {}),
         // A failed source is not exhausted. Preserve its input cursor for recovery.
         opensea:

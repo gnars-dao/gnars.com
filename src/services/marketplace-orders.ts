@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { Pool } from "pg";
 import { erc721Abi, isAddressEqual, type Address, type Hex } from "viem";
 import { DAO_ADDRESSES } from "@/lib/config";
+import type { MarketplaceBrowseFilters } from "@/lib/marketplace/browse-filters";
 import { GNARS_MARKETPLACE_FEE_POLICY } from "@/lib/marketplace/community-policy";
 import {
   getGnarsMarketplaceAddress,
@@ -28,6 +29,7 @@ import {
 } from "@/services/marketplace-common";
 import type { MarketplaceOffer } from "@/types/marketplace";
 import { marketplaceContractReady } from "./marketplace-contract";
+import { browseIdentity, decodeBrowseCursor, encodeBrowseCursor } from "./marketplace-pagination";
 
 let pool: Pool | undefined;
 export type LocalMarketplaceSource = "gnars" | "gnars-contract";
@@ -183,6 +185,7 @@ export async function enforceOpenSeaProviderBudget(operation: "read" | "fulfillm
 
 type StoredOrder = {
   id: string;
+  price_wei?: string;
   signed_order: unknown;
   order_hash: Hex;
   status: string;
@@ -386,25 +389,38 @@ export async function listMarketplaceOrders(
       ...(custom ? [protocol.toLowerCase()] : []),
     ],
   );
+  return {
+    ...(await verifiedMarketplaceRows(result.rows, source)),
+    nextCursor:
+      !tokenIds && result.rows.length === MARKETPLACE_PAGE_SIZE ? result.rows.at(-1)!.id : null,
+  };
+}
+
+async function verifiedMarketplaceRows(rows: StoredOrder[], source: LocalMarketplaceSource) {
+  const { table, custom, protocol } = orderStorage(source);
   const offers: Array<{ tokenId: string; offer: MarketplaceOffer }> = [];
+  const positions = new Map<MarketplaceOffer, number>();
+  const add = (row: StoredOrder, listing: SignedListing) => {
+    const offer = localMarketplaceOffer(listing, source);
+    positions.set(offer, rows.indexOf(row));
+    offers.push({ tokenId: listing.parameters.offer[0].identifierOrCriteria, offer });
+  };
   const stale: Array<{ row: StoredOrder; listing: SignedListing }> = [];
-  let partial = result.rows.some((row) => Number(row.candidate_count) > 25);
+  let partial = rows.some((row) => Number(row.candidate_count) > 25);
   const now = Date.now();
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       if (custom && row.protocol_address !== protocol.toLowerCase())
         throw new Error("Stored order protocol mismatch");
       const listing = validateListingStructure(row.signed_order, { allowExpired: true, source });
       if (getListingOrderHash(listing.parameters).toLowerCase() !== row.order_hash.toLowerCase())
         throw new Error("Stored order identity mismatch");
+      if (row.price_wei !== undefined && getListingPriceWei(listing).toString() !== row.price_wei)
+        throw new Error("Stored order price mismatch");
       if (BigInt(listing.parameters.endTime) <= BigInt(Math.floor(now / 1000))) continue;
       const checked = row.checked_at ? new Date(row.checked_at).getTime() : 0;
       if (checked <= now && now - checked < 15_000) {
-        if (row.status === "active")
-          offers.push({
-            tokenId: listing.parameters.offer[0].identifierOrCriteria,
-            offer: localMarketplaceOffer(listing, source),
-          });
+        if (row.status === "active") add(row, listing);
       } else stale.push({ row, listing });
     } catch {
       partial = true;
@@ -498,11 +514,7 @@ export async function listMarketplaceOrders(
           continue;
         }
         updates.push({ hash: row.order_hash, status });
-        if (status === "active")
-          offers.push({
-            tokenId: p.offer[0].identifierOrCriteria,
-            offer: localMarketplaceOffer(listing, source),
-          });
+        if (status === "active") add(row, listing);
       }
     }
     if (updates.length > 0) {
@@ -524,9 +536,89 @@ export async function listMarketplaceOrders(
     }
   }
   return {
-    offers,
+    offers: offers.sort((a, b) => positions.get(a.offer)! - positions.get(b.offer)!),
     partial,
+  };
+}
+
+export async function listNativeMarketplaceOrders(
+  cursor: string | undefined,
+  filters: MarketplaceBrowseFilters,
+  sources: LocalMarketplaceSource[],
+) {
+  const identity = JSON.stringify([
+    browseIdentity(filters),
+    sources.map((source) => [source, orderStorage(source).protocol.toLowerCase()]),
+  ]);
+  const position = decodeBrowseCursor(cursor, identity);
+  const ascending = filters.sort === "price-asc";
+  if (position && (ascending !== (position.price !== undefined) || !position.source))
+    throw new RequestSecurityError(400, "Invalid marketplace cursor.");
+  if (!sources.length) return { offers: [], nextCursor: null, partial: false };
+  const values: (string | number)[] = [Math.floor(Date.now() / 1000)];
+  const clauses = [
+    "chain_id = 8453",
+    "status IN ('active', 'invalid-owner', 'unapproved')",
+    "expires_at > $1",
+  ];
+  for (const [bound, operator] of [
+    [filters.minPriceWei, ">="],
+    [filters.maxPriceWei, "<="],
+  ] as const) {
+    if (bound !== undefined) {
+      values.push(bound);
+      clauses.push(`price_wei ${operator} $${values.length}::numeric`);
+    }
+  }
+  const queries = sources.map((source) => {
+    const { table, custom, protocol } = orderStorage(source);
+    let constraint = "";
+    if (custom) {
+      values.push(protocol.toLowerCase());
+      constraint = ` AND protocol_address = $${values.length}`;
+    }
+    return `SELECT id, price_wei, order_hash, signed_order, status, checked_at, ${custom ? "protocol_address" : "NULL::text AS protocol_address"}, '${source}'::text AS source FROM ${table} WHERE ${clauses.join(" AND ")}${constraint}`;
+  });
+  let after = "";
+  if (position) {
+    values.push(position.id, position.source!);
+    const id = `$${values.length - 1}::bigint`;
+    const source = `$${values.length}::text`;
+    if (ascending) {
+      values.push(position.price!);
+      after = `WHERE (price_wei, id, source) > ($${values.length}::numeric, ${id}, ${source})`;
+    } else after = `WHERE id < ${id} OR (id = ${id} AND source > ${source})`;
+  }
+  type NativeRow = StoredOrder & { price_wei: string; source: LocalMarketplaceSource };
+  const result = await database().query<NativeRow>(
+    `SELECT * FROM (${queries.join(" UNION ALL ")}) AS native_orders ${after} ORDER BY ${ascending ? "price_wei ASC, id ASC" : "id DESC"}, source ASC LIMIT ${MARKETPLACE_PAGE_SIZE}`,
+    values,
+  );
+  const verified = await Promise.all(
+    sources.map((source) =>
+      verifiedMarketplaceRows(
+        result.rows.filter((row) => row.source === source),
+        source,
+      ),
+    ),
+  );
+  const offers = verified.flatMap((page) => page.offers);
+  const last = result.rows.at(-1);
+  return {
+    offers: result.rows.flatMap((row) =>
+      offers.filter(
+        (offer) =>
+          offer.offer.source === row.source &&
+          offer.offer.orderHash.toLowerCase() === row.order_hash.toLowerCase(),
+      ),
+    ),
+    partial: verified.some((page) => page.partial),
     nextCursor:
-      !tokenIds && result.rows.length === MARKETPLACE_PAGE_SIZE ? result.rows.at(-1)!.id : null,
+      result.rows.length === MARKETPLACE_PAGE_SIZE && last
+        ? encodeBrowseCursor(
+            { id: last.id, ...(ascending ? { price: last.price_wei } : {}), source: last.source },
+            identity,
+          )
+        : null,
   };
 }

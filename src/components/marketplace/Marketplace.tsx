@@ -24,12 +24,17 @@ import { useMarketplace, type MarketplaceView } from "@/hooks/use-marketplace";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { DAO_ADDRESSES, getConfiguredGnarsMarketplaceAddress } from "@/lib/config";
+import {
+  parseMarketplaceBrowseFilters,
+  type MarketplaceBrowseFilters as BrowseFilters,
+} from "@/lib/marketplace/browse-filters";
 import { mergeMarketplaceItems } from "@/lib/marketplace/merge-items";
 import { parseMarketplaceShareQuery, type MarketplaceShareTarget } from "@/lib/marketplace/share";
 import { cn } from "@/lib/utils";
 import type { MarketplaceItem, MarketplacePage } from "@/types/marketplace";
 import { CommunitySellerListings } from "./CommunitySellerListings";
 import { toggleSweepSelection, type MarketplaceSweepSelection } from "./marketplace-sweep-model";
+import { MarketplaceBrowseFilters } from "./MarketplaceBrowseFilters";
 import { MarketplaceCard } from "./MarketplaceCard";
 import { MarketplaceEditRecovery } from "./MarketplaceListingEditor";
 import { MarketplaceMixedSweep as MarketplaceSweep } from "./MarketplaceMixedSweep";
@@ -67,6 +72,8 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   } | null>(null);
   const queryClient = useQueryClient();
   const [urlReady, setUrlReady] = useState(false);
+  const [browseFilters, setBrowseFilters] = useState<BrowseFilters>({ sort: "price-asc" });
+  const [restoredPriceInvalid, setRestoredPriceInvalid] = useState(false);
   const selectedTrigger = useRef<HTMLButtonElement | null>(null);
   const writer = useWriteAccount();
   const sweepContext = `${writer?.account.address.toLowerCase() ?? "guest"}:${getConfiguredGnarsMarketplaceAddress()?.toLowerCase() ?? ""}`;
@@ -79,7 +86,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     view,
     view === "owned" || view === "selling" ? writer?.account.address : undefined,
     initialPage,
-    { tokenId },
+    { tokenId, filters: browseFilters, enabled: urlReady },
   );
   const pages = query.data?.pages ?? [];
   const page = pages[0];
@@ -110,6 +117,20 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   useEffect(() => {
     const restore = () => {
       const params = new URLSearchParams(window.location.search);
+      try {
+        setBrowseFilters({
+          ...parseMarketplaceBrowseFilters({
+            sort: params.get("sort") ?? undefined,
+            minPriceWei: params.get("minPriceWei") ?? undefined,
+            maxPriceWei: params.get("maxPriceWei") ?? undefined,
+          }),
+          sort: "price-asc",
+        });
+        setRestoredPriceInvalid(false);
+      } catch {
+        setBrowseFilters({ sort: "price-asc" });
+        setRestoredPriceInvalid(true);
+      }
       const target = parseMarketplaceShareQuery(Object.fromEntries(params));
       setSharedTarget(target);
       const restoredView = params.get("view");
@@ -150,6 +171,12 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   useEffect(() => {
     if (!urlReady) return;
     const url = new URL(window.location.href);
+    if (view === "listings") url.searchParams.set("sort", "price-asc");
+    else url.searchParams.delete("sort");
+    for (const key of ["minPriceWei", "maxPriceWei"] as const) {
+      if (browseFilters[key]) url.searchParams.set(key, browseFilters[key]);
+      else url.searchParams.delete(key);
+    }
     if (view === "listings") url.searchParams.delete("view");
     else url.searchParams.set("view", view);
     if (tokenId) url.searchParams.set("q", tokenId);
@@ -166,12 +193,29 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
       url.searchParams.delete("source");
     }
     window.history.replaceState(window.history.state, "", url);
-  }, [view, tokenId, selectedId, selectedCollection, activeSharedTarget, urlReady]);
+  }, [view, tokenId, selectedId, selectedCollection, activeSharedTarget, urlReady, browseFilters]);
   useEffect(() => {
     const restored = sharedItem.data?.items.find((item) => item.tokenId === selectedId);
     if (!selected && restored) setSelected(restored);
   }, [sharedItem.data, selectedId, selected]);
-  const items = mergeMarketplaceItems(pages.flatMap((p) => p.items));
+  const hasPriceRange =
+    browseFilters.minPriceWei !== undefined || browseFilters.maxPriceWei !== undefined;
+  const mergedItems = mergeMarketplaceItems(pages.flatMap((p) => p.items));
+  const items =
+    tokenId && hasPriceRange
+      ? mergedItems
+          .map((item) => ({
+            ...item,
+            offers: item.offers.filter(
+              (offer) =>
+                (browseFilters.minPriceWei === undefined ||
+                  BigInt(offer.priceWei) >= BigInt(browseFilters.minPriceWei)) &&
+                (browseFilters.maxPriceWei === undefined ||
+                  BigInt(offer.priceWei) <= BigInt(browseFilters.maxPriceWei)),
+            ),
+          }))
+          .filter((item) => item.offers.length > 0)
+      : mergedItems;
   const disconnected = (view === "owned" || view === "selling") && !writer;
   const sourcesComplete =
     pages.length > 0 &&
@@ -357,9 +401,28 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           )}
         </form>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {tokenId ? t("exactResult", { id: tokenId }) : t(`ordering.${view}`)}
+          {tokenId
+            ? t("exactResult", { id: tokenId })
+            : view !== "listings"
+              ? t(`ordering.${view}`)
+              : null}
         </div>
       </div>
+      {(view === "listings" || !!tokenId) && (
+        <MarketplaceBrowseFilters
+          value={browseFilters}
+          disabled={!urlReady}
+          onApply={(value) => {
+            setBrowseFilters(value);
+            setRestoredPriceInvalid(false);
+          }}
+        />
+      )}
+      {restoredPriceInvalid && (
+        <p role="alert" className="mb-4 text-xs text-destructive">
+          {t("filters.invalid")}
+        </p>
+      )}
       {selectedId && !selected && sharedItem.isPending && (
         <p role="status" className="mb-4 text-sm text-muted-foreground">
           {t("loading")}
@@ -439,10 +502,13 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           </div>
         ) : view === "listings" ? (
           <MarketplaceSaleBands
+            filters={browseFilters}
+            enabled={urlReady}
             items={items}
             pending={query.isPending}
             failed={query.isError}
             complete={sourcesComplete}
+            hasMore={query.hasNextPage}
             onRetry={() => void query.refetch()}
             sweepSelections={sweepItems}
             sweepEnabled={{
@@ -484,17 +550,19 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           <div className="flex min-h-64 flex-col items-center justify-center gap-4 border-b text-center">
             <ShoppingBag className="size-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              {tokenId && page?.sources.catalogue.available
-                ? t("tokenNotFound", { id: tokenId })
-                : view !== "selling" && !page?.sources.catalogue.available
-                  ? t("loadError")
-                  : view === "owned"
-                    ? t("emptyOwned")
-                    : view === "catalogue"
-                      ? t("emptyCatalogue")
-                      : sourcesComplete
-                        ? t("empty")
-                        : t("availabilityUnknown")}
+              {tokenId && hasPriceRange && mergedItems.length > 0
+                ? t("empty")
+                : tokenId && page?.sources.catalogue.available
+                  ? t("tokenNotFound", { id: tokenId })
+                  : view !== "selling" && !page?.sources.catalogue.available
+                    ? t("loadError")
+                    : view === "owned"
+                      ? t("emptyOwned")
+                      : view === "catalogue"
+                        ? t("emptyCatalogue")
+                        : sourcesComplete
+                          ? t("empty")
+                          : t("availabilityUnknown")}
             </p>
           </div>
         ) : (
