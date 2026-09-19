@@ -83,9 +83,19 @@ for (const width of [390, 1440]) {
     await expect(bands.nth(0)).toHaveAttribute("aria-labelledby", "sale-band-native");
     await expect(bands.nth(1)).toHaveAttribute("aria-labelledby", "sale-band-community");
     await expect(bands.nth(2)).toHaveAttribute("aria-labelledby", "sale-band-opensea");
-    await expect(bands.nth(0).getByText("0.01 ETH", { exact: true })).toBeVisible();
+    await expect(
+      bands
+        .nth(0)
+        .getByRole("button", { name: "Ver Gnar #42", exact: true })
+        .getByText("0.01 ETH", { exact: true }),
+    ).toBeVisible();
     await expect(bands.nth(1).getByRole("button", { name: /^Ver Artwork/ })).toHaveCount(2);
-    await expect(bands.nth(2).getByText("0.02 ETH", { exact: true })).toBeVisible();
+    await expect(
+      bands
+        .nth(2)
+        .getByRole("button", { name: "Ver Gnar #42", exact: true })
+        .getByText("0.02 ETH", { exact: true }),
+    ).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
