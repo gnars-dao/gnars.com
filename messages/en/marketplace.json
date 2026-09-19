@@ -45,6 +45,9 @@
   },
   "sections": { "native": "Gnars listings", "community": "Community", "opensea": "On OpenSea" },
   "community": {
+    "search": "NFT name, collection, contract or ID",
+    "find": "Search community NFTs",
+    "clearSearch": "Clear community search",
     "createFromMedia": "Create NFT from media",
     "submit": "List your NFT",
     "details": "View {name}",

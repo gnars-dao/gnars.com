@@ -6,6 +6,18 @@ import type { MarketplaceItem, MarketplaceOffer } from "@/types/marketplace";
 
 export type MarketplaceSweepSelection = { item: MarketplaceItem; offer: MarketplaceOffer };
 
+export function isSameSweepSelection(
+  left: MarketplaceSweepSelection,
+  right: MarketplaceSweepSelection,
+) {
+  return (
+    left.item.tokenId === right.item.tokenId &&
+    left.offer.source === right.offer.source &&
+    left.offer.protocolAddress.toLowerCase() === right.offer.protocolAddress.toLowerCase() &&
+    left.offer.orderHash.toLowerCase() === right.offer.orderHash.toLowerCase()
+  );
+}
+
 export function ownSweepListings(
   inventory: MarketplaceItem[],
   buyer?: Address,
@@ -50,7 +62,11 @@ export function toggleSweepSelection(
   current: MarketplaceSweepSelection[],
   selected: MarketplaceSweepSelection,
 ) {
-  if (current.some(({ item }) => item.tokenId === selected.item.tokenId))
+  if (current.some((entry) => isSameSweepSelection(entry, selected)))
     return current.filter(({ item }) => item.tokenId !== selected.item.tokenId);
+  if (current.some(({ item }) => item.tokenId === selected.item.tokenId))
+    return current.map((entry) =>
+      entry.item.tokenId === selected.item.tokenId ? selected : entry,
+    );
   return current.length < 10 ? [...current, selected] : current;
 }

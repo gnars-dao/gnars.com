@@ -12,9 +12,18 @@ import { COMMUNITY_CACHE_TAG, listCommunityMarketplace } from "@/services/market
 
 export const dynamic = "force-dynamic";
 const schema = z
-  .object({ cursor: marketplaceUintSchema.optional(), owner: marketplaceAddressSchema.optional() })
+  .object({
+    cursor: marketplaceUintSchema.optional(),
+    owner: marketplaceAddressSchema.optional(),
+    q: z
+      .string()
+      .trim()
+      .max(100)
+      .regex(/^[^\x00-\x1f\x7f]*$/)
+      .optional(),
+  })
   .strict();
-const load = unstable_cache(listCommunityMarketplace, ["community-feed-v1"], {
+const load = unstable_cache(listCommunityMarketplace, ["community-feed-v2"], {
   revalidate: 15,
   tags: [COMMUNITY_CACHE_TAG],
 });
@@ -25,7 +34,7 @@ export async function GET(request: Request) {
       schema,
       Object.fromEntries(new URL(request.url).searchParams),
     );
-    const page = await load(input.cursor, input.owner as Address | undefined);
+    const page = await load(input.cursor, input.owner as Address | undefined, input.q || undefined);
     return Response.json(page, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return marketplaceErrorResponse(error);

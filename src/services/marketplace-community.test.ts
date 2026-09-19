@@ -545,6 +545,26 @@ describe("community publication", () => {
     )![0];
     expect(update).not.toContain("metadata");
   });
+  it("filters literal names and collection identities in SQL before pagination", async () => {
+    await listCommunityMarketplace("50", seller, "SkateHive%_'\\");
+    const [sql, values] = mocks.query.mock.calls.find(([sql]) =>
+      sql.startsWith("SELECT * FROM public.marketplace_community_orders"),
+    )!;
+    expect(values).toEqual([
+      protocol.toLowerCase(),
+      expect.any(Number),
+      "50",
+      seller.toLowerCase(),
+      "SkateHive%_'\\",
+    ]);
+    expect(sql).toContain("AND id < $3");
+    expect(sql).toContain("AND seller = $4");
+    expect(sql).toContain("strpos(lower(COALESCE(metadata->>'name', '')), lower($5)) > 0");
+    expect(sql).toContain("metadata->>'collectionName'");
+    expect(sql).toContain("collection_address = lower($5) OR token_id = $5");
+    expect(sql.indexOf("strpos(")).toBeLessThan(sql.indexOf("ORDER BY id DESC LIMIT"));
+    expect(sql).not.toContain("SkateHive");
+  });
   it("denies a five-Gnar signer before metadata or writes", async () => {
     mocks.read.mockImplementation(async ({ functionName }) =>
       functionName === "balanceOf" ? 5n : true,
@@ -790,7 +810,7 @@ describe("freshly minted community metadata", () => {
       expect.anything(),
     );
   });
-  it("repairs already-published cards without writing stored orders, fees, or comments", async () => {
+  it("persists repaired names with a scoped merge that preserves orders, fees and comments", async () => {
     const saved = row(collection, "Original seller comment");
     saved.metadata.name = "#12";
     saved.metadata.image = "";
@@ -803,7 +823,36 @@ describe("freshly minted community metadata", () => {
     });
     expect(result.items[0].offers[0].listingComment).toBe("Original seller comment");
     expect(records[0]).toEqual(original);
-    expect(mocks.query.mock.calls.some(([sql]) => String(sql).startsWith("UPDATE"))).toBe(false);
+    const [sql, values] = mocks.query.mock.calls.find(([sql]) =>
+      String(sql).includes("SET metadata = orders.metadata ||"),
+    )!;
+    expect(JSON.parse(values[0])).toEqual({ name: "Gnarllie", collectionName: "Gnars Community" });
+    expect(values.slice(1)).toEqual([protocol, collection, "12", "#12"]);
+    expect(sql).toContain("chain_id = 8453 AND protocol_address = $2");
+    expect(sql).toContain("collection_address = $3 AND token_id = $4 AND metadata->>'name' = $5");
+    expect(sql).not.toMatch(/SET (signed_order|fee_policy|status|listingComment)/);
+  });
+  it("keeps recovered cards available if saving the repaired name fails", async () => {
+    const saved = row();
+    saved.metadata.name = "#12";
+    records = [saved];
+    const originalQuery = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (sql, values) => {
+      if (String(sql).includes("SET metadata = orders.metadata ||"))
+        throw new Error("database unavailable");
+      return originalQuery(sql, values);
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await listCommunityMarketplace();
+      expect(result.available).toBe(true);
+      expect(result.items[0].name).toBe("Gnarllie");
+      expect(log).toHaveBeenCalledWith(
+        "[marketplace-community] Metadata name repair could not be persisted",
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
   it("does not request tokenURI when indexed artwork and title are complete", async () => {
     mocks.fetch.mockResolvedValue(

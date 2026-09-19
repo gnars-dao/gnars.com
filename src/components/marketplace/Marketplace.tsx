@@ -227,7 +227,9 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     <div
       className={cn(
         "py-8 md:py-10",
-        view === "listings" && page?.capabilities.customTrading && "pb-36 md:pb-28",
+        view === "listings" &&
+          (page?.capabilities.customTrading || page?.capabilities.openseaBuy) &&
+          "pb-36 md:pb-28",
       )}
     >
       <header className="mb-7 flex flex-wrap items-center justify-between gap-5">
@@ -457,7 +459,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
             complete={sourcesComplete}
             onRetry={() => void query.refetch()}
             sweepSelections={sweepItems}
-            sweepEnabled={!!page?.capabilities.customTrading}
+            sweepEnabled={{
+              native: !!page?.capabilities.customTrading,
+              opensea: !!page?.capabilities.openseaBuy,
+            }}
             sweepBuyer={writer?.account.address as Address | undefined}
             onSweepSelect={(selection) =>
               setSweepSelection({
@@ -556,7 +561,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
         inventory={items}
         selections={sweepItems}
         enabled={
-          view === "listings" && !!page?.capabilities.customTrading && !selected && !submissionOpen
+          view === "listings" &&
+          !!(page?.capabilities.customTrading || page?.capabilities.openseaBuy) &&
+          !selected &&
+          !submissionOpen
         }
         onClear={() => setSweepSelection({ context: sweepContext, items: [] })}
         onRemove={(id) =>

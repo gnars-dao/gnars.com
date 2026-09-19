@@ -106,6 +106,11 @@ OpenSea, with an optional per-NFT ETH ceiling. `/api/marketplace/sweep/plan` mer
 price-ascending feeds, excludes the buyer and duplicate token IDs, and prefers
 Gnars on equal prices. Community collections and the canonical local Seaport book
 are not included. Each preview shows the chosen marketplace and its exact price.
+Manual selection highlights only the exact chosen order. Selecting another venue
+for the same NFT replaces its cart entry, including when the cart is full.
+Selection controls follow each venue's buying capability independently, so a
+custom-market outage does not hide healthy OpenSea selections. Automatic combined
+floor discovery still fails explicitly when it cannot establish complete coverage.
 The planner validates at most thirty distinct candidates and reads at most three
 cached OpenSea feed pages. Price frontiers bound unseen listings; incomplete
 coverage or provider failures fail closed, never masquerading as an empty floor.
@@ -148,6 +153,16 @@ the DAO NFT replaced by a test fixture; no mainnet transactions are sent.
 The for-sale view has three ordered bands: locally listed Gnars (custom contract
 and canonical Seaport book), community NFTs, then OpenSea Gnars. Each band retains
 its own offers/prices; community pagination and errors are independent.
+The community band has a separate search by saved NFT/collection name, exact
+collection address or token ID. Literal case-insensitive name matching runs in SQL
+before keyset pagination; changing the search starts a new cursor. The
+`communitySearch` URL parameter preserves the query across reloads and navigation.
+When a displayed listing's placeholder name is recovered from trusted metadata,
+the reader persists its name and collection name with a conditional JSON merge.
+Seller comments and signed terms are preserved, including concurrent comment edits.
+After cache refresh, name searches can find that repaired listing. Unvisited legacy
+listings still need a normal feed/detail read; this is not a full historical backfill.
+A failed persistence attempt is logged without hiding the recovered card.
 
 ## Farcaster Listing Shares
 

@@ -45,6 +45,9 @@
   },
   "sections": { "native": "Anúncios Gnars", "community": "Comunidade", "opensea": "Na OpenSea" },
   "community": {
+    "search": "Nome do NFT, coleção, contrato ou ID",
+    "find": "Buscar NFTs da comunidade",
+    "clearSearch": "Limpar busca da comunidade",
     "createFromMedia": "Criar NFT com mídia",
     "submit": "Anunciar seu NFT",
     "details": "Ver {name}",

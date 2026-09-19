@@ -3,6 +3,7 @@ import { DAO_ADDRESSES } from "@/lib/config";
 import { SEAPORT_ADDRESS } from "@/lib/marketplace/routing";
 import type { MarketplaceItem, MarketplaceOffer } from "@/types/marketplace";
 import {
+  isSameSweepSelection,
   ownSweepListings,
   selectableSweepOffer,
   toggleSweepSelection,
@@ -99,12 +100,27 @@ describe("sweep selection", () => {
       ),
     ).toEqual([]);
   });
-  it("toggles by NFT identity rather than allowing two orders for the same NFT", () => {
+  it("removes an identical selection but replaces another order for the same NFT", () => {
     const first = toggleSweepSelection([], { item, offer });
     expect(first).toHaveLength(1);
-    expect(
-      toggleSweepSelection(first, { item, offer: { ...offer, orderHash: `0x${"02".repeat(32)}` } }),
-    ).toEqual([]);
+    expect(toggleSweepSelection(first, { item, offer })).toEqual([]);
+    const replacement = { item, offer: { ...offer, orderHash: `0x${"02".repeat(32)}` as const } };
+    expect(toggleSweepSelection(first, replacement)).toEqual([replacement]);
+  });
+  it("selects only the reviewed venue and replaces it in either direction", () => {
+    const native = { item, offer };
+    const external = {
+      item,
+      offer: {
+        ...offer,
+        source: "opensea" as const,
+        protocolAddress: SEAPORT_ADDRESS,
+        priceWei: "50",
+      },
+    };
+    expect(isSameSweepSelection(native, external)).toBe(false);
+    expect(toggleSweepSelection([native], external)).toEqual([external]);
+    expect(toggleSweepSelection([external], native)).toEqual([native]);
   });
   it("caps manual selection at ten without evicting the first selection", () => {
     const current = Array.from({ length: 10 }, (_, index) => ({
@@ -113,5 +129,12 @@ describe("sweep selection", () => {
     }));
     expect(toggleSweepSelection(current, { item, offer })).toBe(current);
     expect(toggleSweepSelection(current, current[3])).toHaveLength(9);
+    const replacement = {
+      ...current[3],
+      offer: { ...offer, orderHash: `0x${"02".repeat(32)}` as const },
+    };
+    const updated = toggleSweepSelection(current, replacement);
+    expect(updated).toHaveLength(10);
+    expect(updated[3]).toEqual(replacement);
   });
 });

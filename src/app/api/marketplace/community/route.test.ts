@@ -65,7 +65,7 @@ describe("community route boundaries", () => {
       (await catalogue(new Request(`https://gnars.com/api/marketplace/community?owner=${address}`)))
         .status,
     ).toBe(200);
-    expect(mocks.catalogue).toHaveBeenCalledWith(undefined, address);
+    expect(mocks.catalogue).toHaveBeenCalledWith(undefined, address, undefined);
     expect(
       (
         await catalogue(
@@ -75,6 +75,33 @@ describe("community route boundaries", () => {
     ).toBe(400);
     expect(mocks.catalogue).toHaveBeenCalledTimes(1);
   });
+  it("forwards normalized search together with owner and cursor", async () => {
+    const params = new URLSearchParams({ q: "  SkateHive  ", owner: address, cursor: "24" });
+    expect(
+      (await catalogue(new Request(`https://gnars.com/api/marketplace/community?${params}`)))
+        .status,
+    ).toBe(200);
+    expect(mocks.catalogue).toHaveBeenCalledWith("24", address, "SkateHive");
+  });
+  it.each(["%_\\'", "São Paulo", "", "   "])("accepts literal search %s", async (q) => {
+    const params = new URLSearchParams({ q });
+    expect(
+      (await catalogue(new Request(`https://gnars.com/api/marketplace/community?${params}`)))
+        .status,
+    ).toBe(200);
+    expect(mocks.catalogue).toHaveBeenCalledWith(undefined, undefined, q.trim() || undefined);
+  });
+  it.each(["a".repeat(101), "bad\u0000name", "bad\nname"])(
+    "rejects malformed search",
+    async (q) => {
+      const params = new URLSearchParams({ q });
+      expect(
+        (await catalogue(new Request(`https://gnars.com/api/marketplace/community?${params}`)))
+          .status,
+      ).toBe(400);
+      expect(mocks.catalogue).not.toHaveBeenCalled();
+    },
+  );
   it("rejects invalid eligibility owners before RPC work", async () => {
     expect(
       (

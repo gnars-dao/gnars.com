@@ -951,11 +951,38 @@ async function itemsFromRows(
       )
         return;
       try {
+        const previousName = item.name;
         const metadata = await nftMetadata(item.collectionAddress!, item.tokenId);
         if (metadata.image) item.image = metadata.image;
         item.animationUrl = metadata.animationUrl;
         if (!genericNftName(metadata.name, item.tokenId)) item.name = metadata.name;
         if (metadata.collectionName) item.collectionName = metadata.collectionName;
+        if (
+          genericNftName(previousName, item.tokenId) &&
+          !genericNftName(item.name, item.tokenId)
+        ) {
+          // Merge only trusted names so concurrent seller comments and signed terms survive.
+          await database()
+            .query(
+              `UPDATE public.marketplace_community_orders AS orders
+             SET metadata = orders.metadata || $1::jsonb
+             WHERE chain_id = 8453 AND protocol_address = $2
+               AND collection_address = $3 AND token_id = $4 AND metadata->>'name' = $5`,
+              [
+                JSON.stringify({
+                  name: item.name,
+                  ...(item.collectionName ? { collectionName: item.collectionName } : {}),
+                }),
+                getMarketplaceProtocolAddress("gnars-contract").toLowerCase(),
+                item.collectionAddress!.toLowerCase(),
+                item.tokenId,
+                previousName,
+              ],
+            )
+            .catch(() => {
+              console.error("[marketplace-community] Metadata name repair could not be persisted");
+            });
+        }
       } catch {
         /* Incomplete artwork never changes listing availability. */
       }
@@ -967,6 +994,7 @@ async function itemsFromRows(
 export async function listCommunityMarketplace(
   cursor?: string,
   owner?: Address,
+  search?: string,
 ): Promise<CommunityMarketplacePage> {
   if (!(await communityMarketplaceReady()))
     return { items: [], nextCursor: null, available: false };
@@ -982,6 +1010,13 @@ export async function listCommunityMarketplace(
   if (owner) {
     values.push(owner.toLowerCase());
     filter += ` AND seller = $${values.length}`;
+  }
+  if (search) {
+    values.push(search);
+    const term = `$${values.length}`;
+    filter += ` AND (strpos(lower(COALESCE(metadata->>'name', '')), lower(${term})) > 0
+      OR strpos(lower(COALESCE(metadata->>'collectionName', '')), lower(${term})) > 0
+      OR collection_address = lower(${term}) OR token_id = ${term})`;
   }
   const result = await database().query<Row>(
     `SELECT * FROM public.marketplace_community_orders WHERE chain_id = 8453 AND protocol_address = $1 AND expires_at > $2 AND NOT hidden AND status IN ('active', 'invalid-owner', 'unapproved')${filter} ORDER BY id DESC LIMIT ${MARKETPLACE_PAGE_SIZE}`,

@@ -1,15 +1,20 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { useTranslations } from "next-intl";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { ArrowDown, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowDown, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
 import type { Address } from "viem";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatMarketplacePrice } from "@/lib/marketplace-display";
 import { cn } from "@/lib/utils";
 import type { CommunityMarketplacePage, MarketplaceItem } from "@/types/marketplace";
-import { selectableSweepOffer, type MarketplaceSweepSelection } from "./marketplace-sweep-model";
+import {
+  isSameSweepSelection,
+  selectableSweepOffer,
+  type MarketplaceSweepSelection,
+} from "./marketplace-sweep-model";
 import { MarketplaceCard } from "./MarketplaceCard";
 
 export function MarketplaceSaleBands({
@@ -20,7 +25,7 @@ export function MarketplaceSaleBands({
   onRetry,
   onSelect,
   sweepSelections = [],
-  sweepEnabled = false,
+  sweepEnabled,
   sweepBuyer,
   onSweepSelect,
 }: {
@@ -31,17 +36,43 @@ export function MarketplaceSaleBands({
   onRetry: () => void;
   onSelect: (item: MarketplaceItem, event: MouseEvent<HTMLButtonElement>) => void;
   sweepSelections?: MarketplaceSweepSelection[];
-  sweepEnabled?: boolean;
+  sweepEnabled?: { native: boolean; opensea: boolean };
   sweepBuyer?: Address;
   onSweepSelect?: (selection: MarketplaceSweepSelection) => void;
 }) {
   const t = useTranslations("marketplace");
+  const [search, setSearch] = useState("");
+  const [draft, setDraft] = useState("");
+  const [searchReady, setSearchReady] = useState(false);
+  useEffect(() => {
+    const restore = () => {
+      const raw = new URLSearchParams(window.location.search).get("communitySearch") ?? "";
+      const value = raw.trim();
+      const valid = value.length <= 100 && !/[\x00-\x1f\x7f]/.test(value) ? value : "";
+      setSearch(valid);
+      setDraft(valid);
+      setSearchReady(true);
+    };
+    restore();
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+  function findCommunity(value: string) {
+    const term = value.trim();
+    setSearch(term);
+    setDraft(term);
+    const url = new URL(window.location.href);
+    if (term) url.searchParams.set("communitySearch", term);
+    else url.searchParams.delete("communitySearch");
+    window.history.replaceState(window.history.state, "", url);
+  }
   const community = useInfiniteQuery({
-    queryKey: ["marketplace", "community", "listings"],
+    queryKey: ["marketplace", "community", "listings", search],
     initialPageParam: "",
     queryFn: async ({ pageParam, signal }): Promise<CommunityMarketplacePage> => {
       const params = new URLSearchParams();
       if (pageParam) params.set("cursor", pageParam);
+      if (search) params.set("q", search);
       const response = await fetch(`/api/marketplace/community?${params}`, { signal });
       if (!response.ok) throw new Error("Community listings unavailable");
       const page: CommunityMarketplacePage = await response.json();
@@ -107,6 +138,50 @@ export function MarketplaceSaleBands({
           <h2 id={`sale-band-${group.key}`} className="mb-5 text-lg font-semibold">
             {t(`sections.${group.key}`)}
           </h2>
+          {group.key === "community" && (
+            <form
+              className="relative mb-5 flex w-full max-w-md items-center"
+              onSubmit={(event) => {
+                event.preventDefault();
+                findCommunity(draft);
+              }}
+            >
+              <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
+              <Input
+                aria-label={t("community.search")}
+                placeholder={t("community.search")}
+                value={draft}
+                disabled={!searchReady}
+                maxLength={100}
+                onChange={(event) => setDraft(event.target.value)}
+                className="h-10 pr-20 pl-9"
+              />
+              <div className="absolute right-1 flex gap-1">
+                {(draft || search) && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    aria-label={t("community.clearSearch")}
+                    onClick={() => findCommunity("")}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  disabled={!searchReady}
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  aria-label={t("community.find")}
+                >
+                  <Search className="size-4" />
+                </Button>
+              </div>
+            </form>
+          )}
           {group.failed && (
             <div
               role="alert"
@@ -132,10 +207,16 @@ export function MarketplaceSaleBands({
             <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">
               {group.items.map((item) => {
                 const sweepOffer =
-                  (group.key === "native" || group.key === "opensea") && sweepEnabled
+                  (group.key === "native" && sweepEnabled?.native) ||
+                  (group.key === "opensea" && sweepEnabled?.opensea)
                     ? selectableSweepOffer(item, sweepBuyer)
                     : undefined;
-                const selected = sweepSelections.some(
+                const selected =
+                  !!sweepOffer &&
+                  sweepSelections.some((entry) =>
+                    isSameSweepSelection(entry, { item, offer: sweepOffer }),
+                  );
+                const alreadyInCart = sweepSelections.some(
                   (entry) => entry.item.tokenId === item.tokenId,
                 );
                 return (
@@ -159,7 +240,7 @@ export function MarketplaceSaleBands({
                           type="checkbox"
                           className="size-4 shrink-0 cursor-pointer accent-emerald-600"
                           checked={selected}
-                          disabled={!selected && sweepSelections.length >= 10}
+                          disabled={!alreadyInCart && sweepSelections.length >= 10}
                           aria-label={t("sweep.select", {
                             id: item.tokenId,
                             price: formatMarketplacePrice(sweepOffer.priceWei).exact,
