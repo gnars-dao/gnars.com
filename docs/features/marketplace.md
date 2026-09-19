@@ -705,6 +705,20 @@ per-instance limits for a verified account-wide cap.
   those require a complete, versioned metadata index rather than current-page
   filtering. No rarity percentages are inferred.
 
+The read-only `scripts/marketplace-trait-index.ts <checkpoint.json> [steps]`
+prepares that index locally. Run with the server environment loaded, for example
+`node --env-file=.env.local --import tsx scripts/marketplace-trait-index.ts /tmp/gnars-traits.json 10`.
+It pins both subgraph enumeration and contract metadata to a finalized Base block,
+checks the block hash before and after every batch, and verifies the enumerated
+count against `totalSupply` at that block. Failed metadata remains pending and is
+retried before advancing. A checkpoint is complete only after pagination is
+exhausted and every metadata read succeeds. Local checkpoint writes are atomic;
+an exclusive lock prevents concurrent writers. After a killed process, confirm no
+worker is running before removing its `.lock` file. A reorg invalidates the
+checkpoint; start a new snapshot rather than mixing blocks.
+This CLI does not publish to the database or enable collection filters by itself.
+It supports the Gnars inline metadata contract, not arbitrary community metadata.
+
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),
 [OpenSea fulfillment API](https://docs.opensea.io/reference/generate_listing_fulfillment_data_v2),
