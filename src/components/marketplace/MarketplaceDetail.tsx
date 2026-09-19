@@ -703,9 +703,20 @@ export default function MarketplaceDetail({
                         <dd className="mt-1 break-all font-mono text-xs">
                           <Link
                             href={`/members/${offer.seller}`}
-                            className="underline underline-offset-4"
+                            prefetch={false}
+                            title={offer.seller}
+                            className="block w-fit max-w-full rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
                           >
-                            {offer.seller}
+                            <AddressDisplay
+                              key={offer.seller}
+                              address={offer.seller}
+                              variant="compact"
+                              avatarSize="sm"
+                              showCopy={false}
+                              showExplorer={false}
+                              onAddressClick={() => {}}
+                              className="max-w-full min-w-0 [&>span.font-mono]:min-w-0 [&>span.font-mono]:break-all"
+                            />
                           </Link>
                         </dd>
                       </div>

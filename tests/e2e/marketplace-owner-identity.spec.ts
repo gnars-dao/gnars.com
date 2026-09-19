@@ -38,7 +38,18 @@ for (const scenario of [
               name: "Gnar #42",
               image: "/gnars.webp",
               owner: scenario.owner,
-              offers: [],
+              offers: [
+                {
+                  id: "identity-test",
+                  source: "opensea",
+                  orderHash: `0x${"11".repeat(32)}`,
+                  protocolAddress: "0x0000000000000068F116a894984e2DB1123eB395",
+                  seller: scenario.owner,
+                  priceWei: "10000000000000000",
+                  currency: "ETH",
+                  expiresAt: 2100000000,
+                },
+              ],
             },
           ],
           nextCursor: null,
@@ -47,7 +58,7 @@ for (const scenario of [
             opensea: { available: true },
             gnars: { available: true },
           },
-          capabilities: { openseaBuy: false, localTrading: false },
+          capabilities: { openseaBuy: true, localTrading: false },
         },
       }),
     );
@@ -78,6 +89,18 @@ for (const scenario of [
     // Identity is public owner metadata: no connected wallet or signing is necessary.
     await owner.focus();
     await expect(owner).toBeFocused();
+    await drawer.getByRole("button", { name: "Comprar", exact: true }).click();
+    await expect(drawer.getByText("Vendedor", { exact: true })).toBeVisible();
+    await expect(owner).toContainText(
+      scenario.name ?? `${scenario.owner.slice(0, 6)}...${scenario.owner.slice(-6)}`,
+    );
+    await expect(owner).toHaveAttribute("title", scenario.owner);
+    expect(await drawer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: `/tmp/marketplace-seller-${scenario.label.replaceAll(" ", "-")}.png`,
+    });
     await page.keyboard.press("Escape");
     await expect(drawer).not.toBeVisible();
     if (scenario.status === 200) {
