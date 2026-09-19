@@ -27,6 +27,9 @@ its expiry is reached. Already-broadcast attempts retain their recovery flow.
 Paginated feeds merge offers by source, protocol and order hash while retaining
 the first (newest) item's metadata, including in seller management.
 Wallet-scoped views always use the connected write account.
+Exact-ID lookups preserve that scope: owned inventory requires verified current
+ownership, and seller management additionally requires offers from that wallet.
+An unavailable ownership read is an error, not an empty-wallet result.
 The NFT owner uses the profiles' cached ENS name/avatar resolver and links to the
 actual owner address. EOA and smart-wallet addresses are resolved identically;
 an unnamed account keeps its shortened address, not an inferred administrator's identity.
@@ -49,6 +52,9 @@ request budget; a page with no matches can still have a continuation. The UI off
 load-more rather than declaring that such a page exhausted all matching listings.
 These are live feeds, not price snapshots: new or cancelled orders can change
 between page reads, and checkout always revalidates the selected order.
+Partial community pages retain verified cards and continuation cursors while
+showing a retryable warning. One failed NFT/order read must not hide healthy rows
+or produce a false empty-state message.
 
 Cards use NFT artwork with a lightweight metallic reflection, never a webcam.
 Mouse pointers control the sheen; touch and reduced-motion users receive a static
@@ -746,7 +752,14 @@ Community listings and seller-management views are unaffected by Gnars traits.
 Snapshots are historical, not a continuously refreshed index. To include later
 mints or changed metadata, create a **new checkpoint file**, complete its backfill,
 and publish it. Existing URLs stay pinned; clearing filters allows the latest
-published snapshot. Automatic refresh scheduling remains operational work.
+published snapshot. `.github/workflows/marketplace-traits.yml` prepares a daily
+refresh at 05:43 UTC and manual dispatch, behind `MARKETPLACE_INDEXER_ENABLED`.
+Each run/attempt uses a fresh checkpoint, not a cached completed file. Its bounded
+1,000-step backfill must finish before the separate publisher accepts it. A failed
+read, incomplete metadata, supply mismatch or reorg leaves the prior published
+snapshot intact. This is a full refresh so changed metadata and burns are included,
+not just newly minted IDs. The GitHub job has a 45-minute limit and does not expose
+database credentials to the read-only backfill step.
 
 ### Native History Backfill
 
@@ -794,12 +807,15 @@ support 2,000-block log ranges. The database must use a session/direct connectio
 not a transaction pooler: the writer holds a session advisory lock. The worker
 reads Base only; it cannot send wallet transactions.
 
-Apply `scripts/marketplace-indexer-role.sql` after the history schema, then grant
+Apply `scripts/marketplace-indexer-role.sql` after the history and trait schemas, then grant
 its NOLOGIN role to a dedicated worker login. It can read/insert history events
-and read/insert/update checkpoints, but receives no order, signature, deletion,
+and read/insert/update checkpoints, plus read/insert immutable trait snapshots,
+but receives no order, signature, deletion,
 schema-creation or bypass-RLS privileges. Never grant this role to
 `gnars_marketplace`, and never put administrative/migration credentials in the
-workflow. The manual CLI still accepts `MARKETPLACE_MIGRATION_DATABASE_URL` for
+workflow. The trait publisher also needs database TEMP privilege for its temporary
+staging table (normally available via PUBLIC); it never needs schema CREATE.
+Both publication CLIs still accept `MARKETPLACE_MIGRATION_DATABASE_URL` for
 existing operator usage; a configured scoped indexer URL takes precedence.
 
 Provisioning and a successful scheduled run with advancing coverage are still
@@ -807,8 +823,9 @@ required before calling automation operational. Monitor workflow failures and
 checkpoint age; a completed historical checkpoint is not proof of a live worker.
 [GitHub schedules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 can be delayed, so this is eventual history, not transaction confirmation.
-Automatic trait refresh remains separate work; reusing a completed trait file
-does not advance its snapshot block.
+The daily trait workflow uses the same scoped secrets and enable flag. Verify a
+new published snapshot block as well as history advancement before declaring both
+schedules operational. Reusing a completed trait file does not advance its block.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),

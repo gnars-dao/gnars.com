@@ -148,3 +148,50 @@ test("empty intermediate community page retains continuation and active bounds",
   await community.getByRole("button", { name: "Carregar mais", exact: true }).click();
   await expect(community.getByRole("button", { name: "Ver Gnar #5", exact: true })).toBeVisible();
 });
+
+for (const width of [390, 1440]) {
+  test(`partial community results retain cards and pagination at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    let recovered = false;
+    await page.route("**/api/marketplace**", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/api/marketplace/community") {
+        const next = url.searchParams.has("cursor");
+        return route.fulfill({
+          json: {
+            available: recovered || next,
+            items: [
+              {
+                ...item(next ? "6" : "5", "10000000000000000", "10000000000000000"),
+                collectionAddress: contract,
+              },
+            ],
+            nextCursor: next ? null : "continue",
+          },
+        });
+      }
+      return route.fulfill({ json: { ...base, items: [], nextCursor: null } });
+    });
+    await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+    const community = page.locator("section[aria-labelledby='sale-band-community']");
+    await expect(community.getByRole("button", { name: "Ver Gnar #5", exact: true })).toBeVisible();
+    await expect(community.getByRole("alert")).toBeVisible();
+    await expect(
+      community.getByText("Nenhum anúncio ativo encontrado.", { exact: true }),
+    ).toHaveCount(0);
+    await community.getByRole("button", { name: "Carregar mais", exact: true }).click();
+    await expect(community.getByRole("button", { name: "Ver Gnar #6", exact: true })).toBeVisible();
+    await expect(community.getByRole("button", { name: "Ver Gnar #5", exact: true })).toBeVisible();
+    recovered = true;
+    await community.getByRole("button", { name: "Tentar novamente", exact: true }).click();
+    await expect(community.getByRole("alert")).toHaveCount(0);
+    await expect(community.getByRole("button", { name: "Ver Gnar #6", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: `/tmp/marketplace-community-recovery-${width}.png`,
+      fullPage: true,
+    });
+  });
+}

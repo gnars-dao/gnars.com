@@ -104,7 +104,6 @@ export function MarketplaceSaleBands({
       const response = await fetch(`/api/marketplace/community?${params}`, { signal });
       if (!response.ok) throw new Error("Community listings unavailable");
       const page: CommunityMarketplacePage = await response.json();
-      if (!page.available) throw new Error("Community listings unavailable");
       return page;
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -115,6 +114,7 @@ export function MarketplaceSaleBands({
   const communityItems = mergeMarketplaceItems(
     community.data?.pages.flatMap((page) => page.items) ?? [],
   );
+  const communityPartial = community.data?.pages.some((page) => !page.available) ?? false;
   const groups = [
     {
       key: "native",
@@ -136,8 +136,8 @@ export function MarketplaceSaleBands({
       key: "community",
       items: sortByMatchingPrice(communityItems),
       pending: community.isPending,
-      failed: community.isError,
-      complete: !community.isError,
+      failed: community.isError || communityPartial,
+      complete: !community.isError && !communityPartial,
       hasMore: community.hasNextPage,
       retry: () => void community.refetch(),
     },

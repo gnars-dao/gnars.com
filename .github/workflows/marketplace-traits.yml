@@ -1,0 +1,45 @@
+name: Marketplace trait snapshot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 5 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-trait-snapshot-production
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.repository == 'gnars-dao/gnars.com' && github.ref == 'refs/heads/main' && vars.MARKETPLACE_INDEXER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Read a fresh finalized snapshot
+        env:
+          BASE_RPC: ${{ secrets.MARKETPLACE_INDEXER_BASE_RPC }}
+        run: |
+          checkpoint="$RUNNER_TEMP/gnars-traits-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+          test ! -e "$checkpoint"
+          node --import tsx scripts/marketplace-trait-index.ts "$checkpoint" 1000
+      - name: Publish only a complete canonical snapshot
+        env:
+          BASE_RPC: ${{ secrets.MARKETPLACE_INDEXER_BASE_RPC }}
+          MARKETPLACE_INDEXER_DATABASE_URL: ${{ secrets.MARKETPLACE_INDEXER_DATABASE_URL }}
+          MARKETPLACE_DATABASE_SSL_CA: ${{ secrets.MARKETPLACE_DATABASE_SSL_CA }}
+        run: |
+          checkpoint="$RUNNER_TEMP/gnars-traits-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+          node --import tsx scripts/marketplace-trait-publish.ts "$checkpoint"

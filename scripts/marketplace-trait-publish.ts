@@ -1,5 +1,6 @@
 /** Administrative publication only; runtime credentials cannot write snapshots. */
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { Pool } from "pg";
 import { createPublicClient, http, parseAbi } from "viem";
 import { base } from "viem/chains";
@@ -7,11 +8,12 @@ import { DAO_ADDRESSES } from "../src/lib/config";
 import { traitIndexComplete, validateTraitIndex } from "../src/lib/marketplace/trait-index";
 import { marketplaceDatabaseConnection } from "../src/lib/server/marketplace-database";
 
-async function main() {
+export async function publishMarketplaceTraits() {
   const path = process.argv[2];
   if (!path || process.argv.length !== 3) throw new Error("Expected snapshot file");
-  const connectionString = process.env.MARKETPLACE_MIGRATION_DATABASE_URL;
-  if (!connectionString) throw new Error("Explicit migration credentials required");
+  const connectionString =
+    process.env.MARKETPLACE_INDEXER_DATABASE_URL || process.env.MARKETPLACE_MIGRATION_DATABASE_URL;
+  if (!connectionString) throw new Error("Explicit writer credentials required");
   const index = validateTraitIndex(JSON.parse(await readFile(path, "utf8")));
   if (index.collection !== DAO_ADDRESSES.token.toLowerCase() || !traitIndexComplete(index))
     throw new Error("Complete Gnars snapshot required");
@@ -90,9 +92,11 @@ async function main() {
     await pool.end();
   }
 }
-main().catch(() => {
-  console.error(
-    "Trait publication failed. Check administrative configuration, snapshot and provider availability; no secrets logged.",
-  );
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  publishMarketplaceTraits().catch(() => {
+    console.error(
+      "Trait publication failed. Check writer configuration, snapshot and provider availability; no secrets logged.",
+    );
+    process.exitCode = 1;
+  });
+}

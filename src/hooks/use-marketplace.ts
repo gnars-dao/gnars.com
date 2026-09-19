@@ -7,6 +7,31 @@ import type { MarketplacePage } from "@/types/marketplace";
 
 export type MarketplaceView = "listings" | "catalogue" | "owned" | "selling";
 
+export function scopeExactMarketplacePage(
+  page: MarketplacePage,
+  view: MarketplaceView,
+  owner?: string,
+): MarketplacePage {
+  if (view !== "owned" && view !== "selling") return page;
+  if (!owner || !page.ownershipVerified || page.items.some((item) => !item.owner))
+    throw new Error("NFT ownership unavailable");
+  const address = owner.toLowerCase();
+  const items = page.items.filter((item) => item.owner!.toLowerCase() === address);
+  return {
+    ...page,
+    items:
+      view === "selling"
+        ? items
+            .map((item) => ({
+              ...item,
+              offers: item.offers.filter((offer) => offer.seller.toLowerCase() === address),
+            }))
+            .filter((item) => item.offers.length > 0)
+        : items,
+    nextCursor: null,
+  };
+}
+
 export function useMarketplace(
   view: MarketplaceView,
   owner?: string,
@@ -45,7 +70,8 @@ export function useMarketplace(
       );
       if (!response.ok)
         throw parseMarketplaceApiError(await response.json().catch(() => null), response.status);
-      return response.json();
+      const page: MarketplacePage = await response.json();
+      return tokenId && !filters?.traits ? scopeExactMarketplacePage(page, view, owner) : page;
     },
     enabled:
       options.enabled !== false &&
