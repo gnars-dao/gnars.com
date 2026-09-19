@@ -40,12 +40,33 @@ const data = {
     customTrading: false,
   },
 };
-async function setup(page: Page, unavailable = false) {
+async function setup(
+  page: Page,
+  unavailable = false,
+  invalidDetail?: "empty" | "token" | "collection",
+) {
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await page.route("**/api/marketplace**", (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === "/api/marketplace/community")
       return route.fulfill({ json: { items: [item], nextCursor: null, available: true } });
+    if (pathname.includes("/nfts/") && invalidDetail)
+      return route.fulfill({
+        json: {
+          ...data,
+          items:
+            invalidDetail === "empty"
+              ? []
+              : [
+                  {
+                    ...item,
+                    ...(invalidDetail === "token"
+                      ? { tokenId: "99" }
+                      : { collectionAddress: "0x3333333333333333333333333333333333333333" }),
+                  },
+                ],
+        },
+      });
     return route.fulfill({ json: { ...data, items: pathname.includes("/nfts/") ? [item] : [] } });
   });
   await page.route(item.animationUrl, (route) =>
@@ -105,3 +126,16 @@ test("NFT video failure keeps the cover and listing details", async ({ page }) =
   await expect(dialog.getByRole("img", { name: item.name, exact: true })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: item.name, exact: true })).toBeVisible();
 });
+
+for (const invalidDetail of ["empty", "token", "collection"] as const) {
+  test(`invalid ${invalidDetail} detail response shows an error instead of verified stale data`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const dialog = await setup(page, false, invalidDetail);
+    await expect(dialog.getByRole("alert")).toContainText("Não foi possível carregar estes NFTs.");
+    await expect(
+      dialog.getByRole("button", { name: "Tentar novamente", exact: true }),
+    ).toBeVisible();
+  });
+}

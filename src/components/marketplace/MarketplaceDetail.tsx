@@ -110,7 +110,16 @@ export default function MarketplaceDetail({
         : `/api/marketplace/nfts/${initialItem.tokenId}`;
       const response = await fetch(path, { signal });
       if (!response.ok) throw new Error("NFT unavailable");
-      return response.json();
+      const result: MarketplacePage = await response.json();
+      const nft = result.items[0];
+      if (
+        result.items.length !== 1 ||
+        nft.tokenId !== initialItem.tokenId ||
+        (nft.collectionAddress ?? DAO_ADDRESSES.token).toLowerCase() !==
+          collectionAddress.toLowerCase()
+      )
+        throw new Error("NFT detail identity unavailable");
+      return result;
     },
     staleTime: 0,
     retry: 1,

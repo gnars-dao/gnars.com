@@ -107,7 +107,8 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
         : actions.phase === "signing"
           ? 1
           : 0;
-  const collectionAddress = actions.recovery?.input?.collectionAddress;
+  const collectionAddress =
+    actions.recovery?.collectionAddress ?? actions.recovery?.input?.collectionAddress;
   const recoveryTitle = actions.recovery
     ? actions.recovery.sweepCount
       ? t("sweep.recoveryTitle", { count: actions.recovery.sweepCount })

@@ -17,6 +17,7 @@ import type {
   MarketplaceItem,
   MarketplaceOffer,
 } from "@/types/marketplace";
+import { MarketplaceError } from "./MarketplaceError";
 import { NftArtwork } from "./NftArtwork";
 
 const path = "/api/marketplace/community/manage";
@@ -37,6 +38,7 @@ function SellerListings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [cancelAttempt, setCancelAttempt] = useState<string | null>(null);
   const inFlight = useRef(false);
   const active = useRef(true);
   useEffect(() => {
@@ -110,6 +112,7 @@ function SellerListings() {
   }
   async function cancel(offer: MarketplaceOffer, tokenId: string) {
     if (busy || unresolved) return;
+    setCancelAttempt(offer.orderHash);
     await actions.cancel(offer, tokenId);
     setConfirm(null);
     void queries.invalidateQueries({ queryKey: ["marketplace"] });
@@ -142,6 +145,10 @@ function SellerListings() {
             </Link>
             {item.offers.map((offer) => (
               <div key={offer.orderHash} className="space-y-2">
+                {cancelAttempt === offer.orderHash &&
+                  !actions.isBusy &&
+                  ["idle", "failed"].includes(actions.phase) &&
+                  actions.error && <MarketplaceError error={actions.error} />}
                 <p
                   className="font-mono text-sm"
                   title={`${formatMarketplacePrice(offer.priceWei).exact} ETH`}

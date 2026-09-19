@@ -8,6 +8,7 @@ import type { Address } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatMarketplacePrice } from "@/lib/marketplace-display";
+import { mergeMarketplaceItems } from "@/lib/marketplace/merge-items";
 import { cn } from "@/lib/utils";
 import type { CommunityMarketplacePage, MarketplaceItem } from "@/types/marketplace";
 import {
@@ -84,13 +85,9 @@ export function MarketplaceSaleBands({
     retry: 1,
     refetchOnWindowFocus: false,
   });
-  const communityItems = [
-    ...new Map(
-      (community.data?.pages.flatMap((page) => page.items) ?? []).map(
-        (item) => [`${item.collectionAddress?.toLowerCase()}:${item.tokenId}`, item] as const,
-      ),
-    ).values(),
-  ];
+  const communityItems = mergeMarketplaceItems(
+    community.data?.pages.flatMap((page) => page.items) ?? [],
+  );
   const groups = [
     {
       key: "native",

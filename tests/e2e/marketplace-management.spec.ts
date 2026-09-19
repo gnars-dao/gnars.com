@@ -193,6 +193,11 @@ async function setup(page: Page, admin: boolean) {
       management.push({ url: req.url(), authorization: JSON.parse(header) });
       return route.fulfill({ json: { items: [item], nextCursor: null, available: true } });
     }
+    if (url.pathname.startsWith("/api/marketplace/community/orders/"))
+      return route.fulfill({
+        status: 503,
+        json: { code: "MARKETPLACE_UNAVAILABLE", retryable: true, requestId: "cancel-test" },
+      });
     if (url.pathname === "/api/marketplace/community/moderation")
       return route.fulfill({ json: { items: [], nextCursor: null, available: true } });
     if (url.pathname === "/api/marketplace/community")
@@ -315,5 +320,13 @@ test.describe("community management signing safety", () => {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
     await page.screenshot({ path: "/tmp/gnars-marketplace-management-mobile.png", fullPage: true });
+    await page.getByRole("button", { name: "Cancelar anúncio", exact: true }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "cancel-test" })).toBeVisible();
+    await expect(page.getByText("Community NFT #42", { exact: true })).toBeVisible();
+    expect(wallet.transactions).toHaveLength(0);
+    await page.screenshot({
+      path: "/tmp/gnars-marketplace-cancel-error-mobile.png",
+      fullPage: true,
+    });
   });
 });

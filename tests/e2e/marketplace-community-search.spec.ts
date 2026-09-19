@@ -33,11 +33,21 @@ for (const width of [390, 1440]) {
           json: {
             available: true,
             items: filtered
-              ? [
-                  url.searchParams.has("cursor")
-                    ? item("2", "SkateHive #2")
-                    : item("1", "SkateHive #1"),
-                ]
+              ? url.searchParams.has("cursor")
+                ? [
+                    {
+                      ...item("1", "Stale NFT name"),
+                      offers: [
+                        {
+                          ...item("1", "").offers[0],
+                          orderHash: `0x${"02".repeat(32)}`,
+                          priceWei: "20000000000000000",
+                        },
+                      ],
+                    },
+                    item("2", "SkateHive #2"),
+                  ]
+                : [item("1", "SkateHive #1")]
               : [item("3", "Other NFT")],
             nextCursor: filtered && !url.searchParams.has("cursor") ? "10" : null,
           },
@@ -72,6 +82,9 @@ for (const width of [390, 1440]) {
     await expect(page).toHaveURL(/communitySearch=SkateHive/);
     await community.getByRole("button", { name: /Carregar mais/i }).click();
     await expect(community.getByText("SkateHive #2", { exact: true })).toBeVisible();
+    await expect(community.getByText("SkateHive #1", { exact: true })).toHaveCount(1);
+    await expect(community.getByText("Stale NFT name", { exact: true })).toHaveCount(0);
+    await expect(community.getByText("0.02 ETH", { exact: true })).toHaveCount(0);
     expect(
       requests.some((params) => params.get("q") === "SkateHive" && params.get("cursor") === "10"),
     ).toBe(true);
