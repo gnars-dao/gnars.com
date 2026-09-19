@@ -24,6 +24,7 @@ import { useMarketplace, type MarketplaceView } from "@/hooks/use-marketplace";
 import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { DAO_ADDRESSES, getConfiguredGnarsMarketplaceAddress } from "@/lib/config";
+import { mergeMarketplaceItems } from "@/lib/marketplace/merge-items";
 import { parseMarketplaceShareQuery, type MarketplaceShareTarget } from "@/lib/marketplace/share";
 import { cn } from "@/lib/utils";
 import type { MarketplaceItem, MarketplacePage } from "@/types/marketplace";
@@ -92,7 +93,16 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           : `/api/marketplace/nfts/${selectedId}`;
       const response = await fetch(path, { signal });
       if (!response.ok) throw new Error("NFT unavailable");
-      return response.json();
+      const result: MarketplacePage = await response.json();
+      const nft = result.items[0];
+      if (
+        result.items.length !== 1 ||
+        nft.tokenId !== selectedId ||
+        (nft.collectionAddress ?? DAO_ADDRESSES.token).toLowerCase() !==
+          (selectedCollection ?? DAO_ADDRESSES.token).toLowerCase()
+      )
+        throw new Error("NFT detail identity unavailable");
+      return result;
     },
     staleTime: 30_000,
     retry: 1,
@@ -100,11 +110,10 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
   useEffect(() => {
     const restore = () => {
       const params = new URLSearchParams(window.location.search);
-      setSharedTarget(parseMarketplaceShareQuery(Object.fromEntries(params)));
+      const target = parseMarketplaceShareQuery(Object.fromEntries(params));
+      setSharedTarget(target);
       const restoredView = params.get("view");
       const restoredId = params.get("q");
-      const restoredSelection = params.get("nft");
-      const restoredCollection = params.get("collection");
       const createdCollection = params.get("createCollection");
       const createdToken = params.get("createTokenId");
       if (
@@ -120,9 +129,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
         });
         setSubmissionOpen(true);
       }
-      setSelectedCollection(
-        restoredCollection && isAddress(restoredCollection) ? restoredCollection : null,
-      );
+      setSelectedCollection(target?.collectionAddress ?? null);
       setView(
         views.includes(restoredView as MarketplaceView)
           ? (restoredView as MarketplaceView)
@@ -132,13 +139,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
         restoredId && /^\d{1,20}$/.test(restoredId) ? BigInt(restoredId).toString() : undefined,
       );
       setSearch(restoredId && /^\d{1,20}$/.test(restoredId) ? BigInt(restoredId).toString() : "");
-      setSelectedId(
-        restoredSelection &&
-          /^\d{1,78}$/.test(restoredSelection) &&
-          BigInt(restoredSelection) < 2n ** 256n
-          ? BigInt(restoredSelection).toString()
-          : null,
-      );
+      setSelectedId(target?.tokenId ?? null);
       setSelected(null);
       setUrlReady(true);
     };
@@ -170,22 +171,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     const restored = sharedItem.data?.items.find((item) => item.tokenId === selectedId);
     if (!selected && restored) setSelected(restored);
   }, [sharedItem.data, selectedId, selected]);
-  const byToken = new Map<string, MarketplaceItem>();
-  for (const item of pages.flatMap((p) => p.items)) {
-    const previous = byToken.get(item.tokenId);
-    byToken.set(item.tokenId, {
-      ...item,
-      offers: [
-        ...new Map(
-          [...(previous?.offers ?? []), ...item.offers].map((offer) => [
-            `${offer.source}:${offer.protocolAddress.toLowerCase()}:${offer.orderHash.toLowerCase()}`,
-            offer,
-          ]),
-        ).values(),
-      ],
-    });
-  }
-  const items = [...byToken.values()];
+  const items = mergeMarketplaceItems(pages.flatMap((p) => p.items));
   const disconnected = (view === "owned" || view === "selling") && !writer;
   const sourcesComplete =
     pages.length > 0 &&

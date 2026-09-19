@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DAO_ADDRESSES } from "@/lib/config";
 import type { MarketplaceItem } from "@/types/marketplace";
 import { mergeMarketplaceItems } from "./merge-items";
 
@@ -24,6 +25,14 @@ const item: MarketplaceItem = {
 };
 
 describe("mergeMarketplaceItems", () => {
+  it("normalizes implicit and explicit Gnars collection identity", () => {
+    expect(
+      mergeMarketplaceItems([
+        { ...item, collectionAddress: undefined },
+        { ...item, collectionAddress: DAO_ADDRESSES.token },
+      ]),
+    ).toHaveLength(1);
+  });
   it("preserves newest metadata and both offers across pages without mutating input", () => {
     const older = {
       ...item,

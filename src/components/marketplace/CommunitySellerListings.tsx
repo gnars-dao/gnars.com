@@ -10,6 +10,7 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { BUILDER_CODE } from "@/lib/config";
 import { formatMarketplacePrice } from "@/lib/marketplace-display";
+import { mergeMarketplaceItems } from "@/lib/marketplace/merge-items";
 import { getMarketplaceProtocolAddress } from "@/lib/marketplace/routing";
 import { signWalletRequest } from "@/lib/wallet-authorization";
 import type {
@@ -85,22 +86,7 @@ function SellerListings() {
       const result: CommunityMarketplacePage = await response.json();
       if (!result.available) throw new Error("Seller listings unavailable");
       if (!active.current) return;
-      setItems((previous) => {
-        const grouped = new Map<string, MarketplaceItem>();
-        for (const item of [...(more ? previous : []), ...result.items]) {
-          const key = `${item.collectionAddress?.toLowerCase()}:${item.tokenId}`;
-          const old = grouped.get(key);
-          grouped.set(key, {
-            ...item,
-            offers: [
-              ...new Map(
-                [...(old?.offers ?? []), ...item.offers].map((offer) => [offer.orderHash, offer]),
-              ).values(),
-            ],
-          });
-        }
-        return [...grouped.values()];
-      });
+      setItems((previous) => mergeMarketplaceItems([...(more ? previous : []), ...result.items]));
       setCursor(result.nextCursor);
       setLoaded(true);
     } catch {

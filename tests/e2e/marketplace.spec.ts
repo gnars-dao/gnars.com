@@ -30,6 +30,43 @@ const data = {
   capabilities: { openseaBuy: false, localTrading: false },
 };
 
+test("community share links normalize address case without substituting Gnars", async ({
+  page,
+}) => {
+  const collection = "0xfE10d3ce1b0f090935670368ec6de00d8d965523";
+  const requested: string[] = [];
+  await page.route("**/api/marketplace**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.includes("/nfts/")) requested.push(path);
+    if (path.includes("/community/nfts/"))
+      return route.fulfill({
+        json: {
+          ...data,
+          items: [{ ...item, collectionAddress: collection.toLowerCase(), name: "SkateHive #42" }],
+        },
+      });
+    return route.fulfill({ json: { ...data, items: [], available: true } });
+  });
+  await page.goto(`/pt-br/marketplace?nft=42&collection=${collection}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("dialog").getByRole("heading", { name: "SkateHive #42" }),
+  ).toBeVisible();
+  expect(requested.length).toBeGreaterThan(0);
+  expect(
+    requested.every(
+      (path) => path === `/api/marketplace/community/nfts/${collection.toLowerCase()}/42`,
+    ),
+  ).toBe(true);
+  await page.goto("/pt-br/marketplace?nft=42&collection=invalid", {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.getByRole("tab", { name: "À venda", exact: true })).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get("nft")).toBeNull();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 for (const mobile of [false, true]) {
   test(`PT-BR marketplace browsing and unavailable trading ${mobile ? "mobile" : "desktop"}`, async ({
     page,

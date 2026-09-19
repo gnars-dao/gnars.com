@@ -18,6 +18,11 @@ The frontend includes collection, for-sale, owned-inventory and owner-listings
 The URL preserves `view`, `q` (token ID) and `nft` (selected NFT); browser navigation
 restores them. Community NFT links also include `collection`, so identical token
 IDs from different collections never share a drawer or query identity.
+Shared links use one validated target for both the NFT and collection address;
+invalid collection parameters never fall back to a Gnars NFT. Detail reads must
+return exactly the requested asset before ownership is considered verified.
+Paginated feeds merge offers by source, protocol and order hash while retaining
+the first (newest) item's metadata, including in seller management.
 Wallet-scoped views always use the connected write account.
 The NFT owner uses the profiles' cached ENS name/avatar resolver and links to the
 actual owner address. EOA and smart-wallet addresses are resolved identically;
