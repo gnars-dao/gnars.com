@@ -17,6 +17,17 @@
     "to": "To",
     "types": { "sale": "Sale", "transfer": "Transfer", "mint": "Mint", "burn": "Burn" }
   },
+  "traitFilters": {
+    "label": "Gnars traits",
+    "limit": "Too many traits selected. Remove a selection before adding another.",
+    "emptyValue": "No value",
+    "clear": "Clear trait filters",
+    "loading": "Loading Gnars traits...",
+    "error": "The Gnars trait index could not be loaded.",
+    "retry": "Try again",
+    "count": "{count, plural, one {# indexed Gnar} other {# indexed Gnars}}",
+    "invalidLink": "The filters in this link are invalid. Choose your filters again."
+  },
   "filters": {
     "label": "Price range",
     "min": "Min price (ETH)",

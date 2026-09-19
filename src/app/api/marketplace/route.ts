@@ -9,6 +9,7 @@ import { loadMarketplacePage } from "@/services/marketplace";
 import {
   marketplaceAddressSchema,
   marketplaceErrorResponse,
+  marketplaceUintSchema,
   parseMarketplaceInput,
 } from "@/services/marketplace-common";
 
@@ -18,6 +19,7 @@ const querySchema = z
     view: z.enum(["listings", "catalogue", "owned", "selling"]).default("listings"),
     owner: marketplaceAddressSchema.optional(),
     cursor: z.string().max(8192).optional(),
+    tokenId: marketplaceUintSchema.optional(),
     ...marketplaceBrowseFilterShape,
   })
   .strict();
@@ -34,6 +36,8 @@ export async function GET(request: Request) {
         sort: query.sort,
         minPriceWei: query.minPriceWei,
         maxPriceWei: query.maxPriceWei,
+        traits: query.traits,
+        traitSnapshot: query.traitSnapshot,
       });
     } catch {
       throw new RequestSecurityError(400, "Invalid marketplace price range.");

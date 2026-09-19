@@ -41,6 +41,7 @@ import { MarketplaceMixedSweep as MarketplaceSweep } from "./MarketplaceMixedSwe
 import { MarketplaceModerationQueue } from "./MarketplaceModeration";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { MarketplaceSaleBands } from "./MarketplaceSaleBands";
+import { MarketplaceTraitFilters } from "./MarketplaceTraitFilters";
 
 const MarketplaceDetail = dynamic(() => import("./MarketplaceDetail"), { ssr: false });
 const CommunitySubmission = dynamic(
@@ -123,6 +124,8 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
             sort: params.get("sort") ?? undefined,
             minPriceWei: params.get("minPriceWei") ?? undefined,
             maxPriceWei: params.get("maxPriceWei") ?? undefined,
+            traits: params.get("traits") ?? undefined,
+            traitSnapshot: params.get("traitSnapshot") ?? undefined,
           }),
           sort: "price-asc",
         });
@@ -173,7 +176,7 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
     const url = new URL(window.location.href);
     if (view === "listings") url.searchParams.set("sort", "price-asc");
     else url.searchParams.delete("sort");
-    for (const key of ["minPriceWei", "maxPriceWei"] as const) {
+    for (const key of ["minPriceWei", "maxPriceWei", "traits", "traitSnapshot"] as const) {
       if (browseFilters[key]) url.searchParams.set(key, browseFilters[key]);
       else url.searchParams.delete(key);
     }
@@ -413,14 +416,28 @@ export function Marketplace({ initialPage }: { initialPage?: MarketplacePage }) 
           value={browseFilters}
           disabled={!urlReady}
           onApply={(value) => {
-            setBrowseFilters(value);
+            setBrowseFilters((current) => ({
+              ...value,
+              traits: current.traits,
+              traitSnapshot: current.traitSnapshot,
+            }));
+            setRestoredPriceInvalid(false);
+          }}
+        />
+      )}
+      {view !== "selling" && (
+        <MarketplaceTraitFilters
+          value={browseFilters}
+          disabled={!urlReady}
+          onApply={(value) => {
+            setBrowseFilters((current) => ({ ...current, ...value }));
             setRestoredPriceInvalid(false);
           }}
         />
       )}
       {restoredPriceInvalid && (
         <p role="alert" className="mb-4 text-xs text-destructive">
-          {t("filters.invalid")}
+          {t("traitFilters.invalidLink")}
         </p>
       )}
       {selectedId && !selected && sharedItem.isPending && (

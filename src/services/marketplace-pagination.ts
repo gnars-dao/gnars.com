@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { MarketplaceBrowseFilters } from "@/lib/marketplace/browse-filters";
 import { RequestSecurityError } from "@/lib/server/request-security";
@@ -20,13 +21,15 @@ const positionSchema = z
   .strict();
 export type MarketplacePosition = z.infer<typeof positionSchema>;
 export function browseIdentity(filters: MarketplaceBrowseFilters, owner?: string, search?: string) {
-  return JSON.stringify([
+  const identity = JSON.stringify([
     filters.sort ?? null,
     filters.minPriceWei ?? null,
     filters.maxPriceWei ?? null,
     owner?.toLowerCase() ?? null,
     search ?? null,
+    ...(filters.traits ? [filters.traits, filters.traitSnapshot] : []),
   ]);
+  return filters.traits ? createHash("sha256").update(identity).digest("hex") : identity;
 }
 export function encodeBrowseCursor(position: MarketplacePosition, identity: string) {
   return Buffer.from(JSON.stringify({ ...position, identity })).toString("base64url");

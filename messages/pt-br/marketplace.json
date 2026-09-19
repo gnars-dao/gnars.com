@@ -17,6 +17,17 @@
     "to": "Para",
     "types": { "sale": "Venda", "transfer": "Transferência", "mint": "Criação", "burn": "Queima" }
   },
+  "traitFilters": {
+    "label": "Traços dos Gnars",
+    "limit": "Muitos traços selecionados. Remova uma seleção antes de adicionar outra.",
+    "emptyValue": "Sem valor",
+    "clear": "Limpar filtros de traços",
+    "loading": "Carregando traços dos Gnars...",
+    "error": "Não foi possível carregar o índice de traços dos Gnars.",
+    "retry": "Tentar novamente",
+    "count": "{count, plural, one {# Gnar indexado} other {# Gnars indexados}}",
+    "invalidLink": "Os filtros deste link são inválidos. Selecione os filtros novamente."
+  },
   "filters": {
     "label": "Faixa de preço",
     "min": "Preço mín. (ETH)",

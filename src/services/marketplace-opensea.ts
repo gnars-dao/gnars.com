@@ -398,7 +398,9 @@ function parseOpenSeaPage(raw: unknown) {
 }
 
 export const listOpenSeaMarketplace = unstable_cache(
-  async (cursor?: string, filters: MarketplaceBrowseFilters = {}) => {
+  async (cursor?: string, filters: MarketplaceBrowseFilters = {}, eligibleTokenIds?: string[]) => {
+    if (eligibleTokenIds?.length === 0) return { offers: [], nextCursor: null, partial: false };
+    const eligible = eligibleTokenIds === undefined ? undefined : new Set(eligibleTokenIds);
     const byToken = new Map<string, { tokenId: string; offer: MarketplaceOffer }>();
     let nextCursor: string | null = cursor ?? null;
     let partial = false;
@@ -421,6 +423,7 @@ export const listOpenSeaMarketplace = unstable_cache(
       }
       partial ||= page.partial;
       for (const row of page.offers) {
+        if (eligible && !eligible.has(row.tokenId)) continue;
         const price = BigInt(row.offer.priceWei);
         if (filters.minPriceWei !== undefined && price < BigInt(filters.minPriceWei)) continue;
         if (filters.maxPriceWei !== undefined && price > BigInt(filters.maxPriceWei)) continue;
@@ -434,7 +437,7 @@ export const listOpenSeaMarketplace = unstable_cache(
     }
     return { offers: [...byToken.values()], nextCursor, partial };
   },
-  ["marketplace-opensea-best-v3"],
+  ["marketplace-opensea-best-v4"],
   { revalidate: 30, tags: [MARKETPLACE_CACHE_TAG, MARKETPLACE_OPENSEA_ORDERS_CACHE_TAG] },
 );
 

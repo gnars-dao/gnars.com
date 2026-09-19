@@ -26,10 +26,17 @@ const responseSchema = z.object({
     .max(48),
 });
 
-async function fetchTokens(options: { owner?: Address; before?: string; ids?: string[] }) {
-  const { owner, before, ids } = options;
+async function fetchTokens(options: {
+  owner?: Address;
+  before?: string;
+  ids?: string[];
+  eligibleIds?: string[];
+}) {
+  const { owner, before, eligibleIds } = options;
+  const ids = eligibleIds ?? options.ids;
+  if (ids?.length === 0) return [];
   const query = `query MarketplaceTokens($dao: ID!, $zero: Bytes!${owner ? ", $owner: Bytes!" : ""}${before ? ", $before: BigInt!" : ""}${ids ? ", $ids: [BigInt!]!" : ""}) {
-    tokens(first: ${ids ? 48 : MARKETPLACE_PAGE_SIZE}, where: { dao: $dao, owner_not: $zero${owner ? ", owner: $owner" : ""}${before ? ", tokenId_lt: $before" : ""}${ids ? ", tokenId_in: $ids" : ""} }, orderBy: tokenId, orderDirection: desc) {
+    tokens(first: ${options.ids ? 48 : MARKETPLACE_PAGE_SIZE}, where: { dao: $dao, owner_not: $zero${owner ? ", owner: $owner" : ""}${before ? ", tokenId_lt: $before" : ""}${ids ? ", tokenId_in: $ids" : ""} }, orderBy: tokenId, orderDirection: desc) {
       tokenId image ownerInfo { owner }
     }
   }`;
@@ -60,8 +67,12 @@ const cachedCatalogue = unstable_cache(fetchTokens, ["marketplace-catalogue-v2"]
   tags: [MARKETPLACE_CACHE_TAG],
 });
 
-export async function getMarketplaceCatalogue(owner?: Address, before?: string) {
-  const indexed = await cachedCatalogue({ owner, before });
+export async function getMarketplaceCatalogue(
+  owner?: Address,
+  before?: string,
+  eligibleIds?: string[],
+) {
+  const indexed = await cachedCatalogue({ owner, before, ...(eligibleIds ? { eligibleIds } : {}) });
   const nextCursor = indexed.length === MARKETPLACE_PAGE_SIZE ? indexed.at(-1)!.tokenId : null;
   if (!owner || indexed.length === 0) return { items: indexed, nextCursor };
   // The index may lag transfers. Only the current writer's on-chain NFTs are sellable.

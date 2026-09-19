@@ -462,6 +462,46 @@ describe("OpenSea listing publication", () => {
 });
 
 describe("bounded OpenSea inventory feeds", () => {
+  it("does no provider work when no tokens are eligible", async () => {
+    expect(await listOpenSeaMarketplace(undefined, {}, [])).toEqual({
+      offers: [],
+      nextCursor: null,
+      partial: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(budget).not.toHaveBeenCalled();
+  });
+
+  it("finds eligible tokens on later pages without counting excluded tokens toward the limit", async () => {
+    const eligible = listing();
+    eligible.protocol_data.parameters.offer[0].identifierOrCriteria = "13";
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [listing()], next: "later" }));
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [], next: "after-empty" }));
+    fetchMock.mockResolvedValueOnce(Response.json({ listings: [eligible], next: null }));
+    const result = await listOpenSeaMarketplace(undefined, { sort: "price-asc" }, ["13"]);
+    expect(result).toMatchObject({
+      offers: [{ tokenId: "13" }],
+      nextCursor: null,
+      partial: false,
+    });
+    expect(result.offers).toHaveLength(1);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("limit=24&next=later");
+    expect(String(fetchMock.mock.calls[2][0])).toContain("limit=24&next=after-empty");
+  });
+
+  it("preserves continuation when the bounded scan contains no eligible tokens", async () => {
+    for (let index = 0; index < 3; index++)
+      fetchMock.mockResolvedValueOnce(
+        Response.json({ listings: [listing()], next: `traits-${index + 1}` }),
+      );
+    expect(await listOpenSeaMarketplace(undefined, {}, ["13"])).toEqual({
+      offers: [],
+      nextCursor: "traits-3",
+      partial: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("paginates a seller's active listings using the provider cursor and maker filter", async () => {
     fetchMock.mockResolvedValueOnce(
       Response.json({ listings: [listing()], next: "next-seller-page" }),

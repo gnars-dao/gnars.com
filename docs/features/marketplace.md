@@ -701,9 +701,8 @@ per-instance limits for a verified account-wide cap.
 - Sales retain their actual payment token and decimals. The UI suppresses a
   matching transfer only when the same transaction and parties have a sale,
   including across pages. Transfers alone never imply a sale.
-- Detail traits do not constitute collection-wide trait filtering or rarity:
-  those require a complete, versioned metadata index rather than current-page
-  filtering. No rarity percentages are inferred.
+- Collection filters use the complete, versioned snapshot described below, not
+  the traits of currently visible cards. No rarity percentages are inferred.
 
 The read-only `scripts/marketplace-trait-index.ts <checkpoint.json> [steps]`
 prepares that index locally. Run with the server environment loaded, for example
@@ -718,6 +717,29 @@ worker is running before removing its `.lock` file. A reorg invalidates the
 checkpoint; start a new snapshot rather than mixing blocks.
 This CLI does not publish to the database or enable collection filters by itself.
 It supports the Gnars inline metadata contract, not arbitrary community metadata.
+
+Apply `scripts/marketplace-trait-schema.sql` with administrative credentials, then
+run `scripts/marketplace-trait-publish.ts <checkpoint.json>` with an explicit
+`MARKETPLACE_MIGRATION_DATABASE_URL`. Publication revalidates finalized block and
+contract supply, stages bounded metadata batches, and atomically inserts one
+immutable snapshot. Repeating the same import must match the existing payload.
+The runtime database role has SELECT only; no browser can publish or alter traits.
+
+`/api/marketplace/trait-facets` returns snapshot-bound counts. An optional
+`snapshotId` retrieves that exact version. The UI supports OR within a category,
+AND between categories, preserves price filters and selection in the URL, and
+shows the snapshot block. Counts cover all NFTs in that snapshot, not just sales.
+The primary marketplace API accepts `traits` (canonical JSON) and `traitSnapshot`
+together. Catalogue/owned queries filter before subgraph pagination; native
+listings filter before SQL sorting/pagination; OpenSea filters inside its bounded
+scan and retains continuation cursors even when a page contains no matches.
+Missing snapshots fail explicitly instead of returning unfiltered results.
+Community listings and seller-management views are unaffected by Gnars traits.
+
+Snapshots are historical, not a continuously refreshed index. To include later
+mints or changed metadata, create a **new checkpoint file**, complete its backfill,
+and publish it. Existing URLs stay pinned; clearing filters allows the latest
+published snapshot. Automatic refresh scheduling remains operational work.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),

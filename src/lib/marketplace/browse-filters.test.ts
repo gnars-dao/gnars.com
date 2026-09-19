@@ -3,6 +3,23 @@ import { ZodError } from "zod";
 import { parseMarketplaceBrowseFilters, parseMarketplacePriceRange } from "./browse-filters";
 
 describe("marketplace browse filters", () => {
+  it("canonicalizes selections and requires a snapshot", () => {
+    const traitSnapshot = `0x${"ab".repeat(32)}`;
+    expect(
+      parseMarketplaceBrowseFilters({
+        traitSnapshot,
+        traits: '{"Head":["B","A","B"],"Background":["Yellow"]}',
+      }).traits,
+    ).toBe('{"Background":["Yellow"],"Head":["A","B"]}');
+    for (const input of [
+      { traits: '{"Head":["A"]}' },
+      { traitSnapshot },
+      { traitSnapshot, traits: "{}" },
+      { traitSnapshot, traits: '{"Head":[]}' },
+      { traitSnapshot, traits: "null" },
+    ])
+      expect(() => parseMarketplaceBrowseFilters(input)).toThrow();
+  });
   it("keeps unfiltered API defaults and accepts exact inclusive bounds", () => {
     expect(parseMarketplaceBrowseFilters({})).toEqual({});
     expect(parseMarketplaceBrowseFilters({ minPriceWei: "1", maxPriceWei: "1" })).toEqual({

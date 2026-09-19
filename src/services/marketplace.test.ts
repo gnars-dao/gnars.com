@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   owner: vi.fn(),
   customAddress: vi.fn(),
   customReady: vi.fn(),
+  traitSnapshot: vi.fn(),
+}));
+vi.mock("@/services/marketplace-trait-index", () => ({
+  getMarketplaceTraitSnapshot: mocks.traitSnapshot,
 }));
 vi.mock("@/lib/marketplace/routing", () => ({ getGnarsMarketplaceAddress: mocks.customAddress }));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
@@ -61,6 +65,58 @@ beforeEach(() => {
 });
 
 describe("marketplace source availability", () => {
+  it("filters full-snapshot IDs before native and external pagination", async () => {
+    const traitSnapshot = `0x${"ab".repeat(32)}`;
+    mocks.traitSnapshot.mockResolvedValue({
+      version: 1,
+      chainId: 8453,
+      collection: owner,
+      blockNumber: "100",
+      blockHash: traitSnapshot,
+      expectedCount: 2,
+      cursor: "10",
+      enumerated: true,
+      entries: [
+        { tokenId: "12", traits: [{ type: "Head", value: "Mirror" }] },
+        { tokenId: "10", traits: [{ type: "Head", value: "Other" }] },
+      ],
+    });
+    mocks.key.mockReturnValue(true);
+    mocks.ready.mockResolvedValue(true);
+    mocks.native.mockResolvedValue({ offers: [], nextCursor: null });
+    const filters = { traits: '{"Head":["Mirror"]}', traitSnapshot };
+    await loadMarketplacePage({ view: "listings", ...filters });
+    expect(mocks.traitSnapshot).toHaveBeenCalledWith(traitSnapshot);
+    expect(mocks.native).toHaveBeenLastCalledWith(
+      undefined,
+      expect.objectContaining(filters),
+      ["gnars"],
+      ["12"],
+    );
+    expect(mocks.external).toHaveBeenLastCalledWith(undefined, expect.objectContaining(filters), [
+      "12",
+    ]);
+    await loadMarketplacePage({ view: "catalogue", ...filters });
+    expect(mocks.catalogue).toHaveBeenLastCalledWith(undefined, undefined, ["12"]);
+    await loadMarketplacePage({ view: "listings", ...filters, tokenId: "10" });
+    expect(mocks.native).toHaveBeenLastCalledWith(
+      undefined,
+      expect.objectContaining(filters),
+      ["gnars"],
+      [],
+    );
+  });
+  it("does not fall back to unfiltered data when the trait snapshot fails", async () => {
+    mocks.traitSnapshot.mockRejectedValueOnce(new Error("Unavailable"));
+    await expect(
+      loadMarketplacePage({
+        view: "listings",
+        traits: '{"Head":["Mirror"]}',
+        traitSnapshot: `0x${"ab".repeat(32)}`,
+      }),
+    ).rejects.toThrow("Unavailable");
+    expect(mocks.external).not.toHaveBeenCalled();
+  });
   it("binds price cursors and roundtrips full provider cursors without advancing exhausted feeds", async () => {
     mocks.key.mockReturnValue(true);
     mocks.ready.mockResolvedValue(true);

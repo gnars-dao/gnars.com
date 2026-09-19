@@ -5,9 +5,11 @@ import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
 import {
   parseMarketplaceBrowseFilters,
+  parseTraitSelection,
   type MarketplaceBrowseFilters,
 } from "@/lib/marketplace/browse-filters";
 import { getGnarsMarketplaceAddress } from "@/lib/marketplace/routing";
+import { matchIndexedTraits } from "@/lib/marketplace/trait-index";
 import { RequestSecurityError } from "@/lib/server/request-security";
 import { getMarketplaceCatalogue, getMarketplaceMetadata } from "@/services/marketplace-catalogue";
 import {
@@ -36,6 +38,7 @@ import type {
   MarketplacePage,
 } from "@/types/marketplace";
 import { browseIdentity } from "./marketplace-pagination";
+import { getMarketplaceTraitSnapshot } from "./marketplace-trait-index";
 
 export type MarketplaceView = "listings" | "catalogue" | "owned" | "selling";
 const cursorSchema = z
@@ -48,6 +51,7 @@ const cursorSchema = z
     catalogue: marketplaceUintSchema.optional(),
     native: z.string().max(2048).nullable().optional(),
     filters: z.string().optional(),
+    tokenId: marketplaceUintSchema.optional(),
   })
   .strict();
 
@@ -56,12 +60,14 @@ function decodeCursor(
   view: MarketplaceView,
   owner?: Address,
   filters: MarketplaceBrowseFilters = {},
+  tokenId?: string,
 ) {
   if (!raw) return { view };
   try {
     if (raw.length > 8192) throw new Error("Cursor too long");
     const cursor = cursorSchema.parse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
     if (cursor.view !== view) throw new Error("Cursor view mismatch");
+    if (cursor.tokenId !== tokenId) throw new Error("Cursor token mismatch");
     if (
       cursor.filters !==
       (Object.values(filters).some((value) => value !== undefined)
@@ -131,23 +137,44 @@ export async function loadMarketplacePage({
   sort,
   minPriceWei,
   maxPriceWei,
+  traits,
+  traitSnapshot,
+  tokenId,
 }: {
   view: MarketplaceView;
   owner?: Address;
   cursor?: string;
+  tokenId?: string;
 } & MarketplaceBrowseFilters): Promise<MarketplacePage> {
   if ((view === "owned" || view === "selling") && !owner)
     throw new RequestSecurityError(400, "Wallet address is required.");
   let filters: MarketplaceBrowseFilters;
   try {
-    filters = parseMarketplaceBrowseFilters({ sort, minPriceWei, maxPriceWei });
+    filters = parseMarketplaceBrowseFilters({
+      sort,
+      minPriceWei,
+      maxPriceWei,
+      traits,
+      traitSnapshot,
+    });
   } catch {
     throw new RequestSecurityError(400, "Invalid marketplace price range.");
   }
   const filtered = Object.values(filters).some((value) => value !== undefined);
-  if (filtered && view !== "listings")
+  if ((sort || minPriceWei !== undefined || maxPriceWei !== undefined) && view !== "listings")
     throw new RequestSecurityError(400, "Price filters require the listings view.");
-  const cursor = decodeCursor(rawCursor, view, owner, filters);
+  if (traits && view === "selling")
+    throw new RequestSecurityError(400, "Traits are not supported in seller management.");
+  if (tokenId && !traits)
+    throw new RequestSecurityError(400, "Exact filtered token requires traits.");
+  let eligibleIds = traits
+    ? matchIndexedTraits(
+        await getMarketplaceTraitSnapshot(traitSnapshot),
+        parseTraitSelection(traits),
+      )
+    : undefined;
+  if (tokenId) eligibleIds = eligibleIds!.filter((id) => id === tokenId);
+  const cursor = decodeCursor(rawCursor, view, owner, filters, tokenId);
   const readiness = await getMarketplaceReadiness();
   const sources: MarketplacePage["sources"] = {
     catalogue: { available: true },
@@ -161,10 +188,16 @@ export async function loadMarketplacePage({
       const catalogue = await getMarketplaceCatalogue(
         view === "owned" ? owner : undefined,
         cursor.catalogue,
+        eligibleIds,
       );
       items = catalogue.items;
       nextCursor = catalogue.nextCursor
-        ? encodeCursor({ view, catalogue: catalogue.nextCursor })
+        ? encodeCursor({
+            view,
+            catalogue: catalogue.nextCursor,
+            ...(tokenId ? { tokenId } : {}),
+            ...(filtered ? { filters: browseIdentity(filters, owner) } : {}),
+          })
         : null;
     } catch {
       sources.catalogue = { available: false, error: "unavailable" };
@@ -203,7 +236,9 @@ export async function loadMarketplacePage({
             view === "selling" && owner
               ? listOpenSeaOwnerMarketplace(owner, cursor.opensea)
               : filtered
-                ? listOpenSeaMarketplace(cursor.opensea, filters)
+                ? eligibleIds
+                  ? listOpenSeaMarketplace(cursor.opensea, filters, eligibleIds)
+                  : listOpenSeaMarketplace(cursor.opensea, filters)
                 : listOpenSeaMarketplace(cursor.opensea)
           ).catch(() => {
             sources.opensea = { available: false, error: "unavailable" };
@@ -221,7 +256,11 @@ export async function loadMarketplacePage({
     if (nativeBlocked) for (const source of nativeSources) sources[source]!.partial = true;
     const native =
       filtered && !nativeBlocked && cursor.native !== null && nativeSources.length
-        ? await cachedNativeOrders(cursor.native, filters, nativeSources).catch((error) => {
+        ? await (
+            eligibleIds
+              ? cachedNativeOrders(cursor.native, filters, nativeSources, eligibleIds)
+              : cachedNativeOrders(cursor.native, filters, nativeSources)
+          ).catch((error) => {
             if (error instanceof RequestSecurityError && error.status === 400) throw error;
             for (const source of nativeSources)
               sources[source] = { available: false, error: "unavailable" };
@@ -284,6 +323,7 @@ export async function loadMarketplacePage({
     if (external?.nextCursor || local?.nextCursor || custom?.nextCursor || native?.nextCursor)
       nextCursor = encodeCursor({
         view,
+        ...(tokenId ? { tokenId } : {}),
         ...(filtered
           ? {
               filters: browseIdentity(filters, owner),

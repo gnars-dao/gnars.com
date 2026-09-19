@@ -545,6 +545,7 @@ export async function listNativeMarketplaceOrders(
   cursor: string | undefined,
   filters: MarketplaceBrowseFilters,
   sources: LocalMarketplaceSource[],
+  eligibleTokenIds?: string[],
 ) {
   const identity = JSON.stringify([
     browseIdentity(filters),
@@ -554,13 +555,18 @@ export async function listNativeMarketplaceOrders(
   const ascending = filters.sort === "price-asc";
   if (position && (ascending !== (position.price !== undefined) || !position.source))
     throw new RequestSecurityError(400, "Invalid marketplace cursor.");
-  if (!sources.length) return { offers: [], nextCursor: null, partial: false };
-  const values: (string | number)[] = [Math.floor(Date.now() / 1000)];
+  if (!sources.length || eligibleTokenIds?.length === 0)
+    return { offers: [], nextCursor: null, partial: false };
+  const values: (string | number | string[])[] = [Math.floor(Date.now() / 1000)];
   const clauses = [
     "chain_id = 8453",
     "status IN ('active', 'invalid-owner', 'unapproved')",
     "expires_at > $1",
   ];
+  if (eligibleTokenIds !== undefined) {
+    values.push(eligibleTokenIds);
+    clauses.push(`token_id = ANY($${values.length}::numeric[])`);
+  }
   for (const [bound, operator] of [
     [filters.minPriceWei, ">="],
     [filters.maxPriceWei, "<="],

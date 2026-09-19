@@ -13,11 +13,19 @@ export const marketplaceBrowseFilterShape = {
   sort: z.literal("price-asc").optional(),
   minPriceWei: uint256.optional(),
   maxPriceWei: uint256.optional(),
+  traits: z.string().min(1).max(4096).optional(),
+  traitSnapshot: z
+    .string()
+    .regex(/^0x[0-9a-f]{64}$/)
+    .optional(),
 };
 
 const schema = z
   .object(marketplaceBrowseFilterShape)
   .strict()
+  .refine(({ traits, traitSnapshot }) => !!traits === !!traitSnapshot, {
+    message: "Trait snapshot required",
+  })
   .refine(
     ({ minPriceWei, maxPriceWei }) =>
       minPriceWei === undefined ||
@@ -33,7 +41,23 @@ const schema = z
 export type MarketplaceBrowseFilters = z.infer<typeof schema>;
 
 export function parseMarketplaceBrowseFilters(input: unknown): MarketplaceBrowseFilters {
-  return schema.parse(input);
+  const result = schema.parse(input);
+  if (result.traits) result.traits = JSON.stringify(parseTraitSelection(result.traits));
+  return result;
+}
+
+export function parseTraitSelection(raw: string): Record<string, string[]> {
+  const selection = z
+    .record(z.string().min(1).max(80), z.array(z.string().max(200)).min(1).max(32))
+    .parse(JSON.parse(raw));
+  const entries = Object.entries(selection);
+  if (!entries.length || entries.length > 5 || raw.length > 4096)
+    throw new Error("Invalid trait selection");
+  return Object.fromEntries(
+    entries
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, values]) => [key, [...new Set(values)].sort()]),
+  );
 }
 
 export function parseMarketplacePriceRange(min: string, max: string): MarketplaceBrowseFilters {

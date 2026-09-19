@@ -83,6 +83,33 @@ beforeEach(() => {
 });
 
 describe("native listing price pagination", () => {
+  it("applies eligible token IDs in both orderbooks before sorting and limiting", async () => {
+    const protocol = "0xc35813d40961151c11c97cb9d67d0d25cd4cc86e";
+    vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol);
+    await listNativeMarketplaceOrders(
+      undefined,
+      { sort: "price-asc", minPriceWei: "100", maxPriceWei: "200" },
+      ["gnars", "gnars-contract"],
+      ["12", "999"],
+    );
+    const [sql, values] = mocks.query.mock.calls[0];
+    expect(sql.match(/token_id = ANY\(\$2::numeric\[\]\)/g)).toHaveLength(2);
+    expect(sql).toContain("price_wei >= $3::numeric AND price_wei <= $4::numeric");
+    expect(sql).toContain("protocol_address = $5");
+    expect(sql).toContain("ORDER BY price_wei ASC, id ASC, source ASC LIMIT 24");
+    expect(values).toEqual([expect.any(Number), ["12", "999"], "100", "200", protocol]);
+  });
+
+  it("does no database or chain work when no tokens are eligible", async () => {
+    expect(await listNativeMarketplaceOrders(undefined, {}, ["gnars"], [])).toEqual({
+      offers: [],
+      nextCursor: null,
+      partial: false,
+    });
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.multicall).not.toHaveBeenCalled();
+  });
+
   it("unifies both orderbooks before limiting and binds the scan frontier to filters", async () => {
     const protocol = "0xc35813d40961151c11c97cb9d67d0d25cd4cc86e";
     vi.stubEnv("NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS", protocol);

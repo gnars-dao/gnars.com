@@ -14,7 +14,12 @@ export function useMarketplace(
   options: { tokenId?: string; filters?: MarketplaceBrowseFilters; enabled?: boolean } = {},
 ) {
   const tokenId = options.tokenId?.trim();
-  const filters = view === "listings" ? options.filters : undefined;
+  const filters =
+    view === "listings"
+      ? options.filters
+      : view !== "selling" && options.filters?.traits
+        ? { traits: options.filters.traits, traitSnapshot: options.filters.traitSnapshot }
+        : undefined;
   return useInfiniteQuery({
     queryKey: ["marketplace", view, owner?.toLowerCase() ?? null, tokenId ?? null, filters ?? null],
     initialPageParam: null as string | null,
@@ -29,8 +34,11 @@ export function useMarketplace(
       if (filters?.sort) params.set("sort", filters.sort);
       if (filters?.minPriceWei) params.set("minPriceWei", filters.minPriceWei);
       if (filters?.maxPriceWei) params.set("maxPriceWei", filters.maxPriceWei);
+      if (filters?.traits) params.set("traits", filters.traits);
+      if (filters?.traitSnapshot) params.set("traitSnapshot", filters.traitSnapshot);
+      if (tokenId && filters?.traits) params.set("tokenId", tokenId);
       const response = await fetch(
-        tokenId
+        tokenId && !filters?.traits
           ? `/api/marketplace/nfts/${encodeURIComponent(tokenId)}`
           : `/api/marketplace?${params}`,
         { signal },
@@ -43,7 +51,7 @@ export function useMarketplace(
       options.enabled !== false &&
       (!(["owned", "selling"] as MarketplaceView[]).includes(view) || !!owner) &&
       (!tokenId || /^\d{1,78}$/.test(tokenId)),
-    getNextPageParam: (page) => (tokenId ? null : page.nextCursor),
+    getNextPageParam: (page) => (tokenId && !filters?.traits ? null : page.nextCursor),
     staleTime: 30_000,
     retry: (attempt, error) =>
       attempt < 1 && (!(error instanceof MarketplaceApiError) || error.retryable),
