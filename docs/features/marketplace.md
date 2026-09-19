@@ -741,6 +741,28 @@ mints or changed metadata, create a **new checkpoint file**, complete its backfi
 and publish it. Existing URLs stay pinned; clearing filters allows the latest
 published snapshot. Automatic refresh scheduling remains operational work.
 
+### Native History Backfill
+
+`scripts/marketplace-history-index.ts <checkpoint.json> <deployment-tx> [steps] [blocks]`
+is a read-only backfill for the configured custom Gnars Seaport. It verifies that
+the supplied successful creation receipt deployed that exact address on Base,
+then scans from the creation block through finalized blocks only. Each bounded
+range is anchored before and after reading; retries resume after the last saved
+block. A changed checkpoint hash fails closed. Local events and coverage are
+saved together using atomic rename and an exclusive lock. Use a smaller block
+range if the RPC rejects its log limit; no failed range advances the checkpoint.
+
+The parser preserves every `OrderFulfilled` payload, keyed by chain, protocol,
+transaction and log index. Only unambiguous single ERC-721 sales receive a price:
+gross consideration includes fees, with the original currency address retained.
+Bundles, barter and ambiguous recipients retain raw data without an invented
+per-NFT price. Unknown ERC-20 symbols/decimals are not guessed. Matching malformed
+logs fail the scan instead of disappearing from coverage.
+
+This local backfill is not yet the public activity feed: database publication,
+scheduled catch-up and merged native/OpenSea pagination remain to be connected.
+It does not scan the canonical OpenSea Seaport or claim all wallet transfers.
+
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),
 [OpenSea fulfillment API](https://docs.opensea.io/reference/generate_listing_fulfillment_data_v2),
