@@ -40,6 +40,7 @@ import { useWriteAccount } from "@/hooks/use-write-account";
 import { Link } from "@/i18n/navigation";
 import { DAO_ADDRESSES, MARKETPLACE_CONFIG } from "@/lib/config";
 import { parseMarketplacePrice } from "@/lib/marketplace-display";
+import { isCurrentMarketplaceOffer } from "@/lib/marketplace/current-offer";
 import { readListingEditDraft } from "@/lib/marketplace/listing-edit";
 import type { MarketplaceShareTarget } from "@/lib/marketplace/share";
 import { cn } from "@/lib/utils";
@@ -86,6 +87,13 @@ export default function MarketplaceDetail({
   const [mode, setMode] = useState<Mode>("details");
   const [commentBusy, setCommentBusy] = useState(false);
   const [offer, setOffer] = useState<MarketplaceOffer | null>(null);
+  const [offerClock, setOfferClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (mode !== "buy") return;
+    setOfferClock(Date.now());
+    const timer = setInterval(() => setOfferClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [mode]);
   const [price, setPrice] = useState("");
   const [duration, setDuration] = useState(7);
   const [listingDestination, setListingDestination] = useState<MarketplaceSource>(
@@ -123,6 +131,7 @@ export default function MarketplaceDetail({
     },
     staleTime: 0,
     retry: 1,
+    refetchOnWindowFocus: true,
   });
   const item = detail.data?.items[0] ?? initialItem;
   const capabilities = detail.data?.capabilities ?? initialCapabilities;
@@ -160,6 +169,7 @@ export default function MarketplaceDetail({
   });
   const verifiedDetail =
     detail.data?.ownershipVerified === true && !detail.isError && !detail.isFetching;
+  const offerCurrent = isCurrentMarketplaceOffer(item, offer, offerClock);
   const busy = actions.isBusy || commentBusy;
   const editDraft = writer
     ? readListingEditDraft(writer.account.address, collectionAddress, item.tokenId)
@@ -180,6 +190,8 @@ export default function MarketplaceDetail({
 
   async function execute() {
     setSubmitted(true);
+    if (mode === "buy" && (!verifiedDetail || !isCurrentMarketplaceOffer(item, offer, Date.now())))
+      return;
     if (mode === "sell" && (!priceWei || !quoteReady)) return;
     if (mode === "sell")
       await actions.list({
@@ -713,6 +725,16 @@ export default function MarketplaceDetail({
             <div className="max-h-[35dvh] overflow-y-auto">
               <MarketplaceRecovery showCompleted />
             </div>
+            {mode === "buy" &&
+              verifiedDetail &&
+              !offerCurrent &&
+              !success &&
+              !unresolved &&
+              !busy && (
+                <p role="alert" className="text-sm text-destructive">
+                  {t("errors.orderInvalid")}
+                </p>
+              )}
             {!success && !unresolved && !busy && mode === "sell" && (
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-xs text-muted-foreground">{t("proceeds")}</span>
@@ -745,6 +767,7 @@ export default function MarketplaceDetail({
                 <Button
                   disabled={
                     busy ||
+                    (mode === "buy" && !offerCurrent) ||
                     (mode === "sell" && !quoteReady) ||
                     !verifiedDetail ||
                     (mode === "sell"

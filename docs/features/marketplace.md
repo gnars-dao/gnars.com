@@ -21,6 +21,9 @@ IDs from different collections never share a drawer or query identity.
 Shared links use one validated target for both the NFT and collection address;
 invalid collection parameters never fall back to a Gnars NFT. Detail reads must
 return exactly the requested asset before ownership is considered verified.
+Purchase reviews re-read details when the tab regains focus and disable confirmation
+if the selected order disappears, its reviewed terms change, ownership changes, or
+its expiry is reached. Already-broadcast attempts retain their recovery flow.
 Paginated feeds merge offers by source, protocol and order hash while retaining
 the first (newest) item's metadata, including in seller management.
 Wallet-scoped views always use the connected write account.

@@ -30,6 +30,39 @@ const data = {
   capabilities: { openseaBuy: false, localTrading: false },
 };
 
+for (const reason of ["removed", "expired"] as const) {
+  test(`purchase review detects an offer ${reason} while open`, async ({ page }) => {
+    await page.setViewportSize({ width: reason === "removed" ? 1440 : 390, height: 900 });
+    await page.clock.install();
+    const reviewed = { ...offer, expiresAt: Math.floor(Date.now() / 1000) + 120 };
+    let removed = false;
+    await page.route("**/api/marketplace**", (route) =>
+      route.fulfill({
+        json: {
+          ...data,
+          capabilities: { ...data.capabilities, openseaBuy: true },
+          items: [{ ...item, offers: removed ? [] : [reviewed] }],
+        },
+      }),
+    );
+    await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Atualizar anúncios", exact: true }).click();
+    await page.getByRole("button", { name: "Ver Gnar #42", exact: true }).click();
+    const drawer = page.getByRole("dialog");
+    await drawer.getByRole("button", { name: "Comprar", exact: true }).click();
+    await expect(drawer.getByText("Preço total", { exact: true })).toBeVisible();
+    await expect(drawer.getByRole("alert")).toHaveCount(0);
+    if (reason === "removed") {
+      removed = true;
+      await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+    } else {
+      await page.clock.fastForward(121000);
+    }
+    await expect(drawer.getByRole("alert")).toContainText("Esta ordem não é mais válida");
+    await page.screenshot({ path: `/tmp/marketplace-review-${reason}.png` });
+  });
+}
+
 test("community share links normalize address case without substituting Gnars", async ({
   page,
 }) => {
