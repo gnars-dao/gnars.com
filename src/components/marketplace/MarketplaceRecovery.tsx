@@ -228,6 +228,7 @@ export function MarketplaceRecovery({ showCompleted = false }: { showCompleted?:
         )}
         {!complete && !actions.isBusy && active && (
           <Button
+            key={resumable ? "resume" : "check-status"}
             size="sm"
             variant="outline"
             onClick={() => void run(resumable ? actions.resume : actions.checkStatus)}

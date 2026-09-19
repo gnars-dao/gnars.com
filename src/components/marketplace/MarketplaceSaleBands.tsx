@@ -104,6 +104,13 @@ export function MarketplaceSaleBands({
       const response = await fetch(`/api/marketplace/community?${params}`, { signal });
       if (!response.ok) throw new Error("Community listings unavailable");
       const page: CommunityMarketplacePage = await response.json();
+      if (
+        !page ||
+        typeof page.available !== "boolean" ||
+        !Array.isArray(page.items) ||
+        (page.nextCursor !== null && typeof page.nextCursor !== "string")
+      )
+        throw new Error("Invalid community listings response");
       return page;
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,

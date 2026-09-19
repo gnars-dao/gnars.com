@@ -114,6 +114,35 @@ for (const width of [390, 1440]) {
   });
 }
 
+test("malformed community response is an error, not inventory or an empty result", async ({
+  page,
+}) => {
+  let recovered = false;
+  await page.route("**/api/marketplace**", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/marketplace/community")
+      return route.fulfill({
+        json: recovered
+          ? { available: true, items: [], nextCursor: null }
+          : { items: [item("9", "10000000000000000", "10000000000000000")], nextCursor: null },
+      });
+    return route.fulfill({ json: { ...base, items: [], nextCursor: null } });
+  });
+  await page.goto("/pt-br/marketplace", { waitUntil: "domcontentloaded" });
+  const community = page.locator("section[aria-labelledby='sale-band-community']");
+  await expect(community.getByRole("alert")).toBeVisible();
+  await expect(community.getByRole("button", { name: "Ver Gnar #9", exact: true })).toHaveCount(0);
+  await expect(
+    community.getByText("Nenhum anúncio ativo encontrado.", { exact: true }),
+  ).toHaveCount(0);
+  recovered = true;
+  await community.getByRole("button", { name: "Tentar novamente", exact: true }).click();
+  await expect(community.getByRole("alert")).toHaveCount(0);
+  await expect(
+    community.getByText("Nenhum anúncio ativo encontrado.", { exact: true }),
+  ).toBeVisible();
+});
+
 test("empty intermediate community page retains continuation and active bounds", async ({
   page,
 }) => {

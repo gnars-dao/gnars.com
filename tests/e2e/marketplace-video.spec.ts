@@ -48,6 +48,15 @@ async function setup(
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await page.route("**/api/marketplace**", (route) => {
     const pathname = new URL(route.request().url()).pathname;
+    if (pathname === "/api/marketplace/traits")
+      return route.fulfill({
+        json: {
+          collectionAddress: collection,
+          tokenId: item.tokenId,
+          source: "tokenURI",
+          traits: [],
+        },
+      });
     if (pathname === "/api/marketplace/community")
       return route.fulfill({ json: { items: [item], nextCursor: null, available: true } });
     if (pathname.includes("/nfts/") && invalidDetail)
@@ -121,7 +130,7 @@ test("NFT video failure keeps the cover and listing details", async ({ page }) =
   await video.evaluate((node: HTMLVideoElement) => {
     void node.play().catch(() => {});
   });
-  await expect(dialog.getByRole("status")).toContainText("vídeo");
+  await expect(dialog.getByRole("status").filter({ hasText: "vídeo" })).toBeVisible();
   await expect(dialog.locator("video")).toHaveCount(0);
   await expect(dialog.getByRole("img", { name: item.name, exact: true })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: item.name, exact: true })).toBeVisible();
@@ -133,9 +142,12 @@ for (const invalidDetail of ["empty", "token", "collection"] as const) {
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const dialog = await setup(page, false, invalidDetail);
-    await expect(dialog.getByRole("alert")).toContainText("Não foi possível carregar estes NFTs.");
+    const detailError = dialog
+      .getByRole("alert")
+      .filter({ hasText: "Não foi possível carregar estes NFTs." });
+    await expect(detailError).toBeVisible();
     await expect(
-      dialog.getByRole("button", { name: "Tentar novamente", exact: true }),
+      detailError.locator("..").getByRole("button", { name: "Tentar novamente", exact: true }),
     ).toBeVisible();
   });
 }

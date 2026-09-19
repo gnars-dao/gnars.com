@@ -34,6 +34,7 @@ async function setupWallet(
     retryPublication?: boolean;
     restorePendingApproval?: boolean;
     legacyApproval?: boolean;
+    holdApprovalRecovery?: boolean;
     legacySignedListing?: boolean;
     confirmTransactions?: boolean;
     requireApproval?: boolean;
@@ -64,6 +65,7 @@ async function setupWallet(
   let cancelled = false;
   let filled = false;
   let holdConfirmation = !!options.holdConfirmation;
+  let holdApprovalRecovery = !!options.holdApprovalRecovery;
   let nftOwner = account.address;
   const receipts = new Map<string, Record<string, unknown>>();
   const sentTransactions = new Map<string, Record<string, unknown>>();
@@ -351,7 +353,7 @@ async function setupWallet(
           return encodeFunctionResult({
             abi: erc721Abi,
             functionName: "getApproved",
-            result: approved && !stale ? approvedOperator : zeroAddress,
+            result: approved && !stale && !holdApprovalRecovery ? approvedOperator : zeroAddress,
           });
         }
         if (decoded.functionName === "balanceOf")
@@ -362,6 +364,7 @@ async function setupWallet(
             functionName: "isApprovedForAll",
             result:
               !options.requireApproval &&
+              !holdApprovalRecovery &&
               decoded.args[1].toLowerCase() === approvedOperator.toLowerCase(),
           });
       } catch {
@@ -523,7 +526,9 @@ async function setupWallet(
     }
     if (request.url().includes("/api/marketplace")) {
       const path = new URL(request.url()).pathname;
-      if (path.endsWith("/opensea/quote")) {
+      if (path === "/api/marketplace/community") {
+        await route.fulfill({ json: { items: [], nextCursor: null, available: true } });
+      } else if (path.endsWith("/opensea/quote")) {
         const { priceWei } = request.postDataJSON();
         const fee = BigInt(priceWei) / 100n;
         await route.fulfill({
@@ -629,6 +634,9 @@ async function setupWallet(
     state: () => ({ approved, cancelled, filled, nftOwner }),
     releaseConfirmation: () => {
       holdConfirmation = false;
+    },
+    releaseApprovalRecovery: () => {
+      holdApprovalRecovery = false;
     },
   };
 }
@@ -1086,9 +1094,8 @@ test("legacy Seaport approval recovers then requires exact OpenSea conduit appro
     confirmTransactions: true,
   });
   const drawer = await connectAndInspect(page);
-  await drawer.getByRole("button", { name: "Verificar transação", exact: true }).click();
   const resume = drawer.getByRole("button", { name: "Continuar anúncio", exact: true });
-  await expect(resume).toBeVisible();
+  await expect(resume).toBeVisible({ timeout: 20000 });
   expect(wallet.signedRequests).toHaveLength(0);
   expect(wallet.transactions).toHaveLength(0);
   await resume.click();
@@ -1096,6 +1103,38 @@ test("legacy Seaport approval recovers then requires exact OpenSea conduit appro
   expect(wallet.transactions).toHaveLength(1);
   expect(wallet.signedRequests).toHaveLength(1);
   expect(wallet.publications[0].parameters.conduitKey).toBe(OPENSEA_CONDUIT_KEY);
+});
+
+test("approval recovery during pointer press cannot turn a status check into a signature", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const wallet = await setupWallet(page, {
+    restorePendingApproval: true,
+    legacyApproval: true,
+    holdApprovalRecovery: true,
+    confirmTransactions: true,
+  });
+  const drawer = await connectAndInspect(page);
+  const check = drawer.getByRole("button", { name: "Verificar transação", exact: true });
+  await expect(check).toBeVisible();
+  const originalButton = await check.elementHandle();
+  const bounds = await check.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + 15, bounds!.y + bounds!.height / 2);
+  await page.mouse.down();
+  wallet.releaseApprovalRecovery();
+  await expect(drawer.getByRole("button", { name: "Continuar anúncio", exact: true })).toBeVisible({
+    timeout: 20000,
+  });
+  expect(await originalButton!.evaluate((button) => button.isConnected)).toBe(false);
+  await page.mouse.up();
+  await expect(
+    drawer.getByRole("button", { name: "Continuar anúncio", exact: true }),
+  ).toBeVisible();
+  expect(wallet.signedRequests).toHaveLength(0);
+  expect(wallet.transactions).toHaveLength(0);
+  expect(wallet.publications).toHaveLength(0);
 });
 
 test("legacy rejected zero-conduit signature is cancelled unchanged with the builder suffix", async ({

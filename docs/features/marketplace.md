@@ -55,6 +55,7 @@ between page reads, and checkout always revalidates the selected order.
 Partial community pages retain verified cards and continuation cursors while
 showing a retryable warning. One failed NFT/order read must not hide healthy rows
 or produce a false empty-state message.
+Malformed community response envelopes are errors, not partial inventories.
 
 Cards use NFT artwork with a lightweight metallic reflection, never a webcam.
 Mouse pointers control the sheen; touch and reduced-motion users receive a static
@@ -354,8 +355,10 @@ outcomes cannot be silently reset. Clearing browser storage is not a safe recove
 procedure. No private keys are stored.
 
 `checkStatus` only reconciles existing state; it cannot publish an order or request
-a wallet signature. Continuing/retrying is a separate explicit action. Permanent
-publication rejections disable blind publication retries while keeping status
+a wallet signature. Continuing/retrying is a separate explicit action.
+The status-check button is replaced when its action becomes continuation, so a
+pointer press that began as a read cannot end as a signature request.
+Permanent publication rejections disable blind publication retries while keeping status
 checks and cancellation available. Rejecting a cancellation prompt preserves the
 original signed order and prevents it from being replaced by a new listing.
 
