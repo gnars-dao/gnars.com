@@ -686,6 +686,25 @@ per-instance limits for a verified account-wide cap.
   real order or send a production transaction. Live publication with an actual
   owner wallet remains a separate explicit manual validation.
 
+### NFT detail insights
+
+- The details drawer includes Traits and Activity tabs. Activity loads only when
+  selected; failures have a retry action and never disable listing or buying.
+- `/api/marketplace/traits` reads the Base ERC-721 `tokenURI`, supporting Gnars
+  `properties` and standard `attributes`. Inline JSON and fixed IPFS gateways are
+  bounded; arbitrary HTTP metadata URLs are not fetched. Failed metadata reads
+  return an error, not an empty trait set. Successful reads cache for five minutes.
+- `/api/marketplace/activity` provides paginated **OpenSea-indexed** sales,
+  transfers, mints and burns. It does not guarantee complete history for the
+  custom Gnars contract. A complete native sales ledger remains separate work.
+  Cursors and returned events are bound to the requested Base collection/token.
+- Sales retain their actual payment token and decimals. The UI suppresses a
+  matching transfer only when the same transaction and parties have a sale,
+  including across pages. Transfers alone never imply a sale.
+- Detail traits do not constitute collection-wide trait filtering or rarity:
+  those require a complete, versioned metadata index rather than current-page
+  filtering. No rarity percentages are inferred.
+
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),
 [OpenSea fulfillment API](https://docs.opensea.io/reference/generate_listing_fulfillment_data_v2),

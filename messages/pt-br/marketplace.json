@@ -1,4 +1,22 @@
 {
+  "insights": {
+    "label": "Informações do NFT",
+    "traits": "Características",
+    "activity": "Atividade",
+    "loadingTraits": "Carregando características...",
+    "loadingActivity": "Carregando atividade...",
+    "traitsError": "Não foi possível carregar as características.",
+    "activityError": "Não foi possível carregar a atividade.",
+    "emptyTraits": "Nenhuma característica encontrada.",
+    "emptyActivity": "Nenhuma atividade indexada encontrada.",
+    "attribution": "Atividade indexada pela OpenSea",
+    "retry": "Tentar novamente",
+    "loadMore": "Carregar mais atividade",
+    "transaction": "Transação",
+    "from": "De",
+    "to": "Para",
+    "types": { "sale": "Venda", "transfer": "Transferência", "mint": "Criação", "burn": "Queima" }
+  },
   "filters": {
     "label": "Faixa de preço",
     "min": "Preço mín. (ETH)",

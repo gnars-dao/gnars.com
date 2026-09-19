@@ -281,6 +281,34 @@ function openSeaRequest(path: string, body?: unknown, allowNotFound = false): Pr
   return request;
 }
 
+/** Restricted read path for indexed NFT history; shares the existing provider budget. */
+export async function requestOpenSeaNftActivity(
+  collection: string,
+  tokenId: string,
+  cursor?: string,
+): Promise<unknown> {
+  const input = z
+    .object({
+      collection: marketplaceAddressSchema.refine((value) => value.toLowerCase() !== zeroAddress),
+      tokenId: marketplaceUintSchema,
+      cursor: z
+        .string()
+        .min(1)
+        .max(1024)
+        .regex(/^[^\x00-\x1f\x7f]+$/)
+        .optional(),
+    })
+    .safeParse({ collection, tokenId, cursor });
+  if (!input.success) throw new RequestSecurityError(400, "Invalid NFT activity request.");
+  const parameters = new URLSearchParams({ limit: "20" });
+  parameters.append("event_type", "sale");
+  parameters.append("event_type", "transfer");
+  if (cursor) parameters.set("next", cursor);
+  return openSeaRequest(
+    `events/chain/base/contract/${collection.toLowerCase()}/nfts/${tokenId}?${parameters}`,
+  );
+}
+
 export function normalizeOpenSeaListing(
   raw: unknown,
 ): { tokenId: string; offer: MarketplaceOffer } | null {

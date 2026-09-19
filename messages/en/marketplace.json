@@ -1,4 +1,22 @@
 {
+  "insights": {
+    "label": "NFT information",
+    "traits": "Traits",
+    "activity": "Activity",
+    "loadingTraits": "Loading traits...",
+    "loadingActivity": "Loading activity...",
+    "traitsError": "Could not load traits.",
+    "activityError": "Could not load activity.",
+    "emptyTraits": "No traits found.",
+    "emptyActivity": "No indexed activity found.",
+    "attribution": "OpenSea-indexed activity",
+    "retry": "Retry",
+    "loadMore": "Load more activity",
+    "transaction": "Transaction",
+    "from": "From",
+    "to": "To",
+    "types": { "sale": "Sale", "transfer": "Transfer", "mint": "Mint", "burn": "Burn" }
+  },
   "filters": {
     "label": "Price range",
     "min": "Min price (ETH)",

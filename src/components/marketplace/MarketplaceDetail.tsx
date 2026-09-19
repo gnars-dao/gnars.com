@@ -53,6 +53,7 @@ import type {
 import { MarketplaceCommentEditor } from "./MarketplaceCommentEditor";
 import { MarketplaceListingEditor } from "./MarketplaceListingEditor";
 import { MarketplaceModeration } from "./MarketplaceModeration";
+import { MarketplaceNftInsights } from "./MarketplaceNftInsights";
 import { MarketplaceRecovery } from "./MarketplaceRecovery";
 import { MarketplaceSourceLogo } from "./MarketplaceSourceLogo";
 import { NftArtwork } from "./NftArtwork";
@@ -510,6 +511,11 @@ export default function MarketplaceDetail({
                       </div>
                     ))}
                 </div>
+                <MarketplaceNftInsights
+                  key={`${item.collectionAddress ?? DAO_ADDRESSES.token}:${item.tokenId}`}
+                  collectionAddress={item.collectionAddress ?? DAO_ADDRESSES.token}
+                  tokenId={item.tokenId}
+                />
                 {editDraft && writer && (
                   <Button
                     variant="outline"
