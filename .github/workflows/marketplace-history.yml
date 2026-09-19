@@ -37,4 +37,4 @@ jobs:
         run: >-
           node --import tsx scripts/marketplace-history-sync.ts
           0x8e304836e9a849749989c7e2c289c5a5afabeb2a9fc9e803a2bb6919ad36df9c
-          100 2000
+          200 10

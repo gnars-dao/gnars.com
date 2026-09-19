@@ -806,7 +806,8 @@ with manual dispatch, main-branch/repository guards and non-cancelling concurren
 It remains disabled until repository variable `MARKETPLACE_INDEXER_ENABLED=true`.
 Provision GitHub secrets `MARKETPLACE_INDEXER_DATABASE_URL`,
 `MARKETPLACE_INDEXER_BASE_RPC` and `MARKETPLACE_DATABASE_SSL_CA` first. The RPC must
-support 2,000-block log ranges. The database must use a session/direct connection,
+support 10-block log ranges. Each run scans up to 200 ranges, allowing catch-up
+without exceeding Alchemy's free-tier log range limit. The database must use a session/direct connection,
 not a transaction pooler: the writer holds a session advisory lock. The worker
 reads Base only; it cannot send wallet transactions.
 

@@ -108,7 +108,9 @@ describe("2. env set + allowlisted Origin", () => {
     }
   });
   it("appends to an existing Vary instead of clobbering it", async () => {
-    const handler = withCors(async () => new Response("x", { headers: { Vary: "Accept-Encoding" } }));
+    const handler = withCors(
+      async () => new Response("x", { headers: { Vary: "Accept-Encoding" } }),
+    );
     expect((await handler(req(ALLOWED))).headers.get("vary")).toBe("Accept-Encoding, Origin");
     const already = withCors(async () => new Response("x", { headers: { Vary: "origin" } }));
     expect((await already(req(ALLOWED))).headers.get("vary")).toBe("origin");
