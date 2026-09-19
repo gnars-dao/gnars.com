@@ -650,10 +650,17 @@ cached for five minutes for quote previews, but is freshly read before posting.
 OpenSea order cache invalidation is separate from catalogue/fee metadata and
 bounded per instance to limit replay-driven cache flushes.
 
-Production WAF verification remains an operational prerequisite: project-scope
-access was unavailable during this review. In a deployment without the order
-database, the distributed provider-budget fallback is not active; do not mistake
-per-instance limits for a verified account-wide cap.
+Production WAF was inspected and extended on 2026-09-19. The enabled rule
+`rule_bound_marketplace_requests_P0tDpd` matches the exact `/api/marketplace` path
+or the `/api/marketplace/` prefix, across all HTTP methods. It rate-limits to
+180 requests per 60-second fixed window per IP, leaving existing smaller
+per-route guards in place. Normal readiness and trait-facet reads returned HTTP
+200 after publication. The four existing non-marketplace rules were unchanged.
+Vercel's counters are [per region](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting),
+not a worldwide provider quota; monitor shared-IP traffic for false positives.
+In a deployment without the order database, the distributed provider-budget
+fallback is not active; do not mistake per-instance limits or regional WAF
+counters for a verified account-wide cap.
 
 ## Verification
 

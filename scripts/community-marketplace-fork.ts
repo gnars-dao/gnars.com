@@ -47,6 +47,7 @@ const client = createPublicClient({ chain: base, transport: http(rpcUrl, { retry
 const rpc = (method: string, params: unknown[] = []) =>
   client.request({ method, params } as never) as Promise<unknown>;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+let stage = "fixture compilation";
 
 async function main() {
   assert.equal(new URL(rpcUrl).hostname, "127.0.0.1");
@@ -72,6 +73,7 @@ async function main() {
   assert.equal(compile.status, 0, "Test fixture compilation failed");
   const bytecode = compile.stdout.trim();
   assert(/^0x[0-9a-f]+$/i.test(bytecode), "Unexpected fixture creation bytecode");
+  stage = "fork startup";
   const anvil = spawn(
     join(homedir(), ".foundry/bin/anvil"),
     [
@@ -106,6 +108,7 @@ async function main() {
       await delay(1000);
     }
     assert(ready, "Anvil startup timeout");
+    stage = "fork contract reads";
     await rpc("anvil_nodeInfo");
     assert.equal(await client.getChainId(), 8453);
     assert.equal((await client.getBlock()).number, FORK_BLOCK);
@@ -119,6 +122,9 @@ async function main() {
     );
     // Override only this isolated process; no local/prod environment files are loaded or changed.
     process.env.NEXT_PUBLIC_GNARS_MARKETPLACE_ADDRESS = MARKET;
+    // Keep the pinned state but align newly authored orders with wall-clock validation.
+    await rpc("evm_setNextBlockTimestamp", [Math.floor(Date.now() / 1000)]);
+    await rpc("evm_mine");
     const seller = privateKeyToAccount(generatePrivateKey());
     const buyer = privateKeyToAccount(generatePrivateKey());
     const creator = privateKeyToAccount(generatePrivateKey());
@@ -142,6 +148,7 @@ async function main() {
       }),
       BUILDER_CODE_SUFFIX,
     ]);
+    stage = "fixture deployment";
     const hash = await sellerWallet.sendTransaction({ data: creation });
     const deployed = await client.waitForTransactionReceipt({ hash });
     assert.equal(deployed.status, "success");
@@ -151,6 +158,7 @@ async function main() {
     const feePolicy = GNARS_MARKETPLACE_FEE_POLICY;
     const options = { source: "gnars-contract" as const, collectionAddress: collection, feePolicy };
     const price = parseEther("0.01");
+    stage = "royalty quote";
     const royalty = await getListingRoyalty(client, 1n, price, collection);
     const quote = buildCommunityListingQuote(price.toString(), royalty, feePolicy);
     assert.equal(quote.fees[0].amountWei, (price / 100n).toString());
@@ -231,8 +239,10 @@ async function main() {
       validateListingStructure(listing, options);
       return listing;
     };
+    stage = "order signature and structure";
     const listing = await build();
     const call = getListingFulfillment(listing, options);
+    stage = "domain and approval rejection";
     await approve(SEAPORT_ADDRESS);
     assert.equal(
       (await send(SEAPORT_ADDRESS, call.data, price)).status,
@@ -245,7 +255,9 @@ async function main() {
       "Canonical approval authorized custom deployment",
     );
     await approve(MARKET);
+    stage = "onchain listing validation";
     await validateListingOnchain(client, listing, options);
+    stage = "community settlement";
     const beforeSeller = await client.getBalance({ address: seller.address });
     const beforeSplit = await client.getBalance({ address: COMMUNITY_FEE_RECIPIENT });
     const beforeCreator = await client.getBalance({ address: creator.address });
@@ -303,6 +315,7 @@ async function main() {
     );
     await approve(MARKET);
     const cancelled = await build();
+    stage = "cancellation";
     const cancel = getListingCancellation(cancelled, options);
     assert.equal((await send(cancel.to, cancel.data, 0n, sellerWallet)).status, "success");
     const status = await client.readContract({
@@ -328,10 +341,15 @@ async function main() {
 }
 main().catch((error: unknown) => {
   console.error(
-    "FAIL [local fork]",
+    `FAIL [local fork: ${stage}]`,
     error instanceof assert.AssertionError
       ? error.message
-      : "Community fork check failed; inspect local Anvil and public RPC availability.",
+      : error instanceof Error
+        ? error.message
+            .split("\n")[0]
+            .replace(/https?:\/\/\S+/g, "[RPC]")
+            .slice(0, 240)
+        : "Community fork check failed; inspect local Anvil and public RPC availability.",
   );
   process.exitCode = 1;
 });
