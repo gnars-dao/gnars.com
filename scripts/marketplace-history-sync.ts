@@ -27,7 +27,8 @@ export async function syncNativeHistoryMain() {
     rangeSize > 10000
   )
     throw new Error("Expected deployment transaction, steps and range size");
-  const connectionString = process.env.MARKETPLACE_MIGRATION_DATABASE_URL;
+  const connectionString =
+    process.env.MARKETPLACE_INDEXER_DATABASE_URL || process.env.MARKETPLACE_MIGRATION_DATABASE_URL;
   const protocol = getGnarsMarketplaceAddress();
   const rpc =
     process.env.BASE_RPC ||
@@ -36,7 +37,7 @@ export async function syncNativeHistoryMain() {
       ? `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
       : undefined);
   if (!connectionString || !protocol || !rpc)
-    throw new Error("Explicit administrative credentials, marketplace and RPC required");
+    throw new Error("Explicit writer credentials, marketplace and RPC required");
   const client = createPublicClient({
     chain: base,
     transport: http(rpc, { timeout: 15000, retryCount: 0 }),

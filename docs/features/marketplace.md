@@ -783,8 +783,32 @@ other ERC-20 amounts remain in the raw ledger without guessed display metadata.
 Bundles and barter are preserved raw but are not projected as individual NFT
 sales. The native index covers the configured custom Seaport, not canonical
 OpenSea Seaport or unrelated wallet transfers. Catch-up still requires running
-the sync worker; automatic scheduling remains operational work. No browser
-action is responsible for ingesting a sale.
+the sync worker. No browser action is responsible for ingesting a sale.
+
+`.github/workflows/marketplace-history.yml` prepares a 15-minute scheduled worker,
+with manual dispatch, main-branch/repository guards and non-cancelling concurrency.
+It remains disabled until repository variable `MARKETPLACE_INDEXER_ENABLED=true`.
+Provision GitHub secrets `MARKETPLACE_INDEXER_DATABASE_URL`,
+`MARKETPLACE_INDEXER_BASE_RPC` and `MARKETPLACE_DATABASE_SSL_CA` first. The RPC must
+support 2,000-block log ranges. The database must use a session/direct connection,
+not a transaction pooler: the writer holds a session advisory lock. The worker
+reads Base only; it cannot send wallet transactions.
+
+Apply `scripts/marketplace-indexer-role.sql` after the history schema, then grant
+its NOLOGIN role to a dedicated worker login. It can read/insert history events
+and read/insert/update checkpoints, but receives no order, signature, deletion,
+schema-creation or bypass-RLS privileges. Never grant this role to
+`gnars_marketplace`, and never put administrative/migration credentials in the
+workflow. The manual CLI still accepts `MARKETPLACE_MIGRATION_DATABASE_URL` for
+existing operator usage; a configured scoped indexer URL takes precedence.
+
+Provisioning and a successful scheduled run with advancing coverage are still
+required before calling automation operational. Monitor workflow failures and
+checkpoint age; a completed historical checkpoint is not proof of a live worker.
+[GitHub schedules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+can be delayed, so this is eventual history, not transaction confirmation.
+Automatic trait refresh remains separate work; reusing a completed trait file
+does not advance its snapshot block.
 
 Protocol references: [Seaport](https://github.com/ProjectOpenSea/seaport),
 [OpenSea conduit mapping](https://github.com/ProjectOpenSea/opensea-js/blob/main/src/utils/chain.ts),

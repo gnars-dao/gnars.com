@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   release: vi.fn(),
   end: vi.fn(),
+  pool: vi.fn(),
   scan: vi.fn(),
   getChainId: vi.fn(),
   getTransactionReceipt: vi.fn(),
@@ -12,6 +13,9 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("pg", () => ({
   Pool: class {
+    constructor(options: unknown) {
+      mocks.pool(options);
+    }
     connect = async () => ({ query: mocks.query, release: mocks.release });
     end = mocks.end;
   },
@@ -34,6 +38,7 @@ const argv = process.argv;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("MARKETPLACE_MIGRATION_DATABASE_URL", "postgres://localhost/test");
+  vi.stubEnv("MARKETPLACE_INDEXER_DATABASE_URL", "");
   vi.stubEnv("BASE_RPC", "https://example.com");
   process.argv = ["node", "script", tx, "1", "100"];
   mocks.getChainId.mockResolvedValue(8453);
@@ -133,7 +138,7 @@ describe("administrative native history ingestion", () => {
   it("requires explicit writer credentials", async () => {
     vi.stubEnv("MARKETPLACE_MIGRATION_DATABASE_URL", "");
     vi.stubEnv("MARKETPLACE_DATABASE_URL", "postgres://localhost/runtime");
-    await expect(syncNativeHistoryMain()).rejects.toThrow("Explicit administrative");
+    await expect(syncNativeHistoryMain()).rejects.toThrow("Explicit writer");
     expect(mocks.query).not.toHaveBeenCalled();
   });
   it("rejects deployment for a different contract", async () => {
@@ -143,5 +148,12 @@ describe("administrative native history ingestion", () => {
     });
     await expect(syncNativeHistoryMain()).rejects.toThrow("Wrong deployment");
     expect(mocks.query).not.toHaveBeenCalled();
+  });
+  it("prefers the scoped indexer connection over administrative credentials", async () => {
+    vi.stubEnv("MARKETPLACE_INDEXER_DATABASE_URL", "postgres://localhost/indexer");
+    await syncNativeHistoryMain();
+    expect(mocks.pool).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionString: "postgres://localhost/indexer" }),
+    );
   });
 });
