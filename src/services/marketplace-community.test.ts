@@ -561,7 +561,7 @@ describe("community publication", () => {
     expect(sql).toContain("AND seller = $4");
     expect(sql).toContain("strpos(lower(COALESCE(metadata->>'name', '')), lower($5)) > 0");
     expect(sql).toContain("metadata->>'collectionName'");
-    expect(sql).toContain("collection_address = lower($5) OR token_id = $5");
+    expect(sql).toContain("collection_address = lower($5) OR token_id::text = $5");
     expect(sql.indexOf("strpos(")).toBeLessThan(sql.indexOf("ORDER BY id DESC LIMIT"));
     expect(sql).not.toContain("SkateHive");
   });

@@ -1016,7 +1016,7 @@ export async function listCommunityMarketplace(
     const term = `$${values.length}`;
     filter += ` AND (strpos(lower(COALESCE(metadata->>'name', '')), lower(${term})) > 0
       OR strpos(lower(COALESCE(metadata->>'collectionName', '')), lower(${term})) > 0
-      OR collection_address = lower(${term}) OR token_id = ${term})`;
+      OR collection_address = lower(${term}) OR token_id::text = ${term})`;
   }
   const result = await database().query<Row>(
     `SELECT * FROM public.marketplace_community_orders WHERE chain_id = 8453 AND protocol_address = $1 AND expires_at > $2 AND NOT hidden AND status IN ('active', 'invalid-owner', 'unapproved')${filter} ORDER BY id DESC LIMIT ${MARKETPLACE_PAGE_SIZE}`,
