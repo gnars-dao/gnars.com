@@ -60,6 +60,7 @@ export const AVATAR: Record<RiderId, { src: string; size: string; pos: string }>
   v2: { src: "/stake/cutout/v2.png", size: "480%", pos: "50% 5.5%" },
   zima: { src: "/stake/cutout/zima.png", size: "480%", pos: "50% 5.5%" },
   will: { src: "/stake/cutout/will.png", size: "480%", pos: "50% 5.5%" },
+  gami: { src: "/stake/cutout/gami.png", size: "480%", pos: "55% 5.5%" },
   ephraim: { src: "/stake/cutout/ephraim.png", size: "480%", pos: "50% 5.5%" },
 };
 

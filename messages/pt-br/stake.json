@@ -147,6 +147,10 @@
     "ephraim": {
       "name": "Ephraim",
       "tagline": "Novo na line-up. Cofre a caminho."
+    },
+    "gami": {
+      "name": "Gami",
+      "tagline": "Em breve"
     }
   },
   "orbit": {
@@ -450,5 +454,6 @@
       "error": "Não deu pra carregar o fluxo.",
       "retry": "Tentar de novo"
     }
-  }
+  },
+  "comingSoon": "Em breve"
 }

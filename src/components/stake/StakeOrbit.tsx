@@ -91,6 +91,12 @@ const RIDER_VISUAL: Record<
     face: { size: "480%", pos: "50% 5.5%" },
     ratio: 1448 / 1086,
   },
+  gami: {
+    hex: "#f59e0b",
+    image: "/stake/cutout/gami.png",
+    face: { size: "480%", pos: "55% 5.5%" },
+    ratio: 1200 / 900,
+  },
   ephraim: {
     hex: "#fb923c",
     image: "/stake/cutout/ephraim.png",

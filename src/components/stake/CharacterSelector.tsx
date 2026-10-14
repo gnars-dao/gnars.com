@@ -12,7 +12,16 @@ import { cn } from "@/lib/utils";
 import { StakeDialog } from "./StakeDialog";
 import { YieldStatus } from "./YieldStatus";
 
-export type CharacterId = "vlad" | "yan" | "r4to" | "pamtech" | "v2" | "zima" | "will" | "ephraim";
+export type CharacterId =
+  | "vlad"
+  | "yan"
+  | "r4to"
+  | "pamtech"
+  | "v2"
+  | "zima"
+  | "will"
+  | "ephraim"
+  | "gami";
 
 // THPS-style attributes (1–10). Placeholder values — tailor freely.
 export const STAT_KEYS = [
@@ -70,6 +79,8 @@ export interface Character {
    * in place — existing positions are unaffected and withdrawals still work.
    */
   disabled?: boolean;
+  /** Upcoming athlete, with no active sponsorship yet. */
+  comingSoon?: boolean;
   /** Character attributes, 1–STAT_MAX */
   stats: Record<StatKey, number>;
 }
@@ -170,6 +181,18 @@ export const CHARACTERS: Character[] = [
     hex: "#818cf8",
     face: { size: "480%", pos: "50% 5.5%" },
     stats: { speed: 7, air: 6, ollie: 7, spin: 7, rail: 8, flow: 8, devSkills: 5, creativity: 8 },
+  },
+  {
+    id: "gami",
+    image: "/stake/cutout/gami.png",
+    disabled: true,
+    comingSoon: true,
+    accentFrom: "from-amber-400",
+    accentTo: "to-amber-600",
+    ring: "ring-amber-400",
+    hex: "#f59e0b",
+    face: { size: "480%", pos: "55% 5.5%" },
+    stats: { speed: 7, air: 7, ollie: 7, spin: 7, rail: 7, flow: 7, devSkills: 7, creativity: 7 },
   },
 ];
 
@@ -777,7 +800,9 @@ export function CharacterSelector({
             {/* What the community has behind this rider */}
             <p className="mt-3 text-sm text-white/60">
               {isPaused ? (
-                <span className="opacity-70">{t("vaultPaused")}</span>
+                <span className="opacity-70">
+                  {t(active.comingSoon ? "vaultSoon" : "vaultPaused")}
+                </span>
               ) : vault ? (
                 (supportError && !graph) || (supportIncomplete && !staked) ? (
                   <span>{t("supportUnavailable")}</span>
@@ -822,7 +847,9 @@ export function CharacterSelector({
               style={{ backgroundImage: isPaused ? undefined : GOLD }}
             >
               <Zap className="h-4 w-4" />
-              {isPaused ? t("vaultPausedCta") : t("stakeCta", { name })}
+              {isPaused
+                ? t(active.comingSoon ? "comingSoon" : "vaultPausedCta")
+                : t("stakeCta", { name })}
             </Button>
           </div>
 
@@ -841,7 +868,9 @@ export function CharacterSelector({
               style={{ backgroundImage: isPaused ? undefined : GOLD }}
             >
               <Zap className="h-4 w-4" />
-              {isPaused ? t("vaultPausedCta") : t("stakeCta", { name })}
+              {isPaused
+                ? t(active.comingSoon ? "comingSoon" : "vaultPausedCta")
+                : t("stakeCta", { name })}
             </Button>
           )}
         </div>

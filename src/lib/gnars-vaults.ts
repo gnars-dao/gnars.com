@@ -19,7 +19,16 @@ import { getAddress, type Address } from "viem";
  */
 export const REWARD_SPLIT = { you: 50, skater: 25, treasury: 25 } as const;
 
-export type RiderId = "vlad" | "yan" | "r4to" | "pamtech" | "v2" | "zima" | "will" | "ephraim";
+export type RiderId =
+  | "vlad"
+  | "yan"
+  | "r4to"
+  | "pamtech"
+  | "v2"
+  | "zima"
+  | "will"
+  | "ephraim"
+  | "gami";
 
 export type Rider = {
   id: RiderId;
@@ -38,6 +47,7 @@ export type Rider = {
 };
 
 export const RIDERS: Record<RiderId, Rider> = {
+  gami: { id: "gami", handle: "gami" },
   vlad: {
     id: "vlad",
     handle: "vlad",

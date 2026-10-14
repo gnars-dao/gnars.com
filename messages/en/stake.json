@@ -47,7 +47,11 @@
     "depositSafe": "Your deposit is confirmed. Only the rewards receiver needs to be configured; no additional deposit is required.",
     "uncertainDescription": "The transaction has not been fully verified yet. Do not repeat the deposit. Closing this window does not cancel a wallet request or an onchain transaction.",
     "stepDescription": "The next action applies only to the remaining step. Confirmed steps will not be repeated.",
-    "steps": { "approval": "Token approval", "deposit": "Deposit", "receiver": "Rewards receiver" },
+    "steps": {
+      "approval": "Token approval",
+      "deposit": "Deposit",
+      "receiver": "Rewards receiver"
+    },
     "states": {
       "confirmed": "Confirmed",
       "waiting": "Not started",
@@ -143,6 +147,10 @@
     "ephraim": {
       "name": "Ephraim",
       "tagline": "New to the roster. Vault on the way."
+    },
+    "gami": {
+      "name": "Gami",
+      "tagline": "Coming soon"
     }
   },
   "orbit": {
@@ -446,5 +454,6 @@
       "error": "Couldn't load the flow.",
       "retry": "Try again"
     }
-  }
+  },
+  "comingSoon": "Coming soon"
 }
