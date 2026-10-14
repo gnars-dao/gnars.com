@@ -186,7 +186,10 @@
     "total": "Total:",
     "removeLineAriaLabel": "Remove budget line {index}",
     "lineLabelAriaLabel": "Budget line {index} label",
-    "lineAmountAriaLabel": "Budget line {index} amount"
+    "lineAmountAriaLabel": "Budget line {index} amount",
+    "nogglesrailConstruction": "Nogglesrail construction",
+    "nogglesrailActivation": "Activation: event, merch and video",
+    "nogglesrailEstimate": "Suggested estimate: 2,000 USDC for the project — 1,500 USDC for Nogglesrail construction and 500 USDC for activation, event, merch and video. Adjust amounts to local quotes and scope."
   },
   "preview": {
     "title": "Proposal Preview",
