@@ -186,7 +186,10 @@
     "total": "Total:",
     "removeLineAriaLabel": "Remover linha de orçamento {index}",
     "lineLabelAriaLabel": "Rótulo da linha de orçamento {index}",
-    "lineAmountAriaLabel": "Quantia da linha de orçamento {index}"
+    "lineAmountAriaLabel": "Quantia da linha de orçamento {index}",
+    "nogglesrailConstruction": "Construção do Nogglesrail",
+    "nogglesrailActivation": "Ativação: evento, merch e vídeo",
+    "nogglesrailEstimate": "Sugestão aproximada: 2.000 USDC para o projeto — 1.500 USDC para construção do Nogglesrail e 500 USDC para ativação, evento, merch e vídeo. Ajuste os valores conforme as cotações e o escopo local."
   },
   "preview": {
     "title": "Preview da Proposta",

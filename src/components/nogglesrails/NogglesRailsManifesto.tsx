@@ -59,7 +59,7 @@ export function NogglesRailsManifesto() {
       <div className="border-t pt-8 text-center">
         <p className="mx-auto max-w-lg text-muted-foreground">{t("manifesto.ctaDescription")}</p>
         <Button asChild className="mt-4">
-          <Link href="/propose">{t("actions.submitProposal")}</Link>
+          <Link href="/propose?template=physical-installation">{t("actions.submitProposal")}</Link>
         </Button>
       </div>
     </section>

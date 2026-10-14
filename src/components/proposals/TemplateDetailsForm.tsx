@@ -45,7 +45,10 @@ export const TemplateDetailsForm = forwardRef<TemplateDetailsFormHandle, Templat
     const validator = buildTemplateValidator(slug) as unknown as Parameters<typeof zodResolver>[0];
     const templateForm = useForm<TemplateValues>({
       resolver: zodResolver(validator) as unknown as Resolver<TemplateValues>,
-      defaultValues: buildDefaults(slug, initialValues),
+      defaultValues: buildDefaults(slug, initialValues, [
+        { label: t("budget.nogglesrailConstruction"), amount: 1500, currency: "USDC" },
+        { label: t("budget.nogglesrailActivation"), amount: 500, currency: "USDC" },
+      ]),
       mode: "onChange",
     });
 
@@ -117,7 +120,11 @@ export const TemplateDetailsForm = forwardRef<TemplateDetailsFormHandle, Templat
                     {field.label}
                     {field.required ? " *" : ""}
                   </Label>
-                  <p className="text-xs text-muted-foreground mt-1 mb-2">{field.helper}</p>
+                  <p className="text-xs text-muted-foreground mt-1 mb-2">
+                    {slug === "physical-installation" && field.type === "budget"
+                      ? t("budget.nogglesrailEstimate")
+                      : field.helper}
+                  </p>
                   {field.type === "textarea" ? (
                     <Textarea
                       id={field.id}
@@ -162,7 +169,11 @@ export const TemplateDetailsForm = forwardRef<TemplateDetailsFormHandle, Templat
   },
 );
 
-function buildDefaults(slug: string, existing: TemplateValues): TemplateValues {
+function buildDefaults(
+  slug: string,
+  existing: TemplateValues,
+  suggestedBudget: BudgetRow[],
+): TemplateValues {
   const schema = getTemplateSchema(slug);
   if (!schema) return existing;
   const defaults: TemplateValues = {};
@@ -171,7 +182,11 @@ function buildDefaults(slug: string, existing: TemplateValues): TemplateValues {
     if (field.type === "textarea") {
       defaults[field.id] = typeof existingVal === "string" ? existingVal : "";
     } else if (field.type === "budget") {
-      defaults[field.id] = Array.isArray(existingVal) ? (existingVal as BudgetRow[]) : [];
+      defaults[field.id] = Array.isArray(existingVal)
+        ? (existingVal as BudgetRow[])
+        : slug === "physical-installation"
+          ? suggestedBudget
+          : [];
     }
   }
   return defaults;
