@@ -5,6 +5,10 @@ import { z } from "zod";
 import { DAO_ADDRESSES } from "@/lib/config";
 import type { MarketplaceBrowseFilters } from "@/lib/marketplace/browse-filters";
 import {
+  EXTERNAL_COLLECTIONS,
+  type ExternalCollectionKey,
+} from "@/lib/marketplace/external-collections";
+import {
   buildOpenSeaListingQuote,
   getOpenSeaCancellation,
   parseOpenSeaListingFees,
@@ -307,6 +311,29 @@ export async function requestOpenSeaNftActivity(
   return openSeaRequest(
     `events/chain/base/contract/${collection.toLowerCase()}/nfts/${tokenId}?${parameters}`,
   );
+}
+
+/**
+ * Restricted read paths for the external collection browser. The collection key selects a
+ * server-owned slug, so no provider path is ever built from client input.
+ */
+export function requestOpenSeaCollectionBestListings(
+  key: ExternalCollectionKey,
+  limit: number,
+): Promise<unknown> {
+  const { slug } = EXTERNAL_COLLECTIONS[key];
+  const parameters = new URLSearchParams({ limit: String(Math.min(50, Math.max(1, limit))) });
+  return openSeaRequest(`listings/collection/${slug}/best?${parameters}`);
+}
+
+export function requestOpenSeaExternalNft(
+  key: ExternalCollectionKey,
+  tokenId: string,
+): Promise<unknown> {
+  if (!marketplaceUintSchema.safeParse(tokenId).success)
+    throw new RequestSecurityError(400, "Invalid NFT request.");
+  const { chain, address } = EXTERNAL_COLLECTIONS[key];
+  return openSeaRequest(`chain/${chain}/contract/${address}/nfts/${tokenId}`, undefined, true);
 }
 
 export function normalizeOpenSeaListing(

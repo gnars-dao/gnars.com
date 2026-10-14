@@ -20,7 +20,12 @@
     "transaction": "Transaction",
     "from": "From",
     "to": "To",
-    "types": { "sale": "Sale", "transfer": "Transfer", "mint": "Mint", "burn": "Burn" }
+    "types": {
+      "sale": "Sale",
+      "transfer": "Transfer",
+      "mint": "Mint",
+      "burn": "Burn"
+    }
   },
   "traitFilters": {
     "label": "Gnars traits",
@@ -88,7 +93,11 @@
     "showNote": "Show seller note",
     "showArtwork": "Show NFT artwork"
   },
-  "sections": { "native": "Gnars listings", "community": "Community", "opensea": "On OpenSea" },
+  "sections": {
+    "native": "Gnars Listings",
+    "community": "Community Listings",
+    "opensea": "On OpenSea"
+  },
   "community": {
     "search": "NFT name, collection, contract or ID",
     "find": "Search community NFTs",
@@ -101,7 +110,11 @@
     "submitTitle": "List a community NFT",
     "recoveryTitle": "Pending request: NFT #{id}",
     "stepsLabel": "Listing steps",
-    "steps": { "asset": "NFT", "terms": "Price", "publish": "Publish" },
+    "steps": {
+      "asset": "NFT",
+      "terms": "Price",
+      "publish": "Publish"
+    },
     "checkingEligibility": "Checking your Gnars balance...",
     "eligibilityError": "Your Gnars balance could not be verified.",
     "membershipBalance": "You hold {balance} Gnars",
@@ -165,7 +178,11 @@
   "listed": "For sale",
   "cardPrice": "Price",
   "customContract": "Gnars contract",
-  "sourceNames": { "opensea": "OpenSea", "gnars": "Seaport", "gnars-contract": "Gnars contract" },
+  "sourceNames": {
+    "opensea": "OpenSea",
+    "gnars": "Seaport",
+    "gnars-contract": "Gnars contract"
+  },
   "listingCount": "{count, plural, one {# listing} other {# listings}}",
   "yours": "Yours",
   "quoteError": "The listing fees could not be verified. Your price has been kept.",
@@ -176,7 +193,11 @@
   "verifyRequest": "Check request",
   "statusVerified": "Order status verified",
   "listingProgress": "Listing progress",
-  "progress": { "approval": "Approval", "signature": "Signature", "publication": "Publication" },
+  "progress": {
+    "approval": "Approval",
+    "signature": "Signature",
+    "publication": "Publication"
+  },
   "invalidJournalTitle": "Saved request needs recovery",
   "invalidJournalDescription": "A saved wallet request could not be read safely. Its data has been preserved. Export the record before attempting recovery; unresolved signed orders will not be discarded.",
   "exportRecovery": "Export recovery record",
@@ -342,5 +363,22 @@
     "unavailable": "This listing is no longer available at this price.",
     "signature": "This wallet couldn't produce a supported listing signature.",
     "infrastructure": "Trading is unavailable right now."
+  },
+  "sectionDescriptions": {
+    "native": "Gnars NFTs listed by their holders on the marketplace.",
+    "community": "NFTs from other collections listed by the community.",
+    "opensea": "Explore the Gnars, Gnars OG and Nouns collections."
+  },
+  "collections": {
+    "label": "OpenSea collections",
+    "gnars": "Gnars",
+    "og": "Gnars OG",
+    "nouns": "Nouns",
+    "openExternal": "View collection on OpenSea",
+    "feeNotice": "Ethereum collection: checkout is completed on OpenSea, outside the gnars.com checkout.",
+    "inlineDescription": "Listings from this collection on OpenSea. Checkout is completed on OpenSea.",
+    "chain": "Ethereum",
+    "externalCheckout": "Buy on OpenSea",
+    "openItem": "View {name} on OpenSea"
   }
 }

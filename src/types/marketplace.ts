@@ -28,6 +28,20 @@ export type MarketplaceItem = {
   offers: MarketplaceOffer[];
 };
 
+/** Read-only listing from an Ethereum collection; checkout happens on OpenSea. */
+export type ExternalCollectionItem = {
+  tokenId: string;
+  name: string;
+  image: string | null;
+  priceWei: string;
+  url: string;
+};
+
+export type ExternalCollectionPage = {
+  items: ExternalCollectionItem[];
+  available: boolean;
+};
+
 export type CommunityMarketplacePage = {
   items: MarketplaceItem[];
   nextCursor: string | null;

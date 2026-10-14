@@ -9,9 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatMarketplacePrice } from "@/lib/marketplace-display";
 import type { MarketplaceBrowseFilters } from "@/lib/marketplace/browse-filters";
+import type { ExternalCollectionKey } from "@/lib/marketplace/external-collections";
 import { mergeMarketplaceItems } from "@/lib/marketplace/merge-items";
 import { cn } from "@/lib/utils";
 import type { CommunityMarketplacePage, MarketplaceItem } from "@/types/marketplace";
+import { ExternalCollectionGrid } from "./ExternalCollectionGrid";
 import {
   isSameSweepSelection,
   selectableSweepOffer,
@@ -65,6 +67,9 @@ export function MarketplaceSaleBands({
   enabled: boolean;
 }) {
   const t = useTranslations("marketplace");
+  const [openSeaCollection, setOpenSeaCollection] = useState<"gnars" | ExternalCollectionKey>(
+    "gnars",
+  );
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [searchReady, setSearchReady] = useState(false);
@@ -176,158 +181,192 @@ export function MarketplaceSaleBands({
           <h2 id={`sale-band-${group.key}`} className="mb-5 text-lg font-semibold">
             {t(`sections.${group.key}`)}
           </h2>
-          {group.key === "community" && (
-            <form
-              className="relative mb-5 flex w-full max-w-md items-center"
-              onSubmit={(event) => {
-                event.preventDefault();
-                findCommunity(draft);
-              }}
-            >
-              <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
-              <Input
-                aria-label={t("community.search")}
-                placeholder={t("community.search")}
-                value={draft}
-                disabled={!searchReady}
-                maxLength={100}
-                onChange={(event) => setDraft(event.target.value)}
-                className="h-10 pr-20 pl-9"
-              />
-              <div className="absolute right-1 flex gap-1">
-                {(draft || search) && (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="size-8"
-                    aria-label={t("community.clearSearch")}
-                    onClick={() => findCommunity("")}
-                  >
-                    <X className="size-4" />
-                  </Button>
-                )}
-                <Button
-                  type="submit"
-                  disabled={!searchReady}
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  aria-label={t("community.find")}
-                >
-                  <Search className="size-4" />
-                </Button>
-              </div>
-            </form>
-          )}
-          {group.failed && (
-            <div
-              role="alert"
-              className="mb-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground"
-            >
-              {t("loadError")}
-              <Button size="sm" variant="outline" onClick={group.retry}>
-                <RefreshCw className="size-4" />
-                {t("retry")}
-              </Button>
-            </div>
-          )}
-          {group.pending ? (
-            <div
-              aria-label={t("loading")}
-              className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4"
-            >
-              {Array.from({ length: 4 }, (_, index) => (
-                <div key={index} className="aspect-[1/1.25] animate-pulse rounded-lg bg-muted" />
-              ))}
-            </div>
-          ) : group.items.length ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">
-              {group.items.map((item) => {
-                const sweepOffer =
-                  (group.key === "native" && sweepEnabled?.native) ||
-                  (group.key === "opensea" && sweepEnabled?.opensea)
-                    ? selectableSweepOffer(item, sweepBuyer)
-                    : undefined;
-                const selected =
-                  !!sweepOffer &&
-                  sweepSelections.some((entry) =>
-                    isSameSweepSelection(entry, { item, offer: sweepOffer }),
-                  );
-                const alreadyInCart = sweepSelections.some(
-                  (entry) => entry.item.tokenId === item.tokenId,
-                );
-                return (
-                  <div
-                    key={`${item.collectionAddress ?? "gnars"}:${item.tokenId}`}
-                    className={cn(
-                      "flex min-w-0 flex-col gap-2 rounded-lg",
-                      selected && "outline-2 outline-offset-4 outline-emerald-500",
-                    )}
-                  >
-                    <MarketplaceCard
-                      item={item}
-                      view="listings"
-                      exactSearch={false}
-                      sourcesComplete={group.complete}
-                      onClick={(event) => onSelect(item, event)}
-                    />
-                    {sweepOffer && (
-                      <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[11px]">
-                        <input
-                          type="checkbox"
-                          className="size-4 shrink-0 cursor-pointer accent-emerald-600"
-                          checked={selected}
-                          disabled={!alreadyInCart && sweepSelections.length >= 10}
-                          aria-label={t("sweep.select", {
-                            id: item.tokenId,
-                            price: formatMarketplacePrice(sweepOffer.priceWei).exact,
-                          })}
-                          onChange={() => onSweepSelect?.({ item, offer: sweepOffer })}
-                        />
-                        <span className="min-w-0 flex-1 text-muted-foreground">
-                          {t(`sourceNames.${sweepOffer.source}`)}
-                        </span>
-                        <span
-                          className="break-all text-right font-mono"
-                          title={`${formatMarketplacePrice(sweepOffer.priceWei).exact} ETH`}
-                        >
-                          {formatMarketplacePrice(sweepOffer.priceWei).display} ETH
-                        </span>
-                      </label>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            !group.failed && (
-              <p className="py-8 text-sm text-muted-foreground">
-                {t(
-                  group.hasMore
-                    ? "filters.emptyPage"
-                    : group.complete
-                      ? "empty"
-                      : "availabilityUnknown",
-                )}
-              </p>
-            )
-          )}
-          {group.key === "community" && community.hasNextPage && (
-            <div className="mt-6 flex justify-center">
-              <Button
-                variant="outline"
-                disabled={community.isFetchingNextPage}
-                onClick={() => void community.fetchNextPage()}
+          <p className="mb-5 text-sm text-muted-foreground">
+            {t(`sectionDescriptions.${group.key}`)}
+          </p>
+          {group.key === "opensea" && (
+            <div className="mb-6 space-y-4">
+              <div
+                role="group"
+                aria-label={t("collections.label")}
+                className="flex flex-wrap gap-2"
               >
-                {community.isFetchingNextPage ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <ArrowDown className="size-4" />
-                )}
-                {t("loadMore")}
-              </Button>
+                {(["gnars", "og", "nouns"] as const).map((collection) => (
+                  <Button
+                    key={collection}
+                    variant={openSeaCollection === collection ? "default" : "outline"}
+                    aria-pressed={openSeaCollection === collection}
+                    className="cursor-pointer"
+                    onClick={() => setOpenSeaCollection(collection)}
+                  >
+                    {t(`collections.${collection}`)}
+                  </Button>
+                ))}
+              </div>
+              {openSeaCollection !== "gnars" && (
+                <ExternalCollectionGrid collection={openSeaCollection} enabled={enabled} />
+              )}
             </div>
+          )}
+          {(group.key !== "opensea" || openSeaCollection === "gnars") && (
+            <>
+              {group.key === "community" && (
+                <form
+                  className="relative mb-5 flex w-full max-w-md items-center"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    findCommunity(draft);
+                  }}
+                >
+                  <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />
+                  <Input
+                    aria-label={t("community.search")}
+                    placeholder={t("community.search")}
+                    value={draft}
+                    disabled={!searchReady}
+                    maxLength={100}
+                    onChange={(event) => setDraft(event.target.value)}
+                    className="h-10 pr-20 pl-9"
+                  />
+                  <div className="absolute right-1 flex gap-1">
+                    {(draft || search) && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8"
+                        aria-label={t("community.clearSearch")}
+                        onClick={() => findCommunity("")}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    )}
+                    <Button
+                      type="submit"
+                      disabled={!searchReady}
+                      size="icon"
+                      variant="ghost"
+                      className="size-8"
+                      aria-label={t("community.find")}
+                    >
+                      <Search className="size-4" />
+                    </Button>
+                  </div>
+                </form>
+              )}
+              {group.failed && (
+                <div
+                  role="alert"
+                  className="mb-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground"
+                >
+                  {t("loadError")}
+                  <Button size="sm" variant="outline" onClick={group.retry}>
+                    <RefreshCw className="size-4" />
+                    {t("retry")}
+                  </Button>
+                </div>
+              )}
+              {group.pending ? (
+                <div
+                  aria-label={t("loading")}
+                  className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4"
+                >
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <div
+                      key={index}
+                      className="aspect-[1/1.25] animate-pulse rounded-lg bg-muted"
+                    />
+                  ))}
+                </div>
+              ) : group.items.length ? (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">
+                  {group.items.map((item) => {
+                    const sweepOffer =
+                      (group.key === "native" && sweepEnabled?.native) ||
+                      (group.key === "opensea" && sweepEnabled?.opensea)
+                        ? selectableSweepOffer(item, sweepBuyer)
+                        : undefined;
+                    const selected =
+                      !!sweepOffer &&
+                      sweepSelections.some((entry) =>
+                        isSameSweepSelection(entry, { item, offer: sweepOffer }),
+                      );
+                    const alreadyInCart = sweepSelections.some(
+                      (entry) => entry.item.tokenId === item.tokenId,
+                    );
+                    return (
+                      <div
+                        key={`${item.collectionAddress ?? "gnars"}:${item.tokenId}`}
+                        className={cn(
+                          "flex min-w-0 flex-col gap-2 rounded-lg",
+                          selected && "outline-2 outline-offset-4 outline-emerald-500",
+                        )}
+                      >
+                        <MarketplaceCard
+                          item={item}
+                          view="listings"
+                          exactSearch={false}
+                          sourcesComplete={group.complete}
+                          onClick={(event) => onSelect(item, event)}
+                        />
+                        {sweepOffer && (
+                          <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[11px]">
+                            <input
+                              type="checkbox"
+                              className="size-4 shrink-0 cursor-pointer accent-emerald-600"
+                              checked={selected}
+                              disabled={!alreadyInCart && sweepSelections.length >= 10}
+                              aria-label={t("sweep.select", {
+                                id: item.tokenId,
+                                price: formatMarketplacePrice(sweepOffer.priceWei).exact,
+                              })}
+                              onChange={() => onSweepSelect?.({ item, offer: sweepOffer })}
+                            />
+                            <span className="min-w-0 flex-1 text-muted-foreground">
+                              {t(`sourceNames.${sweepOffer.source}`)}
+                            </span>
+                            <span
+                              className="break-all text-right font-mono"
+                              title={`${formatMarketplacePrice(sweepOffer.priceWei).exact} ETH`}
+                            >
+                              {formatMarketplacePrice(sweepOffer.priceWei).display} ETH
+                            </span>
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                !group.failed && (
+                  <p className="py-8 text-sm text-muted-foreground">
+                    {t(
+                      group.hasMore
+                        ? "filters.emptyPage"
+                        : group.complete
+                          ? "empty"
+                          : "availabilityUnknown",
+                    )}
+                  </p>
+                )
+              )}
+              {group.key === "community" && community.hasNextPage && (
+                <div className="mt-6 flex justify-center">
+                  <Button
+                    variant="outline"
+                    disabled={community.isFetchingNextPage}
+                    onClick={() => void community.fetchNextPage()}
+                  >
+                    {community.isFetchingNextPage ? (
+                      <LoaderCircle className="size-4 animate-spin" />
+                    ) : (
+                      <ArrowDown className="size-4" />
+                    )}
+                    {t("loadMore")}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </section>
       ))}
