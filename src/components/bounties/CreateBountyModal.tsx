@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { arbitrum as thirdwebArbitrum, base as thirdwebBase } from "thirdweb/chains";
 import { useActiveWallet, useActiveWalletChain } from "thirdweb/react";
+import { SopaCreateBountyModal } from "@/components/bounties/sopa/SopaCreateBountyModal";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@/components/ui/ConnectButton";
 import {
@@ -34,6 +35,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { usePoidhCreateOpenBounty, usePoidhCreateSoloBounty } from "@/hooks/usePoidhContract";
+import { isPoidhSopaEnabled } from "@/lib/config";
 import { CHAIN_NAMES, getTxUrl, SUPPORTED_CHAINS } from "@/lib/poidh/config";
 
 const CHAIN_OPTIONS = [
@@ -47,7 +49,17 @@ interface CreateBountyModalProps {
   children?: React.ReactNode;
 }
 
-export function CreateBountyModal({ children }: CreateBountyModalProps) {
+/**
+ * Creates on PoidhSopa when it is configured (ETH/ERC-20 rewards, categories, smart
+ * accounts allowed); otherwise the original POIDH V3 flow. The switch is a build-time
+ * constant, so each branch keeps a stable hook order.
+ */
+export function CreateBountyModal(props: CreateBountyModalProps) {
+  if (isPoidhSopaEnabled()) return <SopaCreateBountyModal {...props} />;
+  return <V3CreateBountyModal {...props} />;
+}
+
+function V3CreateBountyModal({ children }: CreateBountyModalProps) {
   const t = useTranslations("bounties");
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<"open" | "solo">("open");

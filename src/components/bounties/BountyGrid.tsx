@@ -3,13 +3,31 @@
 import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { SopaBounty } from "@/lib/poidh-sopa/types";
 import type { PoidhBounty } from "@/types/poidh";
 import { BountyCard } from "./BountyCard";
+import { SopaBountyCard } from "./sopa/SopaBountyCard";
 
 interface BountyGridProps {
   bounties: PoidhBounty[];
+  /** PoidhSopa bounties, interleaved with V3 by creation date. */
+  sopaBounties?: SopaBounty[];
   isLoading: boolean;
   error: Error | null;
+}
+
+type GridItem =
+  | { source: "v3"; createdAt: number; bounty: PoidhBounty }
+  | { source: "sopa"; createdAt: number; bounty: SopaBounty };
+
+function mergeItems(v3: PoidhBounty[], sopa: SopaBounty[]): GridItem[] {
+  if (sopa.length === 0) {
+    return v3.map((bounty) => ({ source: "v3", createdAt: bounty.createdAt, bounty }));
+  }
+  return [
+    ...v3.map((bounty) => ({ source: "v3" as const, createdAt: bounty.createdAt, bounty })),
+    ...sopa.map((bounty) => ({ source: "sopa" as const, createdAt: bounty.createdAt, bounty })),
+  ].sort((a, b) => b.createdAt - a.createdAt);
 }
 
 function SkeletonCard() {
@@ -36,7 +54,7 @@ function SkeletonCard() {
   );
 }
 
-export function BountyGrid({ bounties, isLoading, error }: BountyGridProps) {
+export function BountyGrid({ bounties, sopaBounties = [], isLoading, error }: BountyGridProps) {
   const t = useTranslations("bounties");
 
   if (isLoading) {
@@ -58,15 +76,21 @@ export function BountyGrid({ bounties, isLoading, error }: BountyGridProps) {
     );
   }
 
-  if (bounties.length === 0) {
+  const items = mergeItems(bounties, sopaBounties);
+
+  if (items.length === 0) {
     return <div className="text-center py-16 text-muted-foreground">{t("grid.empty")}</div>;
   }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-      {bounties.map((bounty) => (
-        <BountyCard key={bounty.id} bounty={bounty} />
-      ))}
+      {items.map((item) =>
+        item.source === "sopa" ? (
+          <SopaBountyCard key={`sopa-${item.bounty.id}`} bounty={item.bounty} />
+        ) : (
+          <BountyCard key={item.bounty.id} bounty={item.bounty} />
+        ),
+      )}
     </div>
   );
 }

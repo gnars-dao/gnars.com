@@ -12,8 +12,14 @@ import ContentImage from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatEthToUsd, useEthPrice } from "@/hooks/use-eth-price";
+import { usePoidhSopaBounties } from "@/hooks/use-poidh-sopa-bounties";
 import { usePoidhBounties } from "@/hooks/usePoidhBounties";
+import { isPoidhSopaEnabled, POIDH_SOPA } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
+import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
+import { SOPA_CATEGORIES } from "@/lib/poidh-sopa/categories";
+import { formatTokenAmount, isEthToken } from "@/lib/poidh-sopa/tokens";
+import type { SopaBountiesResult, SopaStatus } from "@/lib/poidh-sopa/types";
 import type { PoidhBounty } from "@/types/poidh";
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
@@ -38,25 +44,45 @@ const BANNER_IMAGES = [
   },
 ] as const;
 
+const SOPA_STATUS_FOR_FILTER: Record<"open" | "closed" | "voting" | "all", SopaStatus[] | null> = {
+  open: ["open"],
+  voting: ["voting"],
+  closed: ["paid", "cancelled"],
+  all: null,
+};
+
+type SourceFilter = "all" | "v3" | "sopa";
+
 interface BountiesViewProps {
   initialBounties: PoidhBounty[];
+  /** PoidhSopa list from the server render; undefined when Sopa is not configured. */
+  initialSopa?: SopaBountiesResult;
 }
 
-export function BountiesView({ initialBounties }: BountiesViewProps) {
+export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps) {
   const t = useTranslations("bounties");
   const locale = useLocale();
   const [status, setStatus] = useState<"open" | "closed" | "voting" | "all">("open");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterGnarly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("skate");
+  const sopaEnabled = isPoidhSopaEnabled();
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
-  const CATEGORIES = [
-    { key: "all", label: t("filters.all") },
-    { key: "skate", label: t("filters.skate") },
-    { key: "surf", label: t("filters.surf") },
-    { key: "parkour", label: t("filters.parkour") },
-    { key: "weed", label: t("filters.weed") },
-  ] as const;
+  // With Sopa on, the full category list (Sopa bounties carry an exact category;
+  // V3 bounties keep matching by keyword, so categories without keywords show Sopa only).
+  const CATEGORIES: { key: string; label: string }[] = sopaEnabled
+    ? [
+        { key: "all", label: t("filters.all") },
+        ...SOPA_CATEGORIES.map((c) => ({ key: c, label: t(`sopa.categories.${c}`) })),
+      ]
+    : [
+        { key: "all", label: t("filters.all") },
+        { key: "skate", label: t("filters.skate") },
+        { key: "surf", label: t("filters.surf") },
+        { key: "parkour", label: t("filters.parkour") },
+        { key: "weed", label: t("filters.weed") },
+      ];
 
   const { data, isLoading, error } = usePoidhBounties({
     status,
@@ -67,8 +93,22 @@ export function BountiesView({ initialBounties }: BountiesViewProps) {
   });
 
   const { ethPrice } = useEthPrice();
+  const sopaQuery = usePoidhSopaBounties(initialSopa);
+
+  const filteredSopa = useMemo(() => {
+    if (!sopaEnabled || sourceFilter === "v3") return [];
+    const statuses = SOPA_STATUS_FOR_FILTER[status];
+    const query = searchQuery.trim().toLowerCase();
+    return (sopaQuery.data?.bounties ?? []).filter((b) => {
+      if (statuses && !statuses.includes(b.status)) return false;
+      if (query && !`${b.title} ${b.description}`.toLowerCase().includes(query)) return false;
+      if (categoryFilter !== "all" && b.category !== categoryFilter) return false;
+      return true;
+    });
+  }, [sopaEnabled, sourceFilter, status, searchQuery, categoryFilter, sopaQuery.data]);
 
   const filteredBounties = useMemo(() => {
+    if (sourceFilter === "sopa") return [];
     return (
       data?.bounties.filter((bounty) => {
         const text = `${bounty.title} ${bounty.description}`.toLowerCase();
@@ -82,16 +122,55 @@ export function BountiesView({ initialBounties }: BountiesViewProps) {
         return CATEGORY_KEYWORDS[categoryFilter]?.some((keyword) => text.includes(keyword));
       }) || []
     );
-  }, [data?.bounties, searchQuery, categoryFilter]);
+  }, [data?.bounties, searchQuery, categoryFilter, sourceFilter]);
 
   const totalValue = useMemo(() => {
-    const totalWei = filteredBounties.reduce((sum, bounty) => {
+    let totalWei = filteredBounties.reduce((sum, bounty) => {
       return sum + BigInt(bounty.amount ?? 0);
     }, 0n);
+    // Sopa ETH bounties join the ETH pool; other tokens are listed beside it.
+    const otherTokens = new Map<string, bigint>();
+    for (const b of filteredSopa) {
+      const amount = BigInt(displayAmount(b));
+      if (isEthToken(b.token)) totalWei += amount;
+      else
+        otherTokens.set(
+          b.token.toLowerCase(),
+          (otherTokens.get(b.token.toLowerCase()) ?? 0n) + amount,
+        );
+    }
+    const others = [...otherTokens.entries()]
+      .map(([address, raw]) => {
+        const token = POIDH_SOPA.tokens.find((tk) => tk.address.toLowerCase() === address);
+        return token ? `${formatTokenAmount(raw, token.decimals, 2)} ${token.symbol}` : null;
+      })
+      .filter((x): x is string => Boolean(x));
     const totalEth = parseFloat(formatEther(totalWei));
     const totalUsd = formatEthToUsd(totalEth, ethPrice, toIntlLocale(locale));
-    return { eth: totalEth.toFixed(4), usd: totalUsd, count: filteredBounties.length };
-  }, [filteredBounties, ethPrice, locale]);
+    return {
+      eth: totalEth.toFixed(4),
+      usd: totalUsd,
+      count: filteredBounties.length + filteredSopa.length,
+      others,
+    };
+  }, [filteredBounties, filteredSopa, ethPrice, locale]);
+
+  // The two sources load and fail independently: one being down or slow must never hide
+  // the other's bounties or stats.
+  const v3Shown = sourceFilter !== "sopa";
+  const sopaShown = sopaEnabled && sourceFilter !== "v3";
+  const sopaReady = sopaShown && Boolean(sopaQuery.data);
+  const v3Settled = !v3Shown || (Boolean(data) && !isLoading) || Boolean(error);
+  const sopaSettled = !sopaShown || Boolean(sopaQuery.data) || Boolean(sopaQuery.error);
+  const gridLoading =
+    sourceFilter === "sopa"
+      ? sopaQuery.isLoading
+      : sourceFilter === "v3"
+        ? isLoading
+        : isLoading && !sopaReady;
+  const gridError =
+    sourceFilter === "sopa" ? null : sourceFilter === "v3" || !sopaReady ? error : null;
+  const showV3ErrorBanner = sourceFilter === "all" && sopaReady && Boolean(error);
 
   const poolLabel = (() => {
     if (status === "open") return t("stats.openPool");
@@ -147,13 +226,18 @@ export function BountiesView({ initialBounties }: BountiesViewProps) {
         </div>
 
         {/* Pool stats */}
-        {data && !isLoading && (
+        {v3Settled && sopaSettled && (Boolean(data) || sopaReady) && (
           <div className="grid grid-cols-3 gap-4 rounded-lg border border-border bg-muted/30 px-5 py-4">
             <div>
               <div className="text-2xl font-bold tabular-nums tracking-tight">
                 {totalValue.eth}
                 <span className="text-base font-semibold text-muted-foreground ml-1.5">ETH</span>
               </div>
+              {totalValue.others.length > 0 && (
+                <div className="text-xs font-medium text-foreground/80 mt-0.5 tabular-nums">
+                  + {totalValue.others.join(" · ")}
+                </div>
+              )}
               <div className="text-xs text-muted-foreground mt-0.5">{poolLabel}</div>
             </div>
             {ethPrice > 0 && (
@@ -214,11 +298,43 @@ export function BountiesView({ initialBounties }: BountiesViewProps) {
                 ))}
               </TabsList>
             </Tabs>
+            {sopaEnabled && (
+              <>
+                <div className="h-5 w-px bg-border hidden sm:block" />
+                <Tabs
+                  value={sourceFilter}
+                  onValueChange={(v) => setSourceFilter(v as SourceFilter)}
+                >
+                  <TabsList aria-label={t("sopa.filters.sourceLabel")}>
+                    <TabsTrigger value="all">{t("sopa.filters.allSources")}</TabsTrigger>
+                    <TabsTrigger value="sopa">{t("sopa.filters.sopa")}</TabsTrigger>
+                    <TabsTrigger value="v3">{t("sopa.filters.poidh")}</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </>
+            )}
           </div>
         </div>
 
+        {showV3ErrorBanner && (
+          <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {t("grid.error")}
+          </div>
+        )}
+
+        {sopaEnabled && sourceFilter !== "v3" && sopaQuery.error && (
+          <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {t("sopa.listError")}
+          </div>
+        )}
+
         {/* Grid */}
-        <BountyGrid bounties={filteredBounties} isLoading={isLoading} error={error} />
+        <BountyGrid
+          bounties={filteredBounties}
+          sopaBounties={filteredSopa}
+          isLoading={gridLoading}
+          error={gridError}
+        />
 
         <div className="rounded-3xl border border-border bg-muted/30 p-6 md:p-8">
           <div className="max-w-4xl space-y-5">
@@ -246,6 +362,9 @@ export function BountiesView({ initialBounties }: BountiesViewProps) {
                 — Pics or it didn&apos;t happen. Bounties are escrowed onchain by the POIDH V3
                 contract.
               </p>
+              {sopaEnabled && (
+                <p className="text-xs text-muted-foreground/80">{t("sopa.poweredBy")}</p>
+              )}
             </div>
           </div>
         </div>

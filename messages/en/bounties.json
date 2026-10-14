@@ -191,5 +191,163 @@
     "switching": "Switching…",
     "confirmingWallet": "Confirm in wallet…",
     "confirming": "Confirming…"
+  },
+  "sopa": {
+    "sourceBadge": "Sopa",
+    "poweredBy": "Sopa bounties are escrowed on Base by PoidhSopa, the Gnars fork of POIDH: rewards in ETH or USDC, paid to one or more winners.",
+    "listError": "Sopa bounties could not be loaded right now. POIDH bounties below are unaffected.",
+    "claimFallback": "Claim #{id}",
+    "winnerShare": "Winner · {share}%",
+    "filters": {
+      "sourceLabel": "Source",
+      "allSources": "All sources",
+      "sopa": "Sopa",
+      "poidh": "POIDH"
+    },
+    "categories": {
+      "skate": "Skate",
+      "tech": "Tech",
+      "surf": "Surf",
+      "snow": "Snow",
+      "art": "Art",
+      "parkour": "Parkour",
+      "music": "Music",
+      "weed": "Weed",
+      "creative": "Creative"
+    },
+    "type": {
+      "open": "Open",
+      "solo": "Solo"
+    },
+    "status": {
+      "open": "Open",
+      "voting": "Voting",
+      "cancelled": "Canceled",
+      "paid": "Paid"
+    },
+    "create": {
+      "title": "Create a Bounty",
+      "subtitle": "Launch the challenge, lock the reward onchain, and pay whoever proves it.",
+      "networkLabel": "Network",
+      "typeLabel": "Type",
+      "typeOpen": "Open (anyone can add funds)",
+      "typeSolo": "Solo (only you fund it)",
+      "categoryLabel": "Category",
+      "titleLabel": "Title",
+      "titlePlaceholder": "e.g. Land a kickflip down the 5-stair",
+      "titleHint": "Short and direct. This is what shows on the card.",
+      "descriptionLabel": "Description",
+      "write": "Write",
+      "preview": "Preview",
+      "descriptionTemplate": "## Goal\n\nDescribe the challenge.\n\n## Rules\n\n- What counts as valid proof\n- Required video or photo\n",
+      "descriptionHint": "Markdown: headings, bold, lists, links and images.",
+      "nothingToPreview": "Nothing to preview yet.",
+      "rewardLabel": "Reward",
+      "tokenLabel": "Reward token",
+      "erc20Hint": "Requires approving the token before funding (2 transactions).",
+      "erc20HintBatch": "Token approval and funding go in a single confirmation.",
+      "minimum": "Minimum reward: {amount} ETH.",
+      "insufficientBalance": "Insufficient {token} balance",
+      "feeNote": "A {fee}% fee is taken from the reward at payout.",
+      "connectWallet": "Connect wallet",
+      "switchTo": "Switch to {network}",
+      "createAndFund": "Create and fund with {amount} {token}",
+      "approveAndFund": "Approve and fund with {amount} {token}",
+      "confirmInWallet": "Confirm in wallet",
+      "approveInWallet": "Approve in wallet",
+      "waitingConfirmation": "Waiting for confirmation",
+      "retry": "Try again",
+      "createdTitle": "Bounty created!",
+      "createdNoId": "The transaction confirmed, but the new bounty id could not be read. It will appear in the list shortly."
+    },
+    "detail": {
+      "token": "Reward token",
+      "fee": "Fee",
+      "feeValue": "{fee}% at payout",
+      "contract": "View contract"
+    },
+    "join": {
+      "description": "Contribute {token} to grow this bounty's reward. Contributors vote on the winners.",
+      "amountLabel": "Contribution in {token}",
+      "minimum": "Minimum contribution: {amount} ETH.",
+      "cta": "Contribute {amount} {token}"
+    },
+    "withdrawContribution": {
+      "title": "Withdraw your contribution",
+      "description": "You contributed {amount} {token}. You can take it back while the bounty is open."
+    },
+    "withdrawal": {
+      "claimable": "{amount} {token} to withdraw on Sopa",
+      "description": "From Sopa bounty winnings, refunds or withdrawn contributions.",
+      "withdraw": "Withdraw {token}"
+    },
+    "winners": {
+      "title": "Pick the winners",
+      "payDescription": "Pick 1 to 10 claims and split the reward. Payment goes out as soon as you confirm.",
+      "voteDescription": "This bounty has contributors: your pick and split go to a contributor vote before payment.",
+      "shareLabel": "Share for claim #{id}",
+      "selected": "{count} of {max} selected",
+      "equalSplit": "Equal split",
+      "total": "Total",
+      "feeNote": "Net of the {fee}% fee. Rounding dust goes to the last winner.",
+      "pay": "{count, plural, one {Pay winner} other {Pay # winners}}",
+      "submitForVote": "Submit winners for vote",
+      "errors": {
+        "noWinners": "Pick at least one claim.",
+        "tooManyWinners": "At most 10 winners.",
+        "duplicateClaim": "Each claim can win only once.",
+        "invalidNumber": "Enter a valid percentage for each winner.",
+        "zeroShare": "Every winner needs more than 0%.",
+        "totalNot100": "Shares must add up to 100%."
+      }
+    },
+    "vote": {
+      "title": "Winners vote",
+      "proposedWinners": "Proposed winners",
+      "yes": "{amount} {token} yes",
+      "no": "{amount} {token} no",
+      "weightedNote": "Weighted by each contributor's {token} contribution.",
+      "issuerAutoYes": "Your contribution already counts as a yes vote.",
+      "resolvePay": "Resolve and pay winners",
+      "reset": "Reset failed vote",
+      "alreadyVoted": "You already voted in this round."
+    },
+    "errors": {
+      "userRejected": "Transaction cancelled in wallet.",
+      "insufficientFunds": "Not enough funds in your wallet to cover this transaction.",
+      "AlreadyVoted": "You already voted on this proposal.",
+      "AmountMismatch": "The ETH sent does not match the amount.",
+      "BountyClaimed": "This bounty has already been paid.",
+      "BountyClosed": "This bounty is closed.",
+      "BountyNotFound": "Bounty not found on-chain.",
+      "ClaimAlreadyAccepted": "One of these claims was already accepted.",
+      "ClaimNotFound": "Claim not found for this bounty.",
+      "DuplicateWinner": "The same claim was picked twice.",
+      "InsufficientBalance": "The contract does not hold enough of this token to pay out.",
+      "InvalidCategory": "Pick a category.",
+      "InvalidToken": "This token is not supported.",
+      "InvalidWinners": "Pick between 1 and 10 winners.",
+      "IssuerCannotClaim": "The bounty creator cannot submit a claim.",
+      "IssuerCannotWithdraw": "The bounty creator cannot withdraw as a contributor.",
+      "MaxParticipantsReached": "This bounty has reached its maximum number of contributors.",
+      "MinimumBountyNotMet": "The reward is below the contract minimum.",
+      "MinimumContributionNotMet": "The contribution is below the contract minimum.",
+      "NoEther": "You need to send ETH with this transaction.",
+      "NoVotingPeriodSet": "There is no active vote on this bounty.",
+      "NotActiveParticipant": "Only contributors of this bounty can do this.",
+      "NotCancelledOpenBounty": "This bounty has not been cancelled.",
+      "NotOpenBounty": "This only works on open bounties.",
+      "NotSoloBounty": "This bounty has outside contributors: submit the winners for a vote instead.",
+      "NothingToWithdraw": "Nothing to withdraw.",
+      "SharesMustSumToDenom": "Shares must add up to 100%.",
+      "TransferFailed": "The transfer failed. Try again in a moment.",
+      "UnexpectedEther": "Do not send ETH with a token reward.",
+      "VoteWouldPass": "The vote passed: resolve it instead of resetting.",
+      "VotingEnded": "The voting period has ended.",
+      "VotingOngoing": "A vote is in progress: wait for it to end.",
+      "WrongCaller": "Your wallet is not allowed to do this.",
+      "ZeroAmount": "Enter an amount greater than zero.",
+      "ZeroShare": "Every winner needs a share above 0%."
+    }
   }
 }

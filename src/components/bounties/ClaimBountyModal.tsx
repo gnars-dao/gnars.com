@@ -27,18 +27,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { usePinataUpload } from "@/hooks/use-pinata-upload";
+import { sopaCalls, usePoidhSopaWrite } from "@/hooks/use-poidh-sopa-write";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { usePoidhCreateClaim } from "@/hooks/usePoidhContract";
 import { CHAIN_NAMES, getTxUrl, SUPPORTED_CHAINS } from "@/lib/poidh/config";
 import type { PoidhBounty } from "@/types/poidh";
 
 interface ClaimBountyModalProps {
-  bounty: PoidhBounty;
+  bounty: Pick<PoidhBounty, "chainId" | "onChainId">;
   children: React.ReactNode;
   onSuccess?: (claim: { name: string; description: string; url: string }) => void;
+  /** Which contract receives the claim. Sopa ids are Sopa bounty ids. Default V3. */
+  source?: "v3" | "sopa";
 }
 
-export function ClaimBountyModal({ bounty, children, onSuccess }: ClaimBountyModalProps) {
+export function ClaimBountyModal({
+  bounty,
+  children,
+  onSuccess,
+  source = "v3",
+}: ClaimBountyModalProps) {
   const uploadToPinata = usePinataUpload();
   const t = useTranslations("bounties");
   const [open, setOpen] = useState(false);
@@ -67,7 +75,25 @@ export function ClaimBountyModal({ bounty, children, onSuccess }: ClaimBountyMod
       setIsSwitching(false);
     }
   };
-  const { submit, hash, isPending, isSuccess, error, reset } = usePoidhCreateClaim(bounty.chainId);
+  const v3Claim = usePoidhCreateClaim(bounty.chainId);
+  const sopaWrite = usePoidhSopaWrite();
+  const isSopa = source === "sopa";
+  const submit = isSopa
+    ? async (id: number, name: string, description: string, uri: string) => {
+        await sopaWrite.run({ build: sopaCalls.createClaim(id, name, description, uri) });
+      }
+    : v3Claim.submit;
+  const hash = isSopa ? sopaWrite.hash : v3Claim.hash;
+  const isPending = isSopa ? sopaWrite.isPending : v3Claim.isPending;
+  const isSuccess = isSopa ? sopaWrite.isSuccess : v3Claim.isSuccess;
+  const error = isSopa
+    ? sopaWrite.error
+      ? new Error(
+          sopaWrite.error.key ? t(`sopa.errors.${sopaWrite.error.key}`) : sopaWrite.error.message,
+        )
+      : null
+    : v3Claim.error;
+  const reset = isSopa ? sopaWrite.reset : v3Claim.reset;
   const chainName = CHAIN_NAMES[bounty.chainId as keyof typeof CHAIN_NAMES] ?? "Unknown";
   const wrongNetwork = isConnected && walletChainId !== bounty.chainId;
   const currentWalletChainName =

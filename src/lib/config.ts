@@ -234,6 +234,44 @@ export const TREASURY_TOKEN_ALLOWLIST = {
 export const TREASURY_TOKEN_ADDRESSES = Object.values(TREASURY_TOKEN_ALLOWLIST);
 
 /**
+ * PoidhSopa — the Gnars fork of POIDH (ETH or ERC-20 rewards, multi-winner payouts).
+ * Base only. Public values, set after the deploy (see docs/integrations/poidh-sopa.md).
+ * `address: null` = every Sopa surface is hidden and /community/bounties is V3-only.
+ */
+const POIDH_SOPA_ADDRESS: `0x${string}` | null = "0x31d0A0D4EBE4173f18CBA521882B4C7Cf658F505";
+/** Block of the deploy tx: lower bound for `BountyCreated` / `VoteCast` log reads. */
+const POIDH_SOPA_DEPLOY_BLOCK = 52615371n;
+
+export interface PoidhSopaToken {
+  symbol: string;
+  /** `0x000…0` = native ETH (the contract's `address(0)` sentinel). */
+  address: `0x${string}`;
+  decimals: number;
+  logo?: string;
+}
+
+export const POIDH_SOPA = {
+  chainId: 8453,
+  address: POIDH_SOPA_ADDRESS,
+  deployBlock: POIDH_SOPA_DEPLOY_BLOCK,
+  /** Reward tokens offered in the create modal. Add an entry to support a new token. */
+  tokens: [
+    {
+      symbol: "ETH",
+      address: "0x0000000000000000000000000000000000000000",
+      decimals: 18,
+    },
+    {
+      symbol: "USDC",
+      address: TREASURY_TOKEN_ALLOWLIST.USDC,
+      decimals: 6,
+    },
+  ] as readonly PoidhSopaToken[],
+} as const;
+
+export const isPoidhSopaEnabled = (): boolean => POIDH_SOPA.address !== null;
+
+/**
  * /store checkout config. Customers pay USDC on Base to `recipient`; the server verifies that
  * transfer before forwarding the order to the fulfillment provider (KeepKey). `recipient` is
  * the dedicated Gnars store wallet — hardcoded here (public address, safe to commit) with an
