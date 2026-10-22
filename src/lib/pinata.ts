@@ -3,7 +3,7 @@ import { pinataUploadSchema } from "@/lib/pinata-policy";
 import { signWalletRequest } from "@/lib/wallet-authorization";
 
 /** Step that failed, so callers can tell the user what went wrong. */
-export type PinataUploadStage = "wallet" | "file" | "authorize" | "upload";
+export type PinataUploadStage = "connect" | "wallet" | "file" | "authorize" | "upload";
 
 export interface PinataUploadResponse {
   success: boolean;
@@ -19,6 +19,8 @@ export interface PinataUploadResponse {
   stage?: PinataUploadStage;
   /** HTTP status of the failed request (0 = network error). */
   status?: number;
+  /** The caller aborted the upload through its AbortSignal. */
+  cancelled?: boolean;
 }
 
 /**
@@ -36,8 +38,9 @@ export async function uploadToPinata(
   file: File,
   name?: string,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<PinataUploadResponse> {
-  let stage: PinataUploadStage = "wallet";
+  let stage: PinataUploadStage = "connect";
   try {
     if (!account) throw new Error("Connect your wallet before uploading.");
     stage = "file";
@@ -52,12 +55,14 @@ export async function uploadToPinata(
       path: "/api/pinata/signed-url",
       payload: upload,
     });
+    signal?.throwIfAborted();
     // Step 1: Get a presigned upload URL from our server
     stage = "authorize";
     const signedUrlResponse = await fetch("/api/pinata/signed-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ upload, authorization }),
+      signal,
     });
 
     if (!signedUrlResponse.ok) {
@@ -93,13 +98,17 @@ export async function uploadToPinata(
         name || file.name,
         file.size,
         onProgress,
+        signal,
       );
     } else {
-      result = await uploadWithFetch(signedUrl, formData, name || file.name, file.size);
+      result = await uploadWithFetch(signedUrl, formData, name || file.name, file.size, signal);
     }
 
     return result;
   } catch (error) {
+    if (signal?.aborted) {
+      return { success: false, error: "Upload was cancelled", stage, cancelled: true };
+    }
     console.error(`Upload error (${stage}):`, error);
     return {
       success: false,
@@ -117,10 +126,12 @@ async function uploadWithFetch(
   formData: FormData,
   name: string,
   size: number,
+  signal?: AbortSignal,
 ): Promise<PinataUploadResponse> {
   const response = await fetch(url, {
     method: "POST",
     body: formData,
+    signal,
   });
 
   if (!response.ok) {
@@ -147,9 +158,11 @@ function uploadWithProgress(
   name: string,
   size: number,
   onProgress: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<PinataUploadResponse> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
 
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
@@ -164,12 +177,8 @@ function uploadWithProgress(
           const result = JSON.parse(xhr.responseText);
           resolve(parsePinataResponse(result, name, size));
         } catch {
-          resolve({
-            success: false,
-            error: "Failed to parse upload response",
-            stage: "upload",
-            status: xhr.status,
-          });
+          // Transfer succeeded (2xx); only the body was unreadable, so no status to report.
+          resolve({ success: false, error: "Failed to parse upload response", stage: "upload" });
         }
       } else {
         console.error("Pinata direct upload error:", xhr.status, xhr.responseText);
@@ -187,9 +196,13 @@ function uploadWithProgress(
     });
 
     xhr.addEventListener("abort", () => {
-      resolve({ success: false, error: "Upload was cancelled", stage: "upload", status: 0 });
+      resolve({ success: false, error: "Upload was cancelled", stage: "upload", cancelled: true });
     });
 
+    if (signal?.aborted) {
+      resolve({ success: false, error: "Upload was cancelled", stage: "upload", cancelled: true });
+      return;
+    }
     xhr.open("POST", url);
     xhr.send(formData);
   });

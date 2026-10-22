@@ -43,6 +43,15 @@ interface ClaimBountyModalProps {
   source?: "v3" | "sopa";
 }
 
+/** Keeps a phone screen on during long uploads; mobile browsers drop transfers when it sleeps. */
+async function requestWakeLock(): Promise<WakeLockSentinel | null> {
+  try {
+    return (await navigator.wakeLock?.request("screen")) ?? null;
+  } catch {
+    return null; // unsupported, denied, or tab hidden
+  }
+}
+
 export function ClaimBountyModal({
   bounty,
   children,
@@ -61,6 +70,7 @@ export function ClaimBountyModal({
   const [uploadFileSize, setUploadFileSize] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const { isConnected } = useUserAddress();
   const activeChain = useActiveWalletChain();
   const activeWallet = useActiveWallet();
@@ -116,14 +126,19 @@ export function ClaimBountyModal({
       return;
     }
 
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
     setIsUploading(true);
     setUploadProgress(0);
     setUploadFileSize(file.size);
-    const result = await uploadToPinata(file, file.name, setUploadProgress);
+    const wakeLock = await requestWakeLock();
+    const result = await uploadToPinata(file, file.name, setUploadProgress, controller.signal);
+    wakeLock?.release().catch(() => {});
+    if (uploadAbortRef.current === controller) uploadAbortRef.current = null;
     if (result.success && result.data) {
       setMediaUrl(result.data.gatewayUrl);
       setUploadedFileName(file.name);
-    } else {
+    } else if (!result.cancelled) {
       console.error("Claim media upload failed:", {
         stage: result.stage,
         status: result.status,
@@ -136,7 +151,10 @@ export function ClaimBountyModal({
     e.target.value = "";
   };
 
+  const cancelUpload = () => uploadAbortRef.current?.abort();
+
   const uploadErrorMessage = ({ stage, status }: PinataUploadResponse) => {
+    if (stage === "connect") return t("claimModal.uploadErrorConnect");
     if (stage === "wallet") return t("claimModal.uploadErrorWallet");
     if (stage === "file") return t("claimModal.uploadErrorFile");
     if (status === 429) return t("claimModal.uploadErrorRateLimit");
@@ -166,12 +184,35 @@ export function ClaimBountyModal({
   // Leaving mid-upload loses the file; ask the browser to confirm first.
   useEffect(() => {
     if (!isUploading) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ""; // Safari ignores preventDefault alone
+    };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [isUploading]);
 
-  const toMb = (bytes: number) => Math.max(1, Math.round(bytes / (1024 * 1024)));
+  // Client-side navigation unmounts the modal; stop the transfer with it.
+  useEffect(() => () => uploadAbortRef.current?.abort(), []);
+
+  const MB = 1024 * 1024;
+  // One decimal below 10 MB so small files don't read "0 of 3 MB".
+  const toMb = (bytes: number) =>
+    bytes < 10 * MB ? Math.round((bytes / MB) * 10) / 10 : Math.round(bytes / MB);
+  const uploadPhase =
+    uploadProgress >= 100 ? "finalizing" : uploadProgress > 0 ? "uploading" : "preparing";
+  const uploadLabel =
+    uploadPhase === "preparing"
+      ? t("claimModal.preparingUpload")
+      : uploadPhase === "finalizing"
+        ? t("claimModal.finalizingUpload")
+        : uploadFileSize >= MB
+          ? t("claimModal.uploading", {
+              progress: uploadProgress,
+              sent: toMb((uploadFileSize * uploadProgress) / 100),
+              total: toMb(uploadFileSize),
+            })
+          : t("claimModal.uploadingPercent", { progress: uploadProgress });
 
   const handleClose = (val: boolean) => {
     // A stray tap outside the dialog on mobile would drop an in-flight upload.
@@ -192,7 +233,10 @@ export function ClaimBountyModal({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        showCloseButton={!isUploading}
+      >
         <DialogHeader>
           <DialogTitle>{t("claimModal.title")}</DialogTitle>
           <DialogDescription>{t("claimModal.description", { chain: chainName })}</DialogDescription>
@@ -314,24 +358,33 @@ export function ClaimBountyModal({
                   </Button>
                 </div>
               ) : isUploading ? (
-                <div
-                  className="space-y-2 rounded-md border border-border px-3 py-3"
-                  aria-live="polite"
-                >
-                  <div className="flex items-center gap-2 text-sm">
-                    <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
-                    <span>
-                      {uploadProgress > 0
-                        ? t("claimModal.uploading", {
-                            progress: uploadProgress,
-                            sent: toMb((uploadFileSize * uploadProgress) / 100),
-                            total: toMb(uploadFileSize),
-                          })
-                        : t("claimModal.preparingUpload")}
+                <div className="space-y-3 rounded-md border border-border px-3 py-3">
+                  <div className="flex items-start gap-2 text-sm">
+                    <Loader2 className="w-4 h-4 mt-0.5 shrink-0 animate-spin" aria-hidden />
+                    <span aria-hidden>{uploadLabel}</span>
+                    {/* Announce phase changes only, not every percent. */}
+                    <span className="sr-only" aria-live="polite">
+                      {uploadPhase === "uploading" ? t("claimModal.uploadingPhase") : uploadLabel}
                     </span>
                   </div>
-                  <Progress value={uploadProgress} />
+                  <Progress
+                    value={uploadProgress}
+                    aria-label={t("claimModal.uploadProgressLabel")}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={uploadProgress}
+                    aria-valuetext={`${uploadProgress}%`}
+                  />
                   <p className="text-xs text-muted-foreground">{t("claimModal.uploadKeepOpen")}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full h-11 sm:h-9 cursor-pointer"
+                    onClick={cancelUpload}
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    {t("claimModal.cancelUpload")}
+                  </Button>
                 </div>
               ) : (
                 <Button

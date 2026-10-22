@@ -3,6 +3,7 @@ import {
   MAX_MEDIA_UPLOAD_BYTES,
   MAX_VIDEO_UPLOAD_BYTES,
   pinataUploadSchema,
+  signedUploadExpirySeconds,
 } from "./pinata-policy";
 
 describe("Pinata upload policy", () => {
@@ -25,5 +26,11 @@ describe("Pinata upload policy", () => {
       { ...file, filename: "x".repeat(256) },
     ])
       expect(pinataUploadSchema.safeParse(value).success).toBe(false);
+  });
+  it("scales the signed URL lifetime with file size, capped at 30 minutes", () => {
+    expect(signedUploadExpirySeconds(40_000)).toBe(301);
+    // 48 MB phone video: 5 min + ~16 min at 50 KB/s.
+    expect(signedUploadExpirySeconds(50_739_164)).toBe(1315);
+    expect(signedUploadExpirySeconds(MAX_VIDEO_UPLOAD_BYTES)).toBe(1800);
   });
 });

@@ -43,7 +43,7 @@ describe("signed upload route", () => {
     expect(JSON.parse(options.body)).toMatchObject({
       max_file_size: upload.size,
       allow_mime_types: [upload.mimeType],
-      expires: 1800,
+      expires: 540,
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
