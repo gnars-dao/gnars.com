@@ -44,7 +44,9 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         network: "public",
         date: Math.floor(Date.now() / 1000),
-        expires: 60,
+        // Pinata can reject an upload whose URL expires mid-transfer; 30 min covers
+        // phone-recorded videos (50+ MB) on slow home upload links.
+        expires: 1800,
         filename: upload.filename,
         max_file_size: upload.size,
         allow_mime_types: [upload.mimeType],
