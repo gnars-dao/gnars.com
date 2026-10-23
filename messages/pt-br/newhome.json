@@ -54,7 +54,7 @@
   "bounties": {
     "eyebrow": "Bounties",
     "title": "Desafios",
-    "body": "As Gnars Bounties são desafios da comunidade: pague atletas em ETH para mandar as manobras, linhas e stunts que a comunidade quer ver filmados.",
+    "body": "As Gnars Bounties são desafios da comunidade: pague atletas em ETH ou USDC para mandar as manobras, linhas e stunts que a comunidade quer ver filmados.",
     "stats": {
       "pool": "Pool aberto",
       "open": "Bounties abertas",
@@ -73,7 +73,8 @@
       "usd": "USD",
       "type": "Bounty Poidh",
       "typeSopa": "Bounty Gnars",
-      "tapToFlip": "TOQUE PARA VIRAR"
+      "tapToFlip": "TOQUE PARA VIRAR",
+      "team": "EQUIPE GNARS"
     },
     "rarity": {
       "legendary": "Lendária",
@@ -105,6 +106,10 @@
       "challenge": "O DESAFIO",
       "submitClaim": "Enviar claim",
       "tapToFlipBack": "TOQUE PARA VOLTAR"
+    },
+    "partial": {
+      "poidh": "As bounties do poidh não carregaram agora, então só aparecem as criadas neste site.",
+      "sopa": "As bounties criadas neste site não carregaram agora, então só aparecem as do poidh."
     }
   },
   "rails": {

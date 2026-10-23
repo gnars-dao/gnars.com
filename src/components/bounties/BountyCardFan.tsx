@@ -49,6 +49,8 @@ export interface FanCard {
   poidhUrl: string;
   /** `sopa` = created on this site through the PoidhSopa contract. */
   source?: "poidh" | "sopa";
+  /** Issued by the Gnars team: the card carries the team mark. */
+  featured?: boolean;
   /** The bounty on this site. */
   href: string;
 }
@@ -220,13 +222,22 @@ function Card({
             >
               {card.code}
             </span>
-            <span
-              aria-hidden
-              className="whitespace-nowrap text-[17px] tracking-[.02em] text-white/45"
-              style={{ textShadow: `0 0 12px ${color}55` }}
-            >
-              ⌐◨-◨
-            </span>
+            {card.featured ? (
+              <span
+                className="whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold tracking-[.1em]"
+                style={{ fontFamily: MONO, color, border: `1px solid ${color}88` }}
+              >
+                ⌐◨-◨ {t("card.team")}
+              </span>
+            ) : (
+              <span
+                aria-hidden
+                className="whitespace-nowrap text-[17px] tracking-[.02em] text-white/45"
+                style={{ textShadow: `0 0 12px ${color}55` }}
+              >
+                ⌐◨-◨
+              </span>
+            )}
           </div>
 
           <div>
@@ -472,6 +483,30 @@ function Card({
 }
 
 /**
+ * Deal the hand centre-out so the Legendary sits in the middle: rank 1 takes the
+ * centre slot, then 2, 3, 4… alternate right and left of it. Without this the
+ * fan would run richest-to-poorest left-to-right and bury the headline bounty.
+ * Only the fan is dealt: the phone's snap row reads left to right, so it keeps
+ * rank order and opens on the headline card.
+ */
+function dealCenterOut<T>(ranked: T[]): T[] {
+  const slots: T[] = new Array(ranked.length);
+  const centre = Math.floor((ranked.length - 1) / 2);
+  let right = centre;
+  let left = centre;
+  ranked.forEach((item, rank) => {
+    if (rank === 0) {
+      slots[centre] = item;
+    } else if (rank % 2 === 1) {
+      slots[++right] = item;
+    } else {
+      slots[--left] = item;
+    }
+  });
+  return slots.filter(Boolean);
+}
+
+/**
  * The hand.
  *
  * Six rarity-tiered cards fanned around whichever one is selected, with the row
@@ -480,7 +515,12 @@ function Card({
  * over. Below 769px the fan is meaningless on a phone-width viewport, so the
  * same cards render upright in a snap-scroll row — the flip still works there.
  */
-export function BountyCardFan({ cards }: { cards: FanCard[] }) {
+export function BountyCardFan({
+  /** Rank order, headline first. The fan deals them centre-out; the phone row keeps it. */
+  cards,
+}: {
+  cards: FanCard[];
+}) {
   const t = useTranslations("newhome.bounties");
   // The Legendary is dealt to index 2, so that is where the hand opens.
   const [idx, setIdx] = useState(2);
@@ -497,13 +537,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
 
   const active = cards.length > 0 ? Math.min(idx, cards.length - 1) : 0;
 
-  // The fan is dealt centre-out, but a snap row reads left to right: put it back
-  // in rank order so the headline bounty is the first card on a phone, not the third.
-  // `serial` is the zero-padded rank, so it sorts as text.
-  const rowCards = useMemo(
-    () => [...cards].sort((a, b) => a.serial.localeCompare(b.serial)),
-    [cards],
-  );
+  const fan = useMemo(() => dealCenterOut(cards), [cards]);
 
   const toggleFlip = useCallback((id: string) => {
     setFlippedId((current) => (current === id ? null : id));
@@ -570,7 +604,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
           rises 30px out of the row, from colliding with the legend. */}
       <div className="relative mb-8 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-2.5 min-[769px]:mb-[84px]">
         <div className="flex flex-wrap items-center">
-          {cards.map((card, i) => (
+          {fan.map((card, i) => (
             <button
               key={card.id}
               type="button"
@@ -612,7 +646,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
           transition: "transform .3s",
         }}
       >
-        {cards.map((card, i) => {
+        {fan.map((card, i) => {
           const off = i - active;
           const a = Math.abs(off);
           const raised = off === 0;
@@ -650,7 +684,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
 
       {/* ── Snap row, 768px and below ─────────────────────── */}
       <div className="relative -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-4 min-[769px]:hidden">
-        {rowCards.map((card, i) => (
+        {cards.map((card, i) => (
           <div
             key={card.id}
             className="relative shrink-0 snap-center"
@@ -662,7 +696,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
             <Card
               card={card}
               index={i}
-              raised={flippedId === card.id || card.id === cards[active]?.id}
+              raised={flippedId === card.id || card.id === fan[active]?.id}
               flipped={flippedId === card.id}
               onPick={() => toggleFlip(card.id)}
             />
