@@ -91,7 +91,7 @@
     "useSubmitForVote": "Use Submit for Vote — contributors must vote to accept.",
     "canceledNotice": "This bounty has been canceled.",
     "bountyDetails": "Bounty Details",
-    "issuer": "Issuer",
+    "issuer": "Creator",
     "created": "Created",
     "deadline": "Deadline",
     "activity": "Activity",
@@ -170,7 +170,7 @@
     "description": "Claim this bounty on {chain} by submitting your proof of completion.",
     "connectPrompt": "Connect your wallet to submit a claim.",
     "successTitle": "Claim submitted!",
-    "successDescription": "Your proof is on-chain. The bounty issuer will review it.",
+    "successDescription": "Your proof is onchain. The bounty creator will review it.",
     "viewTransaction": "View transaction",
     "claimTitleLabel": "Claim title",
     "claimTitlePlaceholder": "e.g. Kickflip down the 5-stair",
@@ -194,7 +194,7 @@
   },
   "sopa": {
     "sourceBadge": "Sopa",
-    "poweredBy": "Sopa bounties are escrowed on Base by PoidhSopa, the Gnars fork of POIDH: rewards in ETH or USDC, paid to one or more winners.",
+    "poweredBy": "Sopa bounties keep the reward in a contract on Base (PoidhSopa, the Gnars fork of POIDH): rewards in ETH or USDC, paid to one or more winners.",
     "listError": "Sopa bounties could not be loaded right now. POIDH bounties below are unaffected.",
     "claimFallback": "Claim #{id}",
     "winnerShare": "Winner · {share}%",
@@ -267,7 +267,7 @@
       "contract": "View contract"
     },
     "join": {
-      "description": "Contribute {token} to grow this bounty's reward. Contributors vote on the winners.",
+      "description": "Add {token} to grow this bounty's reward. Everyone who contributes votes on the winners, weighted by how much they put in.",
       "amountLabel": "Contribution in {token}",
       "minimum": "Minimum contribution: {amount} ETH.",
       "cta": "Contribute {amount} {token}"
@@ -277,19 +277,19 @@
       "description": "You contributed {amount} {token}. You can take it back while the bounty is open."
     },
     "withdrawal": {
-      "claimable": "{amount} {token} to withdraw on Sopa",
-      "description": "From Sopa bounty winnings, refunds or withdrawn contributions.",
+      "claimable": "{amount} {token} ready to withdraw from Sopa bounties",
+      "description": "Prizes you won, refunds from ended bounties, or contributions you took back.",
       "withdraw": "Withdraw {token}"
     },
     "winners": {
       "title": "Pick the winners",
-      "payDescription": "Pick 1 to 10 claims and split the reward. Payment goes out as soon as you confirm.",
-      "voteDescription": "This bounty has contributors: your pick and split go to a contributor vote before payment.",
+      "payDescription": "Pick 1 to 10 claims and split the reward. As soon as you confirm, each winner's share is ready for them to withdraw.",
+      "voteDescription": "Other people put money into this bounty, so your pick goes to a vote before anyone is paid. During the vote nobody can send new claims or add funds. Contributors vote weighted by what they put in; your share already counts as yes.",
       "shareLabel": "Share for claim #{id}",
       "selected": "{count} of {max} selected",
       "equalSplit": "Equal split",
       "total": "Total",
-      "feeNote": "Net of the {fee}% fee. Rounding dust goes to the last winner.",
+      "feeNote": "After the {fee}% fee. Any rounding remainder goes to the last winner.",
       "pay": "{count, plural, one {Pay winner} other {Pay # winners}}",
       "submitForVote": "Submit winners for vote",
       "errors": {
@@ -311,10 +311,10 @@
       "proposedWinners": "Proposed winners",
       "yes": "{amount} {token} yes",
       "no": "{amount} {token} no",
-      "weightedNote": "Weighted by each contributor's {token} contribution.",
+      "weightedNote": "Weighted by how much {token} each person put into this bounty. Gnars NFTs don't count here.",
       "issuerAutoYes": "Your contribution already counts as a yes vote.",
       "resolvePay": "Resolve and pay winners",
-      "reset": "Reset failed vote",
+      "reset": "Clear failed vote and pick again",
       "alreadyVoted": "You already voted in this round."
     },
     "errors": {
