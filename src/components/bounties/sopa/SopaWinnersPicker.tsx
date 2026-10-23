@@ -121,7 +121,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
             <div
               role="group"
               aria-label={t("sopa.winners.modeLabel")}
-              className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-1 rounded-md bg-muted p-1"
             >
               {(["pay", "vote"] as const).map((m) => (
                 <button
@@ -131,7 +131,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
                   disabled={write.isPending}
                   onClick={() => setMode(m)}
                   className={cn(
-                    "flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed",
+                    "flex min-h-10 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed",
                     mode === m
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
@@ -164,7 +164,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
               <li
                 key={claim.id}
                 className={cn(
-                  "flex items-center gap-3 rounded-md border px-3 py-2",
+                  "flex items-center gap-2 sm:gap-3 rounded-md border px-2.5 sm:px-3 py-2",
                   isSelected ? "border-primary/50 bg-primary/5" : "border-border",
                 )}
               >
@@ -181,7 +181,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
                   <span className="font-medium truncate block">
                     #{claim.id} · {claim.name || t("sopa.claimFallback", { id: claim.id })}
                   </span>
-                  <span className="text-xs text-muted-foreground font-mono">
+                  <span className="block truncate text-xs text-muted-foreground font-mono">
                     {claim.issuer.slice(0, 6)}…{claim.issuer.slice(-4)}
                   </span>
                 </label>
@@ -191,7 +191,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
                       inputMode="decimal"
                       value={percents[idx] ?? ""}
                       onChange={(e) => setPercent(idx, e.target.value)}
-                      className="h-8 w-20 text-right tabular-nums"
+                      className="h-8 w-16 px-2 sm:w-20 text-right tabular-nums"
                       aria-label={t("sopa.winners.shareLabel", { id: claim.id })}
                       disabled={write.isPending}
                     />
