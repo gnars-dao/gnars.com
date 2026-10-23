@@ -119,7 +119,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
         {canChoose && (
           <div className="space-y-2">
             <div
-              role="radiogroup"
+              role="group"
               aria-label={t("sopa.winners.modeLabel")}
               className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
             >
@@ -127,8 +127,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
                 <button
                   key={m}
                   type="button"
-                  role="radio"
-                  aria-checked={mode === m}
+                  aria-pressed={mode === m}
                   disabled={write.isPending}
                   onClick={() => setMode(m)}
                   className={cn(
