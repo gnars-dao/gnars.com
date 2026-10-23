@@ -83,7 +83,8 @@ export default async function Home({ params }: { params: Promise<{ locale: strin
     fetchDaoStats().catch(() => null),
     loadTreasurySnapshot(DAO_ADDRESSES.treasury).catch(() => null),
     fetchPoidhBounties({ status: "open", limit: 100, filterGnarly: true }).catch(() => undefined),
-    isPoidhSopaEnabled() ? fetchSopaBounties().catch(() => undefined) : undefined,
+    // Our own window, not the service's 60 s default, which would cut the page's ISR to 1 min.
+    isPoidhSopaEnabled() ? fetchSopaBounties(revalidate).catch(() => undefined) : undefined,
   ]);
 
   const treasuryLabel =
