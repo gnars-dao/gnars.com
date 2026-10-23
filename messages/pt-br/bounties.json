@@ -299,7 +299,12 @@
         "invalidNumber": "Informe uma porcentagem válida para cada vencedor.",
         "zeroShare": "Todo vencedor precisa de mais de 0%.",
         "totalNot100": "As partes precisam somar 100%."
-      }
+      },
+      "modeLabel": "Como fechar esse bounty",
+      "modePay": "Pagar agora",
+      "modeVote": "Fechar para votação",
+      "closeForVoteDescription": "Fecha o bounty para novos resgates e contribuições e abre uma votação de {hours}h sobre a sua escolha. Quem contribuiu vota com peso igual ao que colocou; a sua parte já conta como sim. Se ninguém mais contribuiu, a votação passa no fim do prazo e qualquer pessoa pode liberar o pagamento.",
+      "closeForVoteDescriptionNoPeriod": "Fecha o bounty para novos resgates e contribuições e abre uma votação sobre a sua escolha. Quem contribuiu vota com peso igual ao que colocou; a sua parte já conta como sim. Se ninguém mais contribuiu, a votação passa no fim do prazo e qualquer pessoa pode liberar o pagamento."
     },
     "vote": {
       "title": "Votação dos vencedores",
@@ -348,6 +353,18 @@
       "WrongCaller": "Sua carteira não tem permissão para isso.",
       "ZeroAmount": "Informe um valor maior que zero.",
       "ZeroShare": "Todo vencedor precisa de uma parte acima de 0%."
+    },
+    "manage": {
+      "title": "Gerenciar bounty",
+      "votingLocked": "Votação em andamento: novos resgates, contribuições e o encerramento ficam travados até o fim do prazo. Depois, resolva no painel da votação.",
+      "waitingClaims": "Nenhum resgate ainda. Quando as provas chegarem, escolha os vencedores aqui.",
+      "pickOrVote": "Escolha os vencedores abaixo: pague na hora ou feche o bounty para votação antes.",
+      "pick": "Escolha os vencedores abaixo para pagar.",
+      "endTitle": "Encerrar sem vencedor",
+      "endDescriptionOpen": "Cancela o bounty. A sua parte volta como saldo para sacar no topo desta página, e cada contribuinte saca a dele aqui também. Não dá para desfazer.",
+      "endDescriptionSolo": "Cancela o bounty e devolve a recompensa para você. Não dá para desfazer.",
+      "endCta": "Encerrar bounty",
+      "endConfirm": "Sim, encerrar"
     }
   }
 }

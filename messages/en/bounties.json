@@ -299,7 +299,12 @@
         "invalidNumber": "Enter a valid percentage for each winner.",
         "zeroShare": "Every winner needs more than 0%.",
         "totalNot100": "Shares must add up to 100%."
-      }
+      },
+      "modeLabel": "How to close this bounty",
+      "modePay": "Pay now",
+      "modeVote": "Close for vote",
+      "closeForVoteDescription": "Closes the bounty to new claims and contributions and opens a {hours}h vote on your pick. Contributors vote weighted by what they put in; your share already counts as yes. If nobody else funded it, the vote passes at the deadline and anyone can release the payment.",
+      "closeForVoteDescriptionNoPeriod": "Closes the bounty to new claims and contributions and opens a vote on your pick. Contributors vote weighted by what they put in; your share already counts as yes. If nobody else funded it, the vote passes at the deadline and anyone can release the payment."
     },
     "vote": {
       "title": "Winners vote",
@@ -348,6 +353,18 @@
       "WrongCaller": "Your wallet is not allowed to do this.",
       "ZeroAmount": "Enter an amount greater than zero.",
       "ZeroShare": "Every winner needs a share above 0%."
+    },
+    "manage": {
+      "title": "Manage bounty",
+      "votingLocked": "Vote in progress: new claims, contributions and ending the bounty are locked until the deadline. Then resolve it in the vote panel.",
+      "waitingClaims": "No claims yet. Once proofs come in, pick the winners here.",
+      "pickOrVote": "Pick the winners below: pay them now, or close the bounty for a vote first.",
+      "pick": "Pick the winners below to pay them.",
+      "endTitle": "End without a winner",
+      "endDescriptionOpen": "Cancels the bounty. Your share comes back as a balance to withdraw at the top of this page, and each contributor withdraws theirs here too. This cannot be undone.",
+      "endDescriptionSolo": "Cancels the bounty and returns the reward to you. This cannot be undone.",
+      "endCta": "End bounty",
+      "endConfirm": "Yes, end it"
     }
   }
 }
