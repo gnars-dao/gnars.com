@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { formatEther } from "viem";
+import { BountyMeta } from "@/components/bounties/BountyCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -14,16 +15,17 @@ import { findSopaToken, formatSopaReward, isEthToken } from "@/lib/poidh-sopa/to
 import type { SopaBounty, SopaStatus } from "@/lib/poidh-sopa/types";
 
 export const SOPA_STATUS_STYLES: Record<SopaStatus, string> = {
-  cancelled: "bg-red-500/10 text-red-400 border-red-500/20",
-  voting: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-  open: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  cancelled: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
+  voting: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20",
+  open: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
   paid: "bg-muted text-muted-foreground border-border",
 };
 
 function stripMarkdown(text: string): string {
   return text
-    .replace(/!\[.*?\]\(.*?\)/g, "")
+    .replace(/!?\[(.*?)\]\(.*?\)/g, "$1") // images drop out, links keep their text
     .replace(/[#*_`>]/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -114,25 +116,20 @@ export function SopaBountyCard({ bounty }: { bounty: SopaBounty }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>{timeLabel}</span>
-          {bounty.isOpenBounty !== null && (
-            <div className="flex items-center gap-1">
-              <span className="text-muted-foreground/40">·</span>
-              <span>{bounty.isOpenBounty ? t("sopa.type.open") : t("sopa.type.solo")}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <span className="text-muted-foreground/40">·</span>
-            <span>Base</span>
-          </div>
-        </div>
+        <BountyMeta
+          items={[
+            timeLabel,
+            bounty.isOpenBounty !== null &&
+              (bounty.isOpenBounty ? t("sopa.type.open") : t("sopa.type.solo")),
+            "Base",
+          ]}
+        />
       </CardContent>
 
       <CardFooter className="px-5 pb-5 pt-4">
-        <Link href={`/community/bounties/sopa/${bounty.id}`} className="block w-full">
-          <Button className="w-full text-sm font-semibold">{t("cta.view")}</Button>
-        </Link>
+        <Button asChild className="w-full text-sm font-semibold">
+          <Link href={`/community/bounties/sopa/${bounty.id}`}>{t("cta.view")}</Link>
+        </Button>
       </CardFooter>
     </Card>
   );

@@ -73,17 +73,20 @@ export const fetchPoidhBounties = cache(
     let bounties: PoidhBounty[];
 
     if (status === "all") {
+      // Each status gets the full limit and nothing is cut after the merge, so "All" holds
+      // everything "Open", "Voting" and "Closed" each show (a third each made it shorter than
+      // "Open" alone). Merged newest first so the three lists interleave instead of stacking.
       const statuses = ["open", "progress", "past"];
       const results = await Promise.all(
         statuses.map(async (s) => {
-          const items = await fetchBountiesByStatus(s, Math.ceil(clampedLimit / 3));
+          const items = await fetchBountiesByStatus(s, clampedLimit);
           return items.map((item) => ({
             ...item,
             isCompleted: s === "past",
           }));
         }),
       );
-      bounties = results.flat().slice(0, clampedLimit);
+      bounties = results.flat().sort((a, b) => b.createdAt - a.createdAt);
     } else {
       const statusMap: Record<string, string> = {
         open: "open",

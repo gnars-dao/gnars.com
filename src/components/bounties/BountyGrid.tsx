@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SopaBounty } from "@/lib/poidh-sopa/types";
@@ -14,6 +15,10 @@ interface BountyGridProps {
   sopaBounties?: SopaBounty[];
   isLoading: boolean;
   error: Error | null;
+  /** Placeholder cards while loading. */
+  skeletonCount?: number;
+  /** Offered on the empty state when filters are what emptied the grid. */
+  onReset?: () => void;
 }
 
 type GridItem =
@@ -54,13 +59,20 @@ function SkeletonCard() {
   );
 }
 
-export function BountyGrid({ bounties, sopaBounties = [], isLoading, error }: BountyGridProps) {
+export function BountyGrid({
+  bounties,
+  sopaBounties = [],
+  isLoading,
+  error,
+  skeletonCount = 6,
+  onReset,
+}: BountyGridProps) {
   const t = useTranslations("bounties");
 
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {Array.from({ length: 6 }).map((_, i) => (
+        {Array.from({ length: skeletonCount }).map((_, i) => (
           <SkeletonCard key={i} />
         ))}
       </div>
@@ -79,7 +91,16 @@ export function BountyGrid({ bounties, sopaBounties = [], isLoading, error }: Bo
   const items = mergeItems(bounties, sopaBounties);
 
   if (items.length === 0) {
-    return <div className="text-center py-16 text-muted-foreground">{t("grid.empty")}</div>;
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
+        <p>{t("grid.empty")}</p>
+        {onReset && (
+          <Button variant="outline" size="sm" onClick={onReset}>
+            {t("filters.reset")}
+          </Button>
+        )}
+      </div>
+    );
   }
 
   return (

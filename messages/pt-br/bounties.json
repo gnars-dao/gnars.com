@@ -35,7 +35,9 @@
     "skate": "Skate",
     "surf": "Surf",
     "parkour": "Parkour",
-    "weed": "Weed"
+    "weed": "Weed",
+    "clearSearch": "Limpar busca",
+    "reset": "Limpar filtros"
   },
   "status": {
     "open": "Aberto",
@@ -62,7 +64,8 @@
     "sectionLabel": "Como funciona",
     "p1": "Gnars Bounties se apoia em momentos anteriores movidos pela comunidade ao permitir execução direta e permissionless. Tira a fricção dos sistemas tradicionais de grant, permitindo que ideias sejam postadas, financiadas, concluídas e recompensadas onchain num fluxo simples e aberto.",
     "howItWorksLabel": "O fluxo:",
-    "howItWorksBody": "Crie ou selecione um bounty → financie ou apoie uma missão → execute e envie o trabalho → seja verificado → receba pagamento onchain"
+    "howItWorksBody": "Crie ou selecione um bounty → financie ou apoie uma missão → execute e envie o trabalho → seja verificado → receba pagamento onchain",
+    "poweredByPoidh": "Feito com <link>POIDH</link> — Pics or it didn't happen. Os bounties ficam travados onchain no contrato POIDH V3."
   },
   "detail": {
     "backToBounties": "Voltar para Bounties",
@@ -363,5 +366,12 @@
       "ZeroAmount": "Informe um valor maior que zero.",
       "ZeroShare": "Todo vencedor precisa de uma parte acima de 0%."
     }
+  },
+  "sections": {
+    "team": "Do time Gnars",
+    "community": "Da comunidade POIDH"
+  },
+  "banner": {
+    "alt": "Banner do Gnars Bounties {index}"
   }
 }

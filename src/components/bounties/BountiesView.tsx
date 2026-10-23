@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { PlusCircle, Search, X } from "lucide-react";
-import { formatEther } from "viem";
+import { formatEther, formatUnits } from "viem";
 import { BountyGrid } from "@/components/bounties/BountyGrid";
 import { CreateBountyModal } from "@/components/bounties/CreateBountyModal";
 import { PendingWithdrawalBanner } from "@/components/bounties/PendingWithdrawalBanner";
@@ -11,23 +11,16 @@ import { Button } from "@/components/ui/button";
 import ContentImage from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatEthToUsd, useEthPrice } from "@/hooks/use-eth-price";
+import { useEthPrice } from "@/hooks/use-eth-price";
 import { usePoidhSopaBounties } from "@/hooks/use-poidh-sopa-bounties";
 import { usePoidhBounties } from "@/hooks/usePoidhBounties";
 import { isPoidhSopaEnabled, POIDH_SOPA } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
 import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
-import { SOPA_CATEGORIES } from "@/lib/poidh-sopa/categories";
 import { formatTokenAmount, isEthToken } from "@/lib/poidh-sopa/tokens";
 import type { SopaBountiesResult, SopaStatus } from "@/lib/poidh-sopa/types";
+import { classifyGnarsDiscipline, GNARS_DISCIPLINES } from "@/lib/poidh/keywords";
 import type { PoidhBounty } from "@/types/poidh";
-
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  skate: ["skate", "skateboard", "kickflip", "grind", "ollie", "flip", "trick"],
-  surf: ["surf", "wave", "barrel", "tube", "ocean", "beach"],
-  parkour: ["parkour", "freerun", "vault", "flip", "jump"],
-  weed: ["weed", "cannabis", "joint", "blunt", "420", "smoke", "kush"],
-};
 
 const BANNER_IMAGES = [
   {
@@ -51,7 +44,17 @@ const SOPA_STATUS_FOR_FILTER: Record<"open" | "closed" | "voting" | "all", SopaS
   all: null,
 };
 
+/** Reward tokens pegged to the dollar: they count toward the USD value at face. */
+const USD_STABLE_SYMBOLS = new Set(["USDC"]);
+
+type StatusFilter = "open" | "closed" | "voting" | "all";
 type SourceFilter = "all" | "v3" | "sopa";
+
+// Every category by default: starting on one discipline hid recent community bounties.
+const DEFAULT_CATEGORY = "all";
+
+/** Lets a row of tabs scroll inside the page on narrow screens instead of widening it. */
+const TAB_SCROLLER = "-mx-4 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0";
 
 interface BountiesViewProps {
   initialBounties: PoidhBounty[];
@@ -62,33 +65,21 @@ interface BountiesViewProps {
 export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps) {
   const t = useTranslations("bounties");
   const locale = useLocale();
-  const [status, setStatus] = useState<"open" | "closed" | "voting" | "all">("open");
+  const [status, setStatus] = useState<StatusFilter>("open");
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterGnarly] = useState(false);
-  // Show the newest bounties from every category by default. Users can narrow
-  // the list after it loads; starting on skate hid recent Sopa/community bounties.
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  // Disciplines sort the POIDH feed, which is everyone's bounties; the team's Sopa
+  // bounties are shown whatever discipline is picked.
+  const [categoryFilter, setCategoryFilter] = useState<string>(DEFAULT_CATEGORY);
   const sopaEnabled = isPoidhSopaEnabled();
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
-  // With Sopa on, the full category list (Sopa bounties carry an exact category;
-  // V3 bounties keep matching by keyword, so categories without keywords show Sopa only).
-  const CATEGORIES: { key: string; label: string }[] = sopaEnabled
-    ? [
-        { key: "all", label: t("filters.all") },
-        ...SOPA_CATEGORIES.map((c) => ({ key: c, label: t(`sopa.categories.${c}`) })),
-      ]
-    : [
-        { key: "all", label: t("filters.all") },
-        { key: "skate", label: t("filters.skate") },
-        { key: "surf", label: t("filters.surf") },
-        { key: "parkour", label: t("filters.parkour") },
-        { key: "weed", label: t("filters.weed") },
-      ];
+  const CATEGORIES = [
+    { key: "all", label: t("filters.all") },
+    ...GNARS_DISCIPLINES.map((d) => ({ key: d, label: t(`filters.${d}`) })),
+  ];
 
   const { data, isLoading, error } = usePoidhBounties({
     status,
-    filterGnarly,
     // Only use initialData for the default "open" status
     initialData:
       status === "open" ? { bounties: initialBounties, total: initialBounties.length } : undefined,
@@ -96,43 +87,35 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
 
   const { ethPrice } = useEthPrice();
   const sopaQuery = usePoidhSopaBounties(initialSopa);
+  const query = searchQuery.trim().toLowerCase();
 
-  const filteredSopa = useMemo(() => {
+  const teamBounties = useMemo(() => {
     if (!sopaEnabled || sourceFilter === "v3") return [];
     const statuses = SOPA_STATUS_FOR_FILTER[status];
-    const query = searchQuery.trim().toLowerCase();
     return (sopaQuery.data?.bounties ?? []).filter((b) => {
       if (statuses && !statuses.includes(b.status)) return false;
       if (query && !`${b.title} ${b.description}`.toLowerCase().includes(query)) return false;
-      if (categoryFilter !== "all" && b.category !== categoryFilter) return false;
       return true;
     });
-  }, [sopaEnabled, sourceFilter, status, searchQuery, categoryFilter, sopaQuery.data]);
+  }, [sopaEnabled, sourceFilter, status, query, sopaQuery.data]);
 
-  const filteredBounties = useMemo(() => {
+  const communityBounties = useMemo(() => {
     if (sourceFilter === "sopa") return [];
-    return (
-      data?.bounties.filter((bounty) => {
-        const text = `${bounty.title} ${bounty.description}`.toLowerCase();
-
-        if (searchQuery.trim()) {
-          const query = searchQuery.trim().toLowerCase();
-          if (!text.includes(query)) return false;
-        }
-
-        if (categoryFilter === "all") return true;
-        return CATEGORY_KEYWORDS[categoryFilter]?.some((keyword) => text.includes(keyword));
-      }) || []
-    );
-  }, [data?.bounties, searchQuery, categoryFilter, sourceFilter]);
+    return (data?.bounties ?? []).filter((bounty) => {
+      const text = `${bounty.title} ${bounty.description}`;
+      if (query && !text.toLowerCase().includes(query)) return false;
+      if (categoryFilter === "all") return true;
+      return classifyGnarsDiscipline(text) === categoryFilter;
+    });
+  }, [data?.bounties, query, categoryFilter, sourceFilter]);
 
   const totalValue = useMemo(() => {
-    let totalWei = filteredBounties.reduce((sum, bounty) => {
+    let totalWei = communityBounties.reduce((sum, bounty) => {
       return sum + BigInt(bounty.amount ?? 0);
     }, 0n);
     // Sopa ETH bounties join the ETH pool; other tokens are listed beside it.
     const otherTokens = new Map<string, bigint>();
-    for (const b of filteredSopa) {
+    for (const b of teamBounties) {
       const amount = BigInt(displayAmount(b));
       if (isEthToken(b.token)) totalWei += amount;
       else
@@ -141,21 +124,31 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
           (otherTokens.get(b.token.toLowerCase()) ?? 0n) + amount,
         );
     }
+    let stableUsd = 0;
     const others = [...otherTokens.entries()]
       .map(([address, raw]) => {
         const token = POIDH_SOPA.tokens.find((tk) => tk.address.toLowerCase() === address);
-        return token ? `${formatTokenAmount(raw, token.decimals, 2)} ${token.symbol}` : null;
+        if (!token) return null;
+        if (USD_STABLE_SYMBOLS.has(token.symbol)) {
+          stableUsd += parseFloat(formatUnits(raw, token.decimals));
+        }
+        return `${formatTokenAmount(raw, token.decimals, 2)} ${token.symbol}`;
       })
       .filter((x): x is string => Boolean(x));
     const totalEth = parseFloat(formatEther(totalWei));
-    const totalUsd = formatEthToUsd(totalEth, ethPrice, toIntlLocale(locale));
+    const usd = new Intl.NumberFormat(toIntlLocale(locale), {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(totalEth * ethPrice + stableUsd);
     return {
-      eth: totalEth.toFixed(4),
-      usd: totalUsd,
-      count: filteredBounties.length + filteredSopa.length,
+      eth: formatTokenAmount(totalWei, 18, 4),
+      usd,
+      count: communityBounties.length + teamBounties.length,
       others,
     };
-  }, [filteredBounties, filteredSopa, ethPrice, locale]);
+  }, [communityBounties, teamBounties, ethPrice, locale]);
 
   // The two sources load and fail independently: one being down or slow must never hide
   // the other's bounties or stats.
@@ -164,15 +157,26 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
   const sopaReady = sopaShown && Boolean(sopaQuery.data);
   const v3Settled = !v3Shown || (Boolean(data) && !isLoading) || Boolean(error);
   const sopaSettled = !sopaShown || Boolean(sopaQuery.data) || Boolean(sopaQuery.error);
-  const gridLoading =
-    sourceFilter === "sopa"
-      ? sopaQuery.isLoading
-      : sourceFilter === "v3"
-        ? isLoading
-        : isLoading && !sopaReady;
-  const gridError =
-    sourceFilter === "sopa" ? null : sourceFilter === "v3" || !sopaReady ? error : null;
-  const showV3ErrorBanner = sourceFilter === "all" && sopaReady && Boolean(error);
+  // An empty team section only earns its place when the team is all that was asked for.
+  const teamSectionShown =
+    sopaShown &&
+    (sourceFilter === "sopa" ||
+      sopaQuery.isLoading ||
+      Boolean(sopaQuery.error) ||
+      teamBounties.length > 0);
+
+  const resetFilters = () => {
+    setStatus("open");
+    setSearchQuery("");
+    setCategoryFilter(DEFAULT_CATEGORY);
+    setSourceFilter("all");
+  };
+  const canReset = !(
+    status === "open" &&
+    !query &&
+    categoryFilter === DEFAULT_CATEGORY &&
+    sourceFilter === "all"
+  );
 
   const poolLabel = (() => {
     if (status === "open") return t("stats.openPool");
@@ -196,7 +200,7 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-sm text-muted-foreground mt-1">{t("description")}</p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-3xl">{t("description")}</p>
           </div>
           <CreateBountyModal>
             <Button className="shrink-0">
@@ -207,19 +211,20 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
           </CreateBountyModal>
         </div>
 
+        {/* Banner: a swipeable strip on phones, three panels from md up */}
         <div className="overflow-hidden rounded-3xl border border-border bg-muted/30">
-          <div className="grid grid-cols-1 gap-px bg-border md:grid-cols-3">
+          <div className="flex snap-x snap-mandatory gap-px overflow-x-auto bg-border [scrollbar-width:none] md:grid md:grid-cols-3 md:overflow-visible">
             {BANNER_IMAGES.map(({ src, fit }, index) => (
               <div
                 key={src}
-                className="flex h-[180px] items-center justify-center bg-background/40 md:h-[210px]"
+                className="flex h-[170px] w-[85%] shrink-0 snap-center items-center justify-center bg-background/40 md:h-[210px] md:w-auto"
               >
                 <ContentImage
                   src={src}
                   width={720}
                   height={210}
-                  sizes="(max-width: 768px) 100vw, 33vw"
-                  alt={`Gnars bounty banner image ${index + 1}`}
+                  sizes="(max-width: 768px) 85vw, 33vw"
+                  alt={t("banner.alt", { index: index + 1 })}
                   className={`h-full w-full ${fit === "cover" ? "object-cover" : "object-contain"}`}
                 />
               </div>
@@ -229,8 +234,8 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
 
         {/* Pool stats */}
         {v3Settled && sopaSettled && (Boolean(data) || sopaReady) && (
-          <div className="grid grid-cols-3 gap-4 rounded-lg border border-border bg-muted/30 px-5 py-4">
-            <div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border bg-muted/30 px-5 py-4 sm:grid-cols-3">
+            <div className="col-span-2 sm:col-span-1">
               <div className="text-2xl font-bold tabular-nums tracking-tight">
                 {totalValue.eth}
                 <span className="text-base font-semibold text-muted-foreground ml-1.5">ETH</span>
@@ -264,79 +269,109 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
-              type="text"
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t("filters.search")}
-              className="pl-9"
+              aria-label={t("filters.search")}
+              className="pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label={t("filters.clearSearch")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5 text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <Tabs value={status} onValueChange={(v) => setStatus(v as typeof status)}>
-              <TabsList>
-                <TabsTrigger value="open">{t("filters.open")}</TabsTrigger>
-                <TabsTrigger value="voting">{t("filters.voting")}</TabsTrigger>
-                <TabsTrigger value="closed">{t("filters.closed")}</TabsTrigger>
-                <TabsTrigger value="all">{t("filters.all")}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <div className="h-5 w-px bg-border hidden sm:block" />
-            <Tabs value={categoryFilter} onValueChange={(v) => setCategoryFilter(v)}>
-              <TabsList>
-                {CATEGORIES.map(({ key, label }) => (
-                  <TabsTrigger key={key} value={key}>
-                    {label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className={TAB_SCROLLER}>
+              <Tabs value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
+                <TabsList className="w-max">
+                  <TabsTrigger value="open">{t("filters.open")}</TabsTrigger>
+                  <TabsTrigger value="voting">{t("filters.voting")}</TabsTrigger>
+                  <TabsTrigger value="closed">{t("filters.closed")}</TabsTrigger>
+                  <TabsTrigger value="all">{t("filters.all")}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
             {sopaEnabled && (
-              <>
-                <div className="h-5 w-px bg-border hidden sm:block" />
+              <div className={TAB_SCROLLER}>
                 <Tabs
                   value={sourceFilter}
                   onValueChange={(v) => setSourceFilter(v as SourceFilter)}
                 >
-                  <TabsList aria-label={t("sopa.filters.sourceLabel")}>
+                  <TabsList className="w-max" aria-label={t("sopa.filters.sourceLabel")}>
                     <TabsTrigger value="all">{t("sopa.filters.allSources")}</TabsTrigger>
                     <TabsTrigger value="sopa">{t("sopa.filters.sopa")}</TabsTrigger>
                     <TabsTrigger value="v3">{t("sopa.filters.poidh")}</TabsTrigger>
                   </TabsList>
                 </Tabs>
-              </>
+              </div>
             )}
           </div>
         </div>
 
-        {showV3ErrorBanner && (
-          <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {t("grid.error")}
-          </div>
+        {/* The team's own bounties, whatever discipline is picked below */}
+        {teamSectionShown && (
+          <section className="space-y-4">
+            <SectionHeading
+              title={t("sections.team")}
+              count={sopaQuery.data ? teamBounties.length : null}
+            />
+            {sopaQuery.error && (
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {t("sopa.listError")}
+              </div>
+            )}
+            {!sopaQuery.error && (
+              <BountyGrid
+                bounties={[]}
+                sopaBounties={teamBounties}
+                isLoading={sopaQuery.isLoading}
+                error={null}
+                skeletonCount={3}
+                onReset={canReset ? resetFilters : undefined}
+              />
+            )}
+          </section>
         )}
 
-        {sopaEnabled && sourceFilter !== "v3" && sopaQuery.error && (
-          <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {t("sopa.listError")}
-          </div>
+        {v3Shown && (
+          <section className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {sopaEnabled ? (
+                <SectionHeading
+                  title={t("sections.community")}
+                  count={data && !isLoading ? communityBounties.length : null}
+                />
+              ) : (
+                <span />
+              )}
+              <div className={TAB_SCROLLER}>
+                <Tabs value={categoryFilter} onValueChange={(v) => setCategoryFilter(v)}>
+                  <TabsList className="w-max">
+                    {CATEGORIES.map(({ key, label }) => (
+                      <TabsTrigger key={key} value={key}>
+                        {label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+            </div>
+            <BountyGrid
+              bounties={communityBounties}
+              isLoading={isLoading}
+              error={error}
+              onReset={canReset ? resetFilters : undefined}
+            />
+          </section>
         )}
-
-        {/* Grid */}
-        <BountyGrid
-          bounties={filteredBounties}
-          sopaBounties={filteredSopa}
-          isLoading={gridLoading}
-          error={gridError}
-        />
 
         <div className="rounded-3xl border border-border bg-muted/30 p-6 md:p-8">
           <div className="max-w-4xl space-y-5">
@@ -352,17 +387,18 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
                 <p>{t("manifesto.howItWorksBody")}</p>
               </div>
               <p className="pt-2 text-xs text-muted-foreground/80">
-                Powered by{" "}
-                <a
-                  href="https://poidh.xyz"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-foreground underline underline-offset-4 decoration-muted-foreground/40 hover:decoration-foreground transition-colors"
-                >
-                  POIDH
-                </a>{" "}
-                — Pics or it didn&apos;t happen. Bounties are escrowed onchain by the POIDH V3
-                contract.
+                {t.rich("manifesto.poweredByPoidh", {
+                  link: (chunks) => (
+                    <a
+                      href="https://poidh.xyz"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-foreground underline underline-offset-4 decoration-muted-foreground/40 hover:decoration-foreground transition-colors"
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
               </p>
               {sopaEnabled && (
                 <p className="text-xs text-muted-foreground/80">{t("sopa.poweredBy")}</p>
@@ -372,5 +408,16 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
         </div>
       </div>
     </div>
+  );
+}
+
+function SectionHeading({ title, count }: { title: string; count: number | null }) {
+  return (
+    <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+      {title}
+      {count !== null && (
+        <span className="text-sm font-medium tabular-nums text-muted-foreground">{count}</span>
+      )}
+    </h2>
   );
 }
