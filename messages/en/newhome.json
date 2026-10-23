@@ -72,6 +72,7 @@
       "chain": "CHAIN",
       "usd": "USD",
       "type": "Poidh Bounty",
+      "typeSopa": "Gnars Bounty",
       "tapToFlip": "TAP TO FLIP"
     },
     "rarity": {

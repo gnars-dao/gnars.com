@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
@@ -33,6 +33,8 @@ export interface FanCard {
   description: string;
   /** Reward, already formatted to 4dp. */
   eth: string;
+  /** Reward unit. Sopa bounties can pay in USDC; poidh ones are always ETH. */
+  symbol?: string;
   usd: string;
   age: string;
   chain: string;
@@ -40,8 +42,13 @@ export interface FanCard {
   statusTone: "open" | "voting" | "closed";
   serial: string;
   rarity: Rarity;
-  /** The bounty on poidh.xyz — where a claim is actually submitted. */
+  /**
+   * Where a claim is actually submitted: poidh.xyz for poidh bounties, this
+   * site's own page for Sopa ones (the Gnars fork has no poidh.xyz page).
+   */
   poidhUrl: string;
+  /** `sopa` = created on this site through the PoidhSopa contract. */
+  source?: "poidh" | "sopa";
   /** The bounty on this site. */
   href: string;
 }
@@ -227,7 +234,7 @@ function Card({
               {card.title}
             </h3>
             <p className="mt-[5px] text-[11px] text-neutral-400">
-              {card.category} · {t("card.type")}
+              {card.category} · {t(card.source === "sopa" ? "card.typeSopa" : "card.type")}
             </p>
           </div>
 
@@ -327,7 +334,7 @@ function Card({
               className="text-[11px] font-bold tracking-[.3em] text-white/60"
               style={{ fontFamily: MONO }}
             >
-              ETH
+              {card.symbol ?? "ETH"}
             </span>
             <span
               className="text-[11.5px] font-semibold text-[#4ade80]"
@@ -421,21 +428,31 @@ function Card({
           <div className="flex items-center justify-between rounded-[9px] border border-white/10 bg-black/35 px-3 py-[9px]">
             <span className="text-[10px] tracking-[.08em] text-[#8a8a8a]">{t("back.reward")}</span>
             <span className="text-[15px] font-extrabold text-white" style={{ fontFamily: MONO }}>
-              {card.eth} ETH{" "}
+              {card.eth} {card.symbol ?? "ETH"}{" "}
               <span className="text-[10.5px] font-semibold text-[#4ade80]">{card.usd}</span>
             </span>
           </div>
 
           <div className="flex flex-col gap-[7px]">
-            <a
-              href={card.poidhUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={stop}
-              className="block rounded-lg bg-neutral-50 py-2.5 text-center text-[12.5px] font-bold text-neutral-900 hover:opacity-90"
-            >
-              {t("back.submitClaim")}
-            </a>
+            {card.source === "sopa" ? (
+              <Link
+                href={card.poidhUrl}
+                onClick={stop}
+                className="block rounded-lg bg-neutral-50 py-2.5 text-center text-[12.5px] font-bold text-neutral-900 hover:opacity-90"
+              >
+                {t("back.submitClaim")}
+              </Link>
+            ) : (
+              <a
+                href={card.poidhUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={stop}
+                className="block rounded-lg bg-neutral-50 py-2.5 text-center text-[12.5px] font-bold text-neutral-900 hover:opacity-90"
+              >
+                {t("back.submitClaim")}
+              </a>
+            )}
             <Link
               href={card.href}
               onClick={stop}
@@ -479,6 +496,14 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
   }, [cards.length]);
 
   const active = cards.length > 0 ? Math.min(idx, cards.length - 1) : 0;
+
+  // The fan is dealt centre-out, but a snap row reads left to right: put it back
+  // in rank order so the headline bounty is the first card on a phone, not the third.
+  // `serial` is the zero-padded rank, so it sorts as text.
+  const rowCards = useMemo(
+    () => [...cards].sort((a, b) => a.serial.localeCompare(b.serial)),
+    [cards],
+  );
 
   const toggleFlip = useCallback((id: string) => {
     setFlippedId((current) => (current === id ? null : id));
@@ -625,7 +650,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
 
       {/* ── Snap row, 768px and below ─────────────────────── */}
       <div className="relative -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-4 min-[769px]:hidden">
-        {cards.map((card, i) => (
+        {rowCards.map((card, i) => (
           <div
             key={card.id}
             className="relative shrink-0 snap-center"
@@ -637,7 +662,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
             <Card
               card={card}
               index={i}
-              raised={flippedId === card.id || i === active}
+              raised={flippedId === card.id || card.id === cards[active]?.id}
               flipped={flippedId === card.id}
               onPick={() => toggleFlip(card.id)}
             />
