@@ -58,7 +58,8 @@
   "grid": {
     "loading": "Carregando bounties...",
     "empty": "Nenhum bounty encontrado com seus filtros.",
-    "error": "Falha ao carregar bounties"
+    "error": "Falha ao carregar bounties",
+    "showMore": "Ver mais ({count} restantes)"
   },
   "manifesto": {
     "sectionLabel": "Como funciona",
@@ -372,6 +373,7 @@
     "community": "Da comunidade POIDH"
   },
   "banner": {
-    "alt": "Banner do Gnars Bounties {index}"
+    "alt": "Banner do Gnars Bounties {index}",
+    "label": "Banner do Gnars Bounties"
   }
 }

@@ -248,6 +248,8 @@ export interface PoidhSopaToken {
   address: `0x${string}`;
   decimals: number;
   logo?: string;
+  /** Pegged to the US dollar: summed at face value wherever rewards are shown in USD. */
+  usdStable?: boolean;
 }
 
 export const POIDH_SOPA = {
@@ -265,6 +267,7 @@ export const POIDH_SOPA = {
       symbol: "USDC",
       address: TREASURY_TOKEN_ALLOWLIST.USDC,
       decimals: 6,
+      usdStable: true,
     },
   ] as readonly PoidhSopaToken[],
   /**

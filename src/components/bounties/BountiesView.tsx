@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { PlusCircle, Search, X } from "lucide-react";
-import { formatEther, formatUnits } from "viem";
 import { BountyGrid } from "@/components/bounties/BountyGrid";
 import { CreateBountyModal } from "@/components/bounties/CreateBountyModal";
 import { PendingWithdrawalBanner } from "@/components/bounties/PendingWithdrawalBanner";
@@ -14,12 +13,17 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEthPrice } from "@/hooks/use-eth-price";
 import { usePoidhSopaBounties } from "@/hooks/use-poidh-sopa-bounties";
 import { usePoidhBounties } from "@/hooks/usePoidhBounties";
-import { isPoidhSopaEnabled, POIDH_SOPA } from "@/lib/config";
+import { isPoidhSopaEnabled } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
-import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
-import { formatTokenAmount, isEthToken } from "@/lib/poidh-sopa/tokens";
-import type { SopaBountiesResult, SopaStatus } from "@/lib/poidh-sopa/types";
-import { classifyGnarsDiscipline, GNARS_DISCIPLINES } from "@/lib/poidh/keywords";
+import { formatTokenAmount } from "@/lib/poidh-sopa/tokens";
+import type { SopaBountiesResult } from "@/lib/poidh-sopa/types";
+import {
+  filterCommunityBounties,
+  filterTeamBounties,
+  summarizePool,
+  type BountyStatusFilter,
+} from "@/lib/poidh/bounty-list";
+import { GNARS_DISCIPLINES } from "@/lib/poidh/keywords";
 import type { PoidhBounty } from "@/types/poidh";
 
 const BANNER_IMAGES = [
@@ -37,17 +41,7 @@ const BANNER_IMAGES = [
   },
 ] as const;
 
-const SOPA_STATUS_FOR_FILTER: Record<"open" | "closed" | "voting" | "all", SopaStatus[] | null> = {
-  open: ["open"],
-  voting: ["voting"],
-  closed: ["paid", "cancelled"],
-  all: null,
-};
-
-/** Reward tokens pegged to the dollar: they count toward the USD value at face. */
-const USD_STABLE_SYMBOLS = new Set(["USDC"]);
-
-type StatusFilter = "open" | "closed" | "voting" | "all";
+type StatusFilter = BountyStatusFilter;
 type SourceFilter = "all" | "v3" | "sopa";
 
 // Every category by default: starting on one discipline hid recent community bounties.
@@ -80,6 +74,8 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
 
   const { data, isLoading, error } = usePoidhBounties({
     status,
+    // "All" holds every open, voting and closed bounty, so it needs room for all three.
+    limit: status === "all" ? 300 : 100,
     // Only use initialData for the default "open" status
     initialData:
       status === "open" ? { bounties: initialBounties, total: initialBounties.length } : undefined,
@@ -89,64 +85,39 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
   const sopaQuery = usePoidhSopaBounties(initialSopa);
   const query = searchQuery.trim().toLowerCase();
 
-  const teamBounties = useMemo(() => {
-    if (!sopaEnabled || sourceFilter === "v3") return [];
-    const statuses = SOPA_STATUS_FOR_FILTER[status];
-    return (sopaQuery.data?.bounties ?? []).filter((b) => {
-      if (statuses && !statuses.includes(b.status)) return false;
-      if (query && !`${b.title} ${b.description}`.toLowerCase().includes(query)) return false;
-      return true;
-    });
-  }, [sopaEnabled, sourceFilter, status, query, sopaQuery.data]);
+  const teamBounties = useMemo(
+    () =>
+      !sopaEnabled || sourceFilter === "v3"
+        ? []
+        : filterTeamBounties(sopaQuery.data?.bounties ?? [], { status, query }),
+    [sopaEnabled, sourceFilter, status, query, sopaQuery.data],
+  );
 
-  const communityBounties = useMemo(() => {
-    if (sourceFilter === "sopa") return [];
-    return (data?.bounties ?? []).filter((bounty) => {
-      const text = `${bounty.title} ${bounty.description}`;
-      if (query && !text.toLowerCase().includes(query)) return false;
-      if (categoryFilter === "all") return true;
-      return classifyGnarsDiscipline(text) === categoryFilter;
-    });
-  }, [data?.bounties, query, categoryFilter, sourceFilter]);
+  const communityBounties = useMemo(
+    () =>
+      sourceFilter === "sopa"
+        ? []
+        : filterCommunityBounties(data?.bounties ?? [], { query, category: categoryFilter }),
+    [data?.bounties, query, categoryFilter, sourceFilter],
+  );
 
   const totalValue = useMemo(() => {
-    let totalWei = communityBounties.reduce((sum, bounty) => {
-      return sum + BigInt(bounty.amount ?? 0);
-    }, 0n);
-    // Sopa ETH bounties join the ETH pool; other tokens are listed beside it.
-    const otherTokens = new Map<string, bigint>();
-    for (const b of teamBounties) {
-      const amount = BigInt(displayAmount(b));
-      if (isEthToken(b.token)) totalWei += amount;
-      else
-        otherTokens.set(
-          b.token.toLowerCase(),
-          (otherTokens.get(b.token.toLowerCase()) ?? 0n) + amount,
-        );
-    }
-    let stableUsd = 0;
-    const others = [...otherTokens.entries()]
-      .map(([address, raw]) => {
-        const token = POIDH_SOPA.tokens.find((tk) => tk.address.toLowerCase() === address);
-        if (!token) return null;
-        if (USD_STABLE_SYMBOLS.has(token.symbol)) {
-          stableUsd += parseFloat(formatUnits(raw, token.decimals));
-        }
-        return `${formatTokenAmount(raw, token.decimals, 2)} ${token.symbol}`;
-      })
-      .filter((x): x is string => Boolean(x));
-    const totalEth = parseFloat(formatEther(totalWei));
-    const usd = new Intl.NumberFormat(toIntlLocale(locale), {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(totalEth * ethPrice + stableUsd);
+    const pool = summarizePool(communityBounties, teamBounties, ethPrice);
     return {
-      eth: formatTokenAmount(totalWei, 18, 4),
-      usd,
-      count: communityBounties.length + teamBounties.length,
-      others,
+      eth: formatTokenAmount(pool.totalWei, 18, 4),
+      usd:
+        pool.usd === null
+          ? null
+          : new Intl.NumberFormat(toIntlLocale(locale), {
+              style: "currency",
+              currency: "USD",
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(pool.usd),
+      count: pool.count,
+      others: pool.others.map(
+        ({ token, raw }) => `${formatTokenAmount(raw, token.decimals, 2)} ${token.symbol}`,
+      ),
     };
   }, [communityBounties, teamBounties, ethPrice, locale]);
 
@@ -171,6 +142,8 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
     setCategoryFilter(DEFAULT_CATEGORY);
     setSourceFilter("all");
   };
+  // Changing any filter remounts the grids, so "Show more" starts over on the new list.
+  const filterKey = `${status}|${query}|${categoryFilter}|${sourceFilter}`;
   const canReset = !(
     status === "open" &&
     !query &&
@@ -196,24 +169,30 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       <div className="space-y-6">
         <PendingWithdrawalBanner />
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        {/* Header: the button sits beside the title only, so the description keeps the full
+            width on phones instead of a squeezed column */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-4">
             <h1 className="text-3xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-sm text-muted-foreground mt-1 max-w-3xl">{t("description")}</p>
+            <CreateBountyModal>
+              <Button className="shrink-0">
+                <PlusCircle className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">{t("cta.createBounty")}</span>
+                <span className="sm:hidden">{t("cta.create")}</span>
+              </Button>
+            </CreateBountyModal>
           </div>
-          <CreateBountyModal>
-            <Button className="shrink-0">
-              <PlusCircle className="w-4 h-4 mr-2" />
-              <span className="hidden sm:inline">{t("cta.createBounty")}</span>
-              <span className="sm:hidden">{t("cta.create")}</span>
-            </Button>
-          </CreateBountyModal>
+          <p className="text-sm text-muted-foreground max-w-3xl">{t("description")}</p>
         </div>
 
         {/* Banner: a swipeable strip on phones, three panels from md up */}
         <div className="overflow-hidden rounded-3xl border border-border bg-muted/30">
-          <div className="flex snap-x snap-mandatory gap-px overflow-x-auto bg-border [scrollbar-width:none] md:grid md:grid-cols-3 md:overflow-visible">
+          <div
+            role="region"
+            aria-label={t("banner.label")}
+            tabIndex={0}
+            className="flex snap-x snap-mandatory gap-px overflow-x-auto bg-border outline-none [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-ring md:grid md:grid-cols-3 md:overflow-visible"
+          >
             {BANNER_IMAGES.map(({ src, fit }, index) => (
               <div
                 key={src}
@@ -247,7 +226,7 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
               )}
               <div className="text-xs text-muted-foreground mt-0.5">{poolLabel}</div>
             </div>
-            {ethPrice > 0 && (
+            {totalValue.usd !== null && (
               <div>
                 <div className="text-2xl font-bold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
                   {totalValue.usd}
@@ -274,14 +253,14 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t("filters.search")}
               aria-label={t("filters.search")}
-              className="pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden"
+              className="pl-9 pr-10 [&::-webkit-search-cancel-button]:hidden"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
                 aria-label={t("filters.clearSearch")}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute right-1 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-2 text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -330,6 +309,7 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
             )}
             {!sopaQuery.error && (
               <BountyGrid
+                key={filterKey}
                 bounties={[]}
                 sopaBounties={teamBounties}
                 isLoading={sopaQuery.isLoading}
@@ -365,6 +345,7 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
               </div>
             </div>
             <BountyGrid
+              key={filterKey}
               bounties={communityBounties}
               isLoading={isLoading}
               error={error}

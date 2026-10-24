@@ -13,6 +13,7 @@ import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
 import { isSopaCategory } from "@/lib/poidh-sopa/categories";
 import { findSopaToken, formatSopaReward, isEthToken } from "@/lib/poidh-sopa/tokens";
 import type { SopaBounty, SopaStatus } from "@/lib/poidh-sopa/types";
+import { markdownPreview } from "@/lib/poidh/bounty-list";
 
 export const SOPA_STATUS_STYLES: Record<SopaStatus, string> = {
   cancelled: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
@@ -20,14 +21,6 @@ export const SOPA_STATUS_STYLES: Record<SopaStatus, string> = {
   open: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
   paid: "bg-muted text-muted-foreground border-border",
 };
-
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/!?\[(.*?)\]\(.*?\)/g, "$1") // images drop out, links keep their text
-    .replace(/[#*_`>]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** Source badge shared by the card and the detail page. */
 export function SopaSourceBadge() {
@@ -94,7 +87,7 @@ export function SopaBountyCard({ bounty }: { bounty: SopaBounty }) {
         </h3>
 
         <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed flex-1">
-          {stripMarkdown(bounty.description)}
+          {markdownPreview(bounty.description)}
         </p>
 
         <div className="rounded-lg bg-muted/40 px-4 py-3 border border-border/50">

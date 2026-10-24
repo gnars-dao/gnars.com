@@ -58,7 +58,8 @@
   "grid": {
     "loading": "Loading bounties...",
     "empty": "No bounties found matching your filters.",
-    "error": "Failed to load bounties"
+    "error": "Failed to load bounties",
+    "showMore": "Show more ({count} left)"
   },
   "manifesto": {
     "sectionLabel": "How it works",
@@ -372,6 +373,7 @@
     "community": "From the POIDH community"
   },
   "banner": {
-    "alt": "Gnars Bounties banner {index}"
+    "alt": "Gnars Bounties banner {index}",
+    "label": "Gnars Bounties banner"
   }
 }

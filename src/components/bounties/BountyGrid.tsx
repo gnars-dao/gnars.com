@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +20,11 @@ interface BountyGridProps {
   skeletonCount?: number;
   /** Offered on the empty state when filters are what emptied the grid. */
   onReset?: () => void;
+  /**
+   * Cards rendered up front; the rest wait behind "Show more", so a phone does not lay
+   * out a hundred cards in one column. Remount (change `key`) to start over.
+   */
+  pageSize?: number;
 }
 
 type GridItem =
@@ -66,8 +72,10 @@ export function BountyGrid({
   error,
   skeletonCount = 6,
   onReset,
+  pageSize = 12,
 }: BountyGridProps) {
   const t = useTranslations("bounties");
+  const [visible, setVisible] = useState(pageSize);
 
   if (isLoading) {
     return (
@@ -103,14 +111,29 @@ export function BountyGrid({
     );
   }
 
+  const hidden = items.length - visible;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-      {items.map((item) =>
-        item.source === "sopa" ? (
-          <SopaBountyCard key={`sopa-${item.bounty.id}`} bounty={item.bounty} />
-        ) : (
-          <BountyCard key={item.bounty.id} bounty={item.bounty} />
-        ),
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {items
+          .slice(0, visible)
+          .map((item) =>
+            item.source === "sopa" ? (
+              <SopaBountyCard key={`sopa-${item.bounty.id}`} bounty={item.bounty} />
+            ) : (
+              <BountyCard key={`${item.bounty.chainId}-${item.bounty.id}`} bounty={item.bounty} />
+            ),
+          )}
+      </div>
+      {hidden > 0 && (
+        <Button
+          variant="outline"
+          className="h-11 w-full sm:mx-auto sm:flex sm:w-auto sm:px-8"
+          onClick={() => setVisible((v) => v + pageSize)}
+        >
+          {t("grid.showMore", { count: hidden })}
+        </Button>
       )}
     </div>
   );

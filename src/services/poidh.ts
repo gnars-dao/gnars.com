@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { mergeNewest } from "@/lib/poidh/bounty-list";
 import { SUPPORTED_CHAINS } from "@/lib/poidh/config";
 import { matchesGnarsKeywords } from "@/lib/poidh/keywords";
 import type { PoidhBounty, PoidhClaim } from "@/types/poidh";
@@ -36,10 +37,13 @@ async function fetchFromPoidh(
   return data?.result?.data?.json;
 }
 
+/** `bounties.fetchAll` answers 400 above this; larger limits would need its cursor. */
+const UPSTREAM_MAX_LIMIT = 100;
+
 async function fetchBountiesByStatus(status: string, limit: number): Promise<PoidhBounty[]> {
   const data = await fetchFromPoidh(
     "bounties.fetchAll",
-    { status, sortType: "date", limit },
+    { status, sortType: "date", limit: Math.min(limit, UPSTREAM_MAX_LIMIT) },
     LIST_CACHE_TTL,
   );
   return ((data as { items?: PoidhBounty[] })?.items ?? []) as PoidhBounty[];
@@ -73,9 +77,8 @@ export const fetchPoidhBounties = cache(
     let bounties: PoidhBounty[];
 
     if (status === "all") {
-      // Each status gets the full limit and nothing is cut after the merge, so "All" holds
-      // everything "Open", "Voting" and "Closed" each show (a third each made it shorter than
-      // "Open" alone). Merged newest first so the three lists interleave instead of stacking.
+      // Each status is fetched up to the limit (at most 100 upstream) and the merge keeps the
+      // newest `limit`. Callers that want "All" to hold every tab ask for up to 300.
       const statuses = ["open", "progress", "past"];
       const results = await Promise.all(
         statuses.map(async (s) => {
@@ -86,7 +89,7 @@ export const fetchPoidhBounties = cache(
           }));
         }),
       );
-      bounties = results.flat().sort((a, b) => b.createdAt - a.createdAt);
+      bounties = mergeNewest(results, clampedLimit);
     } else {
       const statusMap: Record<string, string> = {
         open: "open",
