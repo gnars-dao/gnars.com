@@ -53,12 +53,15 @@ export async function uploadToPinata(
     const typedFile =
       file.type === upload.mimeType ? file : new File([file], file.name, { type: upload.mimeType });
     stage = "wallet";
-    const authorization = await signWalletRequest(account, {
-      method: "POST",
-      path: "/api/pinata/signed-url",
-      payload: upload,
-    });
-    signal?.throwIfAborted();
+    // A wallet prompt can hang (e.g. WalletConnect after switching apps); cancel must not wait on it.
+    const authorization = await abortable(
+      signWalletRequest(account, {
+        method: "POST",
+        path: "/api/pinata/signed-url",
+        payload: upload,
+      }),
+      signal,
+    );
     // Step 1: Get a presigned upload URL from our server
     stage = "authorize";
     const signedUrlResponse = await fetch("/api/pinata/signed-url", {
@@ -119,6 +122,17 @@ export async function uploadToPinata(
       stage,
     };
   }
+}
+
+/** Rejects as soon as `signal` aborts, even if `promise` never settles. */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 /**

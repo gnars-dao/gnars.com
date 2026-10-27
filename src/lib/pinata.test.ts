@@ -1,5 +1,6 @@
 import type { Account } from "thirdweb/wallets";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { signWalletRequest } from "@/lib/wallet-authorization";
 import { uploadToPinata } from "./pinata";
 
 vi.mock("@/lib/wallet-authorization", () => ({
@@ -71,6 +72,15 @@ describe("uploadToPinata failure stages", () => {
     expect(
       await uploadToPinata(account, video(), undefined, undefined, controller.signal),
     ).toMatchObject({ success: false, cancelled: true });
+  });
+
+  it("returns cancelled without waiting on a wallet signature that never settles", async () => {
+    vi.mocked(signWalletRequest).mockReturnValueOnce(new Promise(() => {}));
+    const controller = new AbortController();
+    const result = uploadToPinata(account, video(), undefined, undefined, controller.signal);
+    controller.abort();
+    expect(await result).toMatchObject({ success: false, cancelled: true });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns gateway URLs on success", async () => {
