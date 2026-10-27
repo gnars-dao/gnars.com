@@ -1,6 +1,9 @@
 import type { Account } from "thirdweb/wallets";
-import { pinataUploadSchema } from "@/lib/pinata-policy";
+import { pinataUploadSchema, uploadMimeType } from "@/lib/pinata-policy";
 import { signWalletRequest } from "@/lib/wallet-authorization";
+
+/** Step that failed, so callers can tell the user what went wrong. */
+export type PinataUploadStage = "connect" | "wallet" | "file" | "authorize" | "upload";
 
 export interface PinataUploadResponse {
   success: boolean;
@@ -13,6 +16,11 @@ export interface PinataUploadResponse {
     gatewayUrl: string;
   };
   error?: string;
+  stage?: PinataUploadStage;
+  /** HTTP status of the failed request (0 = network error). */
+  status?: number;
+  /** The caller aborted the upload through its AbortSignal. */
+  cancelled?: boolean;
 }
 
 /**
@@ -30,47 +38,57 @@ export async function uploadToPinata(
   file: File,
   name?: string,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<PinataUploadResponse> {
+  let stage: PinataUploadStage = "connect";
   try {
     if (!account) throw new Error("Connect your wallet before uploading.");
+    stage = "file";
     const upload = pinataUploadSchema.parse({
       filename: name || file.name,
-      mimeType: file.type,
+      mimeType: uploadMimeType(file),
       size: file.size,
     });
-    const authorization = await signWalletRequest(account, {
-      method: "POST",
-      path: "/api/pinata/signed-url",
-      payload: upload,
-    });
+    // The signed URL only accepts the declared MIME type, so the file part must carry it.
+    const typedFile =
+      file.type === upload.mimeType ? file : new File([file], file.name, { type: upload.mimeType });
+    stage = "wallet";
+    // A wallet prompt can hang (e.g. WalletConnect after switching apps); cancel must not wait on it.
+    const authorization = await abortable(
+      signWalletRequest(account, {
+        method: "POST",
+        path: "/api/pinata/signed-url",
+        payload: upload,
+      }),
+      signal,
+    );
     // Step 1: Get a presigned upload URL from our server
+    stage = "authorize";
     const signedUrlResponse = await fetch("/api/pinata/signed-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ upload, authorization }),
+      signal,
     });
 
     if (!signedUrlResponse.ok) {
       const err = await signedUrlResponse.json().catch(() => ({}));
-      return {
-        success: false,
-        error: (err as { error?: string }).error || "Failed to get upload URL",
-      };
+      const error = (err as { error?: string }).error || "Failed to get upload URL";
+      console.error("Pinata signed URL error:", signedUrlResponse.status, error);
+      return { success: false, error, stage, status: signedUrlResponse.status };
     }
 
     const signedUrlResult = await signedUrlResponse.json();
     const signedUrl: string | undefined = signedUrlResult.data;
 
     if (!signedUrl) {
-      return {
-        success: false,
-        error: "No signed URL returned from server",
-      };
+      return { success: false, error: "No signed URL returned from server", stage };
     }
 
     // Step 2: Upload file directly to Pinata using the presigned URL
+    stage = "upload";
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", typedFile);
     formData.append("network", "public");
     if (name) {
       formData.append("name", name);
@@ -86,19 +104,35 @@ export async function uploadToPinata(
         name || file.name,
         file.size,
         onProgress,
+        signal,
       );
     } else {
-      result = await uploadWithFetch(signedUrl, formData, name || file.name, file.size);
+      result = await uploadWithFetch(signedUrl, formData, name || file.name, file.size, signal);
     }
 
     return result;
   } catch (error) {
-    console.error("Upload error:", error);
+    if (signal?.aborted) {
+      return { success: false, error: "Upload was cancelled", stage, cancelled: true };
+    }
+    console.error(`Upload error (${stage}):`, error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to upload file",
+      stage,
     };
   }
+}
+
+/** Rejects as soon as `signal` aborts, even if `promise` never settles. */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 /**
@@ -109,18 +143,22 @@ async function uploadWithFetch(
   formData: FormData,
   name: string,
   size: number,
+  signal?: AbortSignal,
 ): Promise<PinataUploadResponse> {
   const response = await fetch(url, {
     method: "POST",
     body: formData,
+    signal,
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("Pinata direct upload error:", errorText);
+    console.error("Pinata direct upload error:", response.status, errorText);
     return {
       success: false,
       error: `Upload failed with status ${response.status}`,
+      stage: "upload",
+      status: response.status,
     };
   }
 
@@ -137,9 +175,11 @@ function uploadWithProgress(
   name: string,
   size: number,
   onProgress: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<PinataUploadResponse> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
 
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
@@ -154,28 +194,32 @@ function uploadWithProgress(
           const result = JSON.parse(xhr.responseText);
           resolve(parsePinataResponse(result, name, size));
         } catch {
-          resolve({
-            success: false,
-            error: "Failed to parse upload response",
-          });
+          // Transfer succeeded (2xx); only the body was unreadable, so no status to report.
+          resolve({ success: false, error: "Failed to parse upload response", stage: "upload" });
         }
       } else {
-        console.error("Pinata direct upload error:", xhr.responseText);
+        console.error("Pinata direct upload error:", xhr.status, xhr.responseText);
         resolve({
           success: false,
           error: `Upload failed with status ${xhr.status}`,
+          stage: "upload",
+          status: xhr.status,
         });
       }
     });
 
     xhr.addEventListener("error", () => {
-      resolve({ success: false, error: "Network error during upload" });
+      resolve({ success: false, error: "Network error during upload", stage: "upload", status: 0 });
     });
 
     xhr.addEventListener("abort", () => {
-      resolve({ success: false, error: "Upload was cancelled" });
+      resolve({ success: false, error: "Upload was cancelled", stage: "upload", cancelled: true });
     });
 
+    if (signal?.aborted) {
+      resolve({ success: false, error: "Upload was cancelled", stage: "upload", cancelled: true });
+      return;
+    }
     xhr.open("POST", url);
     xhr.send(formData);
   });
@@ -195,6 +239,7 @@ function parsePinataResponse(
     return {
       success: false,
       error: "No CID returned from Pinata",
+      stage: "upload",
     };
   }
 

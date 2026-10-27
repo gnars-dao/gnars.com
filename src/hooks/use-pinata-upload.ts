@@ -7,8 +7,8 @@ import { uploadToPinata } from "@/lib/pinata";
 export function usePinataUpload() {
   const writer = useWriteAccount();
   return useCallback(
-    (file: File, name?: string, onProgress?: (progress: number) => void) =>
-      uploadToPinata(writer?.account, file, name, onProgress),
+    (file: File, name?: string, onProgress?: (progress: number) => void, signal?: AbortSignal) =>
+      uploadToPinata(writer?.account, file, name, onProgress, signal),
     [writer?.account],
   );
 }

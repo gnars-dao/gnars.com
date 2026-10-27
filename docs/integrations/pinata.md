@@ -22,17 +22,26 @@ API rate limits.
 
 ## Request Flow
 
-1. A component calls `usePinataUpload()` with a `File`, optional name, and optional
-   progress callback. The hook uses the current `useWriteAccount()` signer.
+1. A component calls `usePinataUpload()` with a `File`, optional name, optional
+   progress callback, and optional `AbortSignal` (cancel). The hook uses the current
+   `useWriteAccount()` signer.
 2. `src/lib/pinata.ts` validates the name, explicit MIME type, and declared byte size.
+   When the browser leaves `File.type` empty (e.g. Brave on Linux with `.MOV`),
+   `uploadMimeType()` derives it from the extension.
 3. The wallet signs a canonical request message binding the Gnars audience, Base chain,
    POST method, API path, file metadata digest, wallet address, issue time, and nonce.
 4. The browser sends `{ upload, authorization }` as small JSON to
    `POST /api/pinata/signed-url`.
 5. The server validates the payload and signature, then requests a Pinata URL with an
-   exact MIME allowlist and `max_file_size` equal to the signed declared size.
+   exact MIME allowlist and `max_file_size` equal to the signed declared size plus
+   1 MiB headroom. Pinata counts a few KB more than the file itself (measured up to
+   ~16 KB over at 80 MB), so an exact cap rejected every upload over ~500 KB with
+   `400 Uploaded file size exceeds this presigned URL's maximum file size`.
 6. The browser sends the multipart file directly to that URL. The result is converted
    into the existing `{ success, data: { cid, ipfsUrl, gatewayUrl, ... } }` shape.
+   Failures also carry `stage` (`connect`, `wallet`, `file`, `authorize`, `upload`) and
+   the HTTP `status` when there is one (`0` = network drop); aborts return
+   `cancelled: true`. `ClaimBountyModal` maps these to localized messages.
 
 The server uses viem's public-client signature verification, supporting EOA signatures
 and ERC-1271/ERC-6492 smart wallets on Base. Authorizations expire after five minutes;
@@ -41,17 +50,17 @@ requests but is not persisted as a globally single-use token.
 
 ## Limits
 
-| Control                              | Limit                                               | Enforcement                                                                      |
-| ------------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Images and audio                     | 100 MiB per file                                    | Client schema, server schema, Pinata signed size cap                             |
-| Video                                | 500 MiB per file                                    | Client schema, server schema, Pinata signed size cap                             |
-| MIME type                            | Explicit `image/*`, `video/*`, or `audio/*` subtype | Server rejects empty/wildcard/arbitrary types; Pinata receives the exact subtype |
-| Filename                             | 1-255 characters after trimming                     | Client and server schema                                                         |
-| Signing request body                 | 24,000 bytes                                        | Streamed server byte limit                                                       |
-| Signed upload URL                    | 60-second expiry                                    | Pinata                                                                           |
-| URL requests per IP                  | 60 per hour                                         | Distributed Vercel WAF; secondary local counter                                  |
-| URL requests per wallet              | 20 per hour                                         | Secondary process-local counter                                                  |
-| Authorized declared bytes per wallet | 1 GiB per hour                                      | Secondary process-local counter                                                  |
+| Control                              | Limit                                                            | Enforcement                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Images and audio                     | 100 MiB per file                                                 | Client schema, server schema, Pinata signed size cap                             |
+| Video                                | 500 MiB per file                                                 | Client schema, server schema, Pinata signed size cap                             |
+| MIME type                            | Explicit `image/*`, `video/*`, or `audio/*` subtype              | Server rejects empty/wildcard/arbitrary types; Pinata receives the exact subtype |
+| Filename                             | 1-255 characters after trimming                                  | Client and server schema                                                         |
+| Signing request body                 | 24,000 bytes                                                     | Streamed server byte limit                                                       |
+| Signed upload URL                    | 5 min + ~1 s per 50 KB, max 30 min (`signedUploadExpirySeconds`) | Pinata                                                                           |
+| URL requests per IP                  | 60 per hour                                                      | Distributed Vercel WAF; secondary local counter                                  |
+| URL requests per wallet              | 20 per hour                                                      | Secondary process-local counter                                                  |
+| Authorized declared bytes per wallet | 1 GiB per hour                                                   | Secondary process-local counter                                                  |
 
 Wallet counters reset on cold starts and are independent across function instances.
 They are **not global wallet quotas**. The byte counter measures URL authorizations,

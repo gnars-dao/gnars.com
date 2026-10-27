@@ -1,4 +1,8 @@
-import { pinataUploadSchema } from "@/lib/pinata-policy";
+import {
+  pinataUploadSchema,
+  SIGNED_UPLOAD_SIZE_HEADROOM_BYTES,
+  signedUploadExpirySeconds,
+} from "@/lib/pinata-policy";
 import {
   enforceRateLimit,
   readJsonBody,
@@ -44,9 +48,9 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         network: "public",
         date: Math.floor(Date.now() / 1000),
-        expires: 60,
+        expires: signedUploadExpirySeconds(upload.size),
         filename: upload.filename,
-        max_file_size: upload.size,
+        max_file_size: upload.size + SIGNED_UPLOAD_SIZE_HEADROOM_BYTES,
         allow_mime_types: [upload.mimeType],
         keyvalues: { wallet },
       }),
