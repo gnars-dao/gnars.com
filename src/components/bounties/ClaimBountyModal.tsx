@@ -32,6 +32,7 @@ import { sopaCalls, usePoidhSopaWrite } from "@/hooks/use-poidh-sopa-write";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { usePoidhCreateClaim } from "@/hooks/usePoidhContract";
 import type { PinataUploadResponse } from "@/lib/pinata";
+import { uploadMimeType } from "@/lib/pinata-policy";
 import { CHAIN_NAMES, getTxUrl, SUPPORTED_CHAINS } from "@/lib/poidh/config";
 import type { PoidhBounty } from "@/types/poidh";
 
@@ -118,7 +119,7 @@ export function ClaimBountyModal({
     if (!file) return;
     setUploadError(null);
 
-    const isVideo = file.type.startsWith("video/");
+    const isVideo = uploadMimeType(file).startsWith("video/");
     const maxSize = isVideo ? 500 * 1024 * 1024 : 100 * 1024 * 1024;
     if (file.size > maxSize) {
       setUploadError(t("claimModal.fileTooLarge"));

@@ -30,9 +30,20 @@ describe("uploadToPinata failure stages", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("reports a file without a MIME type as the file stage", async () => {
-    const untyped = new File([new Uint8Array(16)], "clip.mov");
+  it("reports a file without a known media type as the file stage", async () => {
+    const untyped = new File([new Uint8Array(16)], "clip.xyz");
     expect(await uploadToPinata(account, untyped)).toMatchObject({ stage: "file" });
+  });
+
+  it("uploads an untyped .MOV as video/quicktime", async () => {
+    fetchMock
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(Response.json({ data: { cid: "bafytest", size: 16 } }));
+    const untyped = new File([new Uint8Array(16)], "IMG_7910.MOV");
+    expect(await uploadToPinata(account, untyped)).toMatchObject({ success: true });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).upload.mimeType).toBe("video/quicktime");
+    const part = (fetchMock.mock.calls[1][1].body as FormData).get("file") as File;
+    expect(part.type).toBe("video/quicktime");
   });
 
   it("reports server refusals with their HTTP status", async () => {

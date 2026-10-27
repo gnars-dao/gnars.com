@@ -26,12 +26,17 @@ API rate limits.
    progress callback, and optional `AbortSignal` (cancel). The hook uses the current
    `useWriteAccount()` signer.
 2. `src/lib/pinata.ts` validates the name, explicit MIME type, and declared byte size.
+   When the browser leaves `File.type` empty (e.g. Brave on Linux with `.MOV`),
+   `uploadMimeType()` derives it from the extension.
 3. The wallet signs a canonical request message binding the Gnars audience, Base chain,
    POST method, API path, file metadata digest, wallet address, issue time, and nonce.
 4. The browser sends `{ upload, authorization }` as small JSON to
    `POST /api/pinata/signed-url`.
 5. The server validates the payload and signature, then requests a Pinata URL with an
-   exact MIME allowlist and `max_file_size` equal to the signed declared size.
+   exact MIME allowlist and `max_file_size` equal to the signed declared size plus
+   1 MiB headroom. Pinata counts a few KB more than the file itself (measured up to
+   ~16 KB over at 80 MB), so an exact cap rejected every upload over ~500 KB with
+   `400 Uploaded file size exceeds this presigned URL's maximum file size`.
 6. The browser sends the multipart file directly to that URL. The result is converted
    into the existing `{ success, data: { cid, ipfsUrl, gatewayUrl, ... } }` shape.
    Failures also carry `stage` (`connect`, `wallet`, `file`, `authorize`, `upload`) and

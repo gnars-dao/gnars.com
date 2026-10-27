@@ -11,6 +11,40 @@ export const MAX_MEDIA_UPLOAD_BYTES = 100 * 1024 * 1024;
 export function signedUploadExpirySeconds(size: number) {
   return Math.min(1800, 300 + Math.ceil(size / 50_000));
 }
+/**
+ * Pinata counts a few KB more than the file against `max_file_size` (measured: up to
+ * ~16 KB over at 80 MB), so an exact limit rejected every upload over ~500 KB.
+ */
+export const SIGNED_UPLOAD_SIZE_HEADROOM_BYTES = 1024 * 1024;
+
+const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  mov: "video/quicktime",
+  mp4: "video/mp4",
+  m4v: "video/x-m4v",
+  webm: "video/webm",
+  "3gp": "video/3gpp",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+};
+
+/**
+ * Some browsers leave `File.type` empty for media they don't know (e.g. Brave on
+ * Linux with `.MOV`); fall back to the extension so the upload isn't rejected.
+ */
+export function uploadMimeType(file: { name: string; type: string }) {
+  if (file.type && file.type !== "application/octet-stream") return file.type;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_TYPES_BY_EXTENSION[extension] ?? file.type;
+}
+
 export const pinataUploadSchema = z
   .object({
     filename: z.string().trim().min(1).max(255),

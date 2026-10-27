@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SIGNED_UPLOAD_SIZE_HEADROOM_BYTES } from "@/lib/pinata-policy";
 import { POST } from "./route";
 
 const { verifyMessage, upstream } = vi.hoisted(() => ({
@@ -36,12 +37,12 @@ describe("signed upload route", () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it("enforces a signed exact file-size and MIME limit at the upload provider", async () => {
+  it("enforces a signed file-size and MIME limit at the upload provider", async () => {
     const response = await POST(request({ upload, authorization }));
     expect(response.status).toBe(200);
     const options = upstream.mock.calls[0][1];
     expect(JSON.parse(options.body)).toMatchObject({
-      max_file_size: upload.size,
+      max_file_size: upload.size + SIGNED_UPLOAD_SIZE_HEADROOM_BYTES,
       allow_mime_types: [upload.mimeType],
       expires: 540,
     });

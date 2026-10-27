@@ -1,5 +1,5 @@
 import type { Account } from "thirdweb/wallets";
-import { pinataUploadSchema } from "@/lib/pinata-policy";
+import { pinataUploadSchema, uploadMimeType } from "@/lib/pinata-policy";
 import { signWalletRequest } from "@/lib/wallet-authorization";
 
 /** Step that failed, so callers can tell the user what went wrong. */
@@ -46,9 +46,12 @@ export async function uploadToPinata(
     stage = "file";
     const upload = pinataUploadSchema.parse({
       filename: name || file.name,
-      mimeType: file.type,
+      mimeType: uploadMimeType(file),
       size: file.size,
     });
+    // The signed URL only accepts the declared MIME type, so the file part must carry it.
+    if (file.type !== upload.mimeType)
+      file = new File([file], file.name, { type: upload.mimeType });
     stage = "wallet";
     const authorization = await signWalletRequest(account, {
       method: "POST",
