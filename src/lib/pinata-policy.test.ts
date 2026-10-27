@@ -41,5 +41,7 @@ describe("Pinata upload policy", () => {
     );
     expect(uploadMimeType({ name: "clip.mov", type: "video/mp4" })).toBe("video/mp4");
     expect(uploadMimeType({ name: "notes.xyz", type: "" })).toBe("");
+    expect(uploadMimeType({ name: "mov", type: "" })).toBe("");
+    expect(uploadMimeType({ name: ".mov", type: "" })).toBe("");
   });
 });

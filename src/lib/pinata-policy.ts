@@ -11,9 +11,12 @@ export const MAX_MEDIA_UPLOAD_BYTES = 100 * 1024 * 1024;
 export function signedUploadExpirySeconds(size: number) {
   return Math.min(1800, 300 + Math.ceil(size / 50_000));
 }
+
 /**
  * Pinata counts a few KB more than the file against `max_file_size` (measured: up to
  * ~16 KB over at 80 MB), so an exact limit rejected every upload over ~500 KB.
+ * Accepted trade-off: a file can exceed the declared size (and the hourly byte budget)
+ * by at most this much per upload. Don't shrink it to tighten the 100/500 MiB caps.
  */
 export const SIGNED_UPLOAD_SIZE_HEADROOM_BYTES = 1024 * 1024;
 
@@ -41,7 +44,8 @@ const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
  */
 export function uploadMimeType(file: { name: string; type: string }) {
   if (file.type && file.type !== "application/octet-stream") return file.type;
-  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const dot = file.name.lastIndexOf(".");
+  const extension = dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "";
   return MIME_TYPES_BY_EXTENSION[extension] ?? file.type;
 }
 

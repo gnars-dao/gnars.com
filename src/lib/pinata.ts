@@ -50,8 +50,8 @@ export async function uploadToPinata(
       size: file.size,
     });
     // The signed URL only accepts the declared MIME type, so the file part must carry it.
-    if (file.type !== upload.mimeType)
-      file = new File([file], file.name, { type: upload.mimeType });
+    const typedFile =
+      file.type === upload.mimeType ? file : new File([file], file.name, { type: upload.mimeType });
     stage = "wallet";
     const authorization = await signWalletRequest(account, {
       method: "POST",
@@ -85,7 +85,7 @@ export async function uploadToPinata(
     // Step 2: Upload file directly to Pinata using the presigned URL
     stage = "upload";
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", typedFile);
     formData.append("network", "public");
     if (name) {
       formData.append("name", name);
