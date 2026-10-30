@@ -20,6 +20,14 @@ export function signedUploadExpirySeconds(size: number) {
  */
 export const SIGNED_UPLOAD_SIZE_HEADROOM_BYTES = 1024 * 1024;
 
+/**
+ * Pinata checks the MIME it sniffs from the bytes, not the one the browser declared,
+ * so an exact allowlist 400s on legitimate media: a real `.webm` video sniffs as
+ * `audio/webm`, an MP4-in-`.mov`/`.m4v` as `video/mp4`. Media families only; the
+ * declared subtype is still validated by `pinataUploadSchema`.
+ */
+export const SIGNED_UPLOAD_MIME_TYPES = ["image/*", "video/*", "audio/*"];
+
 const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
   mov: "video/quicktime",
   mp4: "video/mp4",

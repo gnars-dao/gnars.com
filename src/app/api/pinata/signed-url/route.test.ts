@@ -43,7 +43,7 @@ describe("signed upload route", () => {
     const options = upstream.mock.calls[0][1];
     expect(JSON.parse(options.body)).toMatchObject({
       max_file_size: upload.size + SIGNED_UPLOAD_SIZE_HEADROOM_BYTES,
-      allow_mime_types: [upload.mimeType],
+      allow_mime_types: ["image/*", "video/*", "audio/*"],
       expires: 540,
     });
     expect(response.headers.get("cache-control")).toBe("no-store");

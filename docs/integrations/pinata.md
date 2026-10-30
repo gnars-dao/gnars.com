@@ -33,10 +33,14 @@ API rate limits.
 4. The browser sends `{ upload, authorization }` as small JSON to
    `POST /api/pinata/signed-url`.
 5. The server validates the payload and signature, then requests a Pinata URL with an
-   exact MIME allowlist and `max_file_size` equal to the signed declared size plus
+   media-family MIME allowlist (`image/*`, `video/*`, `audio/*`) and `max_file_size` equal to the signed declared size plus
    1 MiB headroom. Pinata counts a few KB more than the file itself (measured up to
    ~16 KB over at 80 MB), so an exact cap rejected every upload over ~500 KB with
    `400 Uploaded file size exceeds this presigned URL's maximum file size`.
+   Pinata matches the allowlist against the MIME it sniffs from the bytes, not the
+   declared one: a real `.webm` video sniffs as `audio/webm` and MP4 content in a
+   `.mov`/`.m4v` as `video/mp4`, so an exact-subtype allowlist failed those with
+   `400 Presigned URL does not grant permissions to upload detected MIME type`.
 6. The browser sends the multipart file directly to that URL. The result is converted
    into the existing `{ success, data: { cid, ipfsUrl, gatewayUrl, ... } }` shape.
    Failures also carry `stage` (`connect`, `wallet`, `file`, `authorize`, `upload`) and
@@ -50,17 +54,17 @@ requests but is not persisted as a globally single-use token.
 
 ## Limits
 
-| Control                              | Limit                                                            | Enforcement                                                                      |
-| ------------------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Images and audio                     | 100 MiB per file                                                 | Client schema, server schema, Pinata signed size cap                             |
-| Video                                | 500 MiB per file                                                 | Client schema, server schema, Pinata signed size cap                             |
-| MIME type                            | Explicit `image/*`, `video/*`, or `audio/*` subtype              | Server rejects empty/wildcard/arbitrary types; Pinata receives the exact subtype |
-| Filename                             | 1-255 characters after trimming                                  | Client and server schema                                                         |
-| Signing request body                 | 24,000 bytes                                                     | Streamed server byte limit                                                       |
-| Signed upload URL                    | 5 min + ~1 s per 50 KB, max 30 min (`signedUploadExpirySeconds`) | Pinata                                                                           |
-| URL requests per IP                  | 60 per hour                                                      | Distributed Vercel WAF; secondary local counter                                  |
-| URL requests per wallet              | 20 per hour                                                      | Secondary process-local counter                                                  |
-| Authorized declared bytes per wallet | 1 GiB per hour                                                   | Secondary process-local counter                                                  |
+| Control                              | Limit                                                            | Enforcement                                                                                                |
+| ------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Images and audio                     | 100 MiB per file                                                 | Client schema, server schema, Pinata signed size cap                                                       |
+| Video                                | 500 MiB per file                                                 | Client schema, server schema, Pinata signed size cap                                                       |
+| MIME type                            | Explicit `image/*`, `video/*`, or `audio/*` subtype              | Server rejects empty/wildcard/arbitrary types; Pinata allows any media family (it sniffs, see Flow step 5) |
+| Filename                             | 1-255 characters after trimming                                  | Client and server schema                                                                                   |
+| Signing request body                 | 24,000 bytes                                                     | Streamed server byte limit                                                                                 |
+| Signed upload URL                    | 5 min + ~1 s per 50 KB, max 30 min (`signedUploadExpirySeconds`) | Pinata                                                                                                     |
+| URL requests per IP                  | 60 per hour                                                      | Distributed Vercel WAF; secondary local counter                                                            |
+| URL requests per wallet              | 20 per hour                                                      | Secondary process-local counter                                                                            |
+| Authorized declared bytes per wallet | 1 GiB per hour                                                   | Secondary process-local counter                                                                            |
 
 Wallet counters reset on cold starts and are independent across function instances.
 They are **not global wallet quotas**. The byte counter measures URL authorizations,

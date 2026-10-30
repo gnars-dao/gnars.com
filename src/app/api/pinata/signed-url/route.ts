@@ -1,5 +1,6 @@
 import {
   pinataUploadSchema,
+  SIGNED_UPLOAD_MIME_TYPES,
   SIGNED_UPLOAD_SIZE_HEADROOM_BYTES,
   signedUploadExpirySeconds,
 } from "@/lib/pinata-policy";
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
         expires: signedUploadExpirySeconds(upload.size),
         filename: upload.filename,
         max_file_size: upload.size + SIGNED_UPLOAD_SIZE_HEADROOM_BYTES,
-        allow_mime_types: [upload.mimeType],
+        allow_mime_types: SIGNED_UPLOAD_MIME_TYPES,
         keyvalues: { wallet },
       }),
       signal: AbortSignal.timeout(15_000),
