@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import Image from "@/components/ui/content-image";
 import { Link } from "@/i18n/navigation";
@@ -33,6 +33,8 @@ export interface FanCard {
   description: string;
   /** Reward, already formatted to 4dp. */
   eth: string;
+  /** Reward unit. Sopa bounties can pay in USDC; poidh ones are always ETH. */
+  symbol?: string;
   usd: string;
   age: string;
   chain: string;
@@ -40,8 +42,15 @@ export interface FanCard {
   statusTone: "open" | "voting" | "closed";
   serial: string;
   rarity: Rarity;
-  /** The bounty on poidh.xyz — where a claim is actually submitted. */
+  /**
+   * Where a claim is actually submitted: poidh.xyz for poidh bounties, this
+   * site's own page for Sopa ones (the Gnars fork has no poidh.xyz page).
+   */
   poidhUrl: string;
+  /** `sopa` = created on this site through the PoidhSopa contract. */
+  source?: "poidh" | "sopa";
+  /** Issued by the Gnars team: the card carries the team mark. */
+  featured?: boolean;
   /** The bounty on this site. */
   href: string;
 }
@@ -213,13 +222,22 @@ function Card({
             >
               {card.code}
             </span>
-            <span
-              aria-hidden
-              className="whitespace-nowrap text-[17px] tracking-[.02em] text-white/45"
-              style={{ textShadow: `0 0 12px ${color}55` }}
-            >
-              ⌐◨-◨
-            </span>
+            {card.featured ? (
+              <span
+                className="whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold tracking-[.1em]"
+                style={{ fontFamily: MONO, color, border: `1px solid ${color}88` }}
+              >
+                ⌐◨-◨ {t("card.team")}
+              </span>
+            ) : (
+              <span
+                aria-hidden
+                className="whitespace-nowrap text-[17px] tracking-[.02em] text-white/45"
+                style={{ textShadow: `0 0 12px ${color}55` }}
+              >
+                ⌐◨-◨
+              </span>
+            )}
           </div>
 
           <div>
@@ -227,7 +245,7 @@ function Card({
               {card.title}
             </h3>
             <p className="mt-[5px] text-[11px] text-neutral-400">
-              {card.category} · {t("card.type")}
+              {card.category} · {t(card.source === "sopa" ? "card.typeSopa" : "card.type")}
             </p>
           </div>
 
@@ -327,7 +345,7 @@ function Card({
               className="text-[11px] font-bold tracking-[.3em] text-white/60"
               style={{ fontFamily: MONO }}
             >
-              ETH
+              {card.symbol ?? "ETH"}
             </span>
             <span
               className="text-[11.5px] font-semibold text-[#4ade80]"
@@ -421,21 +439,31 @@ function Card({
           <div className="flex items-center justify-between rounded-[9px] border border-white/10 bg-black/35 px-3 py-[9px]">
             <span className="text-[10px] tracking-[.08em] text-[#8a8a8a]">{t("back.reward")}</span>
             <span className="text-[15px] font-extrabold text-white" style={{ fontFamily: MONO }}>
-              {card.eth} ETH{" "}
+              {card.eth} {card.symbol ?? "ETH"}{" "}
               <span className="text-[10.5px] font-semibold text-[#4ade80]">{card.usd}</span>
             </span>
           </div>
 
           <div className="flex flex-col gap-[7px]">
-            <a
-              href={card.poidhUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={stop}
-              className="block rounded-lg bg-neutral-50 py-2.5 text-center text-[12.5px] font-bold text-neutral-900 hover:opacity-90"
-            >
-              {t("back.submitClaim")}
-            </a>
+            {card.source === "sopa" ? (
+              <Link
+                href={card.poidhUrl}
+                onClick={stop}
+                className="block rounded-lg bg-neutral-50 py-2.5 text-center text-[12.5px] font-bold text-neutral-900 hover:opacity-90"
+              >
+                {t("back.submitClaim")}
+              </Link>
+            ) : (
+              <a
+                href={card.poidhUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={stop}
+                className="block rounded-lg bg-neutral-50 py-2.5 text-center text-[12.5px] font-bold text-neutral-900 hover:opacity-90"
+              >
+                {t("back.submitClaim")}
+              </a>
+            )}
             <Link
               href={card.href}
               onClick={stop}
@@ -455,6 +483,30 @@ function Card({
 }
 
 /**
+ * Deal the hand centre-out so the Legendary sits in the middle: rank 1 takes the
+ * centre slot, then 2, 3, 4… alternate right and left of it. Without this the
+ * fan would run richest-to-poorest left-to-right and bury the headline bounty.
+ * Only the fan is dealt: the phone's snap row reads left to right, so it keeps
+ * rank order and opens on the headline card.
+ */
+function dealCenterOut<T>(ranked: T[]): T[] {
+  const slots: T[] = new Array(ranked.length);
+  const centre = Math.floor((ranked.length - 1) / 2);
+  let right = centre;
+  let left = centre;
+  ranked.forEach((item, rank) => {
+    if (rank === 0) {
+      slots[centre] = item;
+    } else if (rank % 2 === 1) {
+      slots[++right] = item;
+    } else {
+      slots[--left] = item;
+    }
+  });
+  return slots.filter(Boolean);
+}
+
+/**
  * The hand.
  *
  * Six rarity-tiered cards fanned around whichever one is selected, with the row
@@ -463,7 +515,12 @@ function Card({
  * over. Below 769px the fan is meaningless on a phone-width viewport, so the
  * same cards render upright in a snap-scroll row — the flip still works there.
  */
-export function BountyCardFan({ cards }: { cards: FanCard[] }) {
+export function BountyCardFan({
+  /** Rank order, headline first. The fan deals them centre-out; the phone row keeps it. */
+  cards,
+}: {
+  cards: FanCard[];
+}) {
   const t = useTranslations("newhome.bounties");
   // The Legendary is dealt to index 2, so that is where the hand opens.
   const [idx, setIdx] = useState(2);
@@ -479,6 +536,8 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
   }, [cards.length]);
 
   const active = cards.length > 0 ? Math.min(idx, cards.length - 1) : 0;
+
+  const fan = useMemo(() => dealCenterOut(cards), [cards]);
 
   const toggleFlip = useCallback((id: string) => {
     setFlippedId((current) => (current === id ? null : id));
@@ -545,7 +604,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
           rises 30px out of the row, from colliding with the legend. */}
       <div className="relative mb-8 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-2.5 min-[769px]:mb-[84px]">
         <div className="flex flex-wrap items-center">
-          {cards.map((card, i) => (
+          {fan.map((card, i) => (
             <button
               key={card.id}
               type="button"
@@ -587,7 +646,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
           transition: "transform .3s",
         }}
       >
-        {cards.map((card, i) => {
+        {fan.map((card, i) => {
           const off = i - active;
           const a = Math.abs(off);
           const raised = off === 0;
@@ -637,7 +696,7 @@ export function BountyCardFan({ cards }: { cards: FanCard[] }) {
             <Card
               card={card}
               index={i}
-              raised={flippedId === card.id || i === active}
+              raised={flippedId === card.id || card.id === fan[active]?.id}
               flipped={flippedId === card.id}
               onPick={() => toggleFlip(card.id)}
             />

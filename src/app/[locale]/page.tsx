@@ -10,9 +10,10 @@ import { SwapSection } from "@/components/newhome/SwapSection";
 import { TVHeroSection } from "@/components/newhome/TVHeroSection";
 import { NOGGLES_RAILS } from "@/content/nogglesrails";
 import { RouteMessages } from "@/i18n/RouteMessages";
-import { DAO_ADDRESSES } from "@/lib/config";
+import { DAO_ADDRESSES, isPoidhSopaEnabled } from "@/lib/config";
 import { fetchDaoStats } from "@/services/dao";
 import { fetchPoidhBounties } from "@/services/poidh";
+import { fetchSopaBounties } from "@/services/poidh-sopa";
 import { loadTreasurySnapshot } from "@/services/treasury";
 
 export const revalidate = 300;
@@ -66,7 +67,7 @@ function formatLargeNumber(value: number): string {
  * Built as the /newhome experiment and promoted to `/` once it was reviewed
  * section by section; the page it replaced still exists at /oldhome as a
  * noindex rollback reference. Everything that can be real is real — DAO stats,
- * treasury, poidh bounties, the rails dataset, the TV feed, the live auction.
+ * treasury, poidh + Sopa bounties, the rails dataset, the TV feed, the live auction.
  *
  * Its components and messages still live under `newhome/` — renaming them would
  * collide with the `home/` components that /oldhome still uses. That rename is
@@ -78,10 +79,12 @@ export default async function Home({ params }: { params: Promise<{ locale: strin
 
   const t = await getTranslations("newhome");
 
-  const [daoStats, treasury, bounties] = await Promise.all([
+  const [daoStats, treasury, bounties, sopa] = await Promise.all([
     fetchDaoStats().catch(() => null),
     loadTreasurySnapshot(DAO_ADDRESSES.treasury).catch(() => null),
     fetchPoidhBounties({ status: "open", limit: 100, filterGnarly: true }).catch(() => undefined),
+    // Our own window, not the service's 60 s default, which would cut the page's ISR to 1 min.
+    isPoidhSopaEnabled() ? fetchSopaBounties(revalidate).catch(() => undefined) : undefined,
   ]);
 
   const treasuryLabel =
@@ -117,7 +120,12 @@ export default async function Home({ params }: { params: Promise<{ locale: strin
         <StakeSection />
         <Interlude eyebrow={t("stake.whyEyebrow")}>{t("stake.whyBody")}</Interlude>
 
-        <BountiesSection initialBounties={bounties} initialUnavailable={!bounties} />
+        {/* A partial Sopa read must not be baked into the ISR page; the client refetches it. */}
+        <BountiesSection
+          initialBounties={bounties}
+          initialSopa={sopa?.partial ? undefined : sopa}
+          initialUnavailable={!bounties}
+        />
         <Interlude eyebrow={t("bounties.whyEyebrow")} eyebrowClassName="text-[#FF2D2D]">
           {t("bounties.whyBody")}
         </Interlude>

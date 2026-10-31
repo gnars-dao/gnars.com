@@ -4,17 +4,30 @@ import { useMemo } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { BountyCardFan, type FanCard, type Rarity } from "@/components/bounties/BountyCardFan";
 import { formatEthToUsd, useEthPrice } from "@/hooks/use-eth-price";
+import { usePoidhSopaBounties } from "@/hooks/use-poidh-sopa-bounties";
 import { usePoidhBounties, type PoidhBountiesResponse } from "@/hooks/usePoidhBounties";
 import { Link } from "@/i18n/navigation";
+import { isPoidhSopaEnabled } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
+import { isSopaCategory } from "@/lib/poidh-sopa/categories";
+import { formatTokenAmount } from "@/lib/poidh-sopa/tokens";
+import type { SopaBountiesResult } from "@/lib/poidh-sopa/types";
 import { CHAIN_NAMES } from "@/lib/poidh/config";
-import { DISCIPLINE_CODE, selectShowcaseBounties, showcasePool } from "./bounty-hand";
+import {
+  DISCIPLINE_CODE,
+  entryUsd,
+  handTotals,
+  rankHand,
+  selectShowcaseBounties,
+  selectSopaShowcase,
+  sopaCode,
+} from "./bounty-hand";
 import { SectionHeading, SHELL, StatTile } from "./primitives";
 
 /** How many cards the hand holds. Six is the widest fan that still reads at 1152px. */
 const HAND_SIZE = 6;
 
-/** Rarity by rank within the hand: the richest bounty is the Legendary. */
+/** Rarity by rank within the hand: the headline bounty (see `rankHand`) is the Legendary. */
 const RANK_RARITY: Rarity[] = ["legendary", "epic", "rare", "rare", "uncommon", "common"];
 
 /** poidh's own route for a bounty — where a claim is actually submitted. */
@@ -22,32 +35,14 @@ const POIDH_CHAIN_SLUG: Record<number, string> = { 8453: "base", 42161: "arbitru
 
 /** The card back shows prose, so the markdown thumbnail is pulled back out. */
 function stripMarkdownImages(text: string): string {
-  return text
-    .replace(/!\[.*?\]\(.*?\)/g, "")
-    .replace(/Thumbnail:\s*/gi, "")
-    .trim();
-}
-
-/**
- * Deal the hand centre-out so the Legendary sits in the middle: rank 1 takes the
- * centre slot, then 2, 3, 4… alternate right and left of it. Without this the
- * fan would run richest-to-poorest left-to-right and bury the headline bounty.
- */
-function dealCenterOut<T>(ranked: T[]): T[] {
-  const slots: T[] = new Array(ranked.length);
-  const centre = Math.floor((ranked.length - 1) / 2);
-  let right = centre;
-  let left = centre;
-  ranked.forEach((item, rank) => {
-    if (rank === 0) {
-      slots[centre] = item;
-    } else if (rank % 2 === 1) {
-      slots[++right] = item;
-    } else {
-      slots[--left] = item;
-    }
-  });
-  return slots.filter(Boolean);
+  return (
+    text
+      .replace(/!\[.*?\]\(.*?\)/g, "")
+      // An image whose `!` was dropped still renders as a bare link to the file.
+      .replace(/\[\]\(.*?\)/g, "")
+      .replace(/Thumbnail:\s*/gi, "")
+      .trim()
+  );
 }
 
 export function BountiesSection({
@@ -57,15 +52,18 @@ export function BountiesSection({
    * instead of popping in after hydration.
    */
   initialBounties,
+  initialSopa,
   initialUnavailable = false,
 }: {
   initialBounties?: PoidhBountiesResponse;
+  initialSopa?: SopaBountiesResult;
   initialUnavailable?: boolean;
 }) {
   const t = useTranslations("newhome.bounties");
   const tb = useTranslations("bounties");
   const status = useTranslations("newhome");
   const locale = useLocale();
+  const intlLocale = toIntlLocale(locale);
   const { ethPrice } = useEthPrice();
   const { data, isLoading, isError } = usePoidhBounties({
     status: "open",
@@ -73,19 +71,69 @@ export function BountiesSection({
     filterGnarly: true,
     initialData: initialBounties,
   });
-  const unavailable = !data && (isError || initialUnavailable);
-  const pendingValue = unavailable ? status("dataUnavailable") : "…";
+  const sopaQuery = usePoidhSopaBounties(initialSopa);
+  const sopaData = sopaQuery.data;
 
-  const bounties = useMemo(() => data?.bounties ?? [], [data]);
+  // Each source fails on its own: one being down must not hide the other's cards.
+  const poidhFailed = !data && (isError || initialUnavailable);
+  const sopaFailed = isPoidhSopaEnabled() && !sopaData && sopaQuery.isError;
+  const sopaReady = !isPoidhSopaEnabled() || Boolean(sopaData);
+  // The tiles are totals: with a source missing they would understate, so they
+  // read as unavailable rather than as a smaller number.
+  const totalsReady = Boolean(data) && sopaReady;
+  const totalsFailed = poidhFailed || sopaFailed;
+  const pendingValue = totalsFailed ? status("dataUnavailable") : "…";
 
-  const { hand, pool, showcaseCount } = useMemo(() => {
-    const ranked = selectShowcaseBounties(bounties);
-    const total = showcasePool(ranked);
-    const top = ranked.slice(0, HAND_SIZE);
+  const { hand, count, eth, stableUsd } = useMemo(() => {
+    const ranked = rankHand(
+      selectSopaShowcase(sopaData?.bounties ?? []),
+      selectShowcaseBounties(data?.bounties ?? []),
+      ethPrice,
+    );
+    const total = ranked.length;
 
-    const cards: FanCard[] = top.map(({ bounty: b, discipline, eth }, rank) => {
+    const serialOf = (rank: number) =>
+      `${String(rank + 1).padStart(3, "0")} / ${String(total).padStart(3, "0")}`;
+    const ageOf = (createdAt: number) => {
       // eslint-disable-next-line react-hooks/purity -- intentional render-time clock read for the "Xd" age label
-      const daysAgo = Math.max(0, Math.floor((Date.now() - b.createdAt * 1000) / 86_400_000));
+      const daysAgo = Math.max(0, Math.floor((Date.now() - createdAt * 1000) / 86_400_000));
+      return daysAgo === 0 ? tb("card.today") : `${daysAgo}d`;
+    };
+    const usdOf = (value: number | null) =>
+      value === null ? "—" : formatEthToUsd(value, 1, intlLocale);
+
+    const cards: FanCard[] = ranked.slice(0, HAND_SIZE).map((entry, rank) => {
+      const usd = usdOf(entryUsd(entry, ethPrice));
+
+      if (entry.kind === "sopa") {
+        const { bounty: b, token, team } = entry.sopa;
+        const decimals = token?.decimals ?? 18;
+        const href = `/community/bounties/sopa/${b.id}`;
+        return {
+          id: `sopa-${b.id}`,
+          href,
+          poidhUrl: href,
+          source: "sopa" as const,
+          featured: team,
+          code: sopaCode(b),
+          category: isSopaCategory(b.category)
+            ? tb(`sopa.categories.${b.category}`)
+            : (b.category ?? ""),
+          title: b.title,
+          description: stripMarkdownImages(b.description),
+          eth: formatTokenAmount(b.amount, decimals, decimals <= 6 ? 2 : 4),
+          symbol: token?.symbol ?? "?",
+          usd,
+          age: ageOf(b.createdAt),
+          chain: CHAIN_NAMES[8453],
+          status: tb("status.open"),
+          statusTone: "open" as const,
+          serial: serialOf(rank),
+          rarity: RANK_RARITY[rank] ?? "common",
+        };
+      }
+
+      const { bounty: b, discipline, eth } = entry.item;
       const statusTone = b.isCanceled
         ? ("closed" as const)
         : b.isVoting
@@ -108,22 +156,24 @@ export function BountiesSection({
         title: b.title || b.name,
         description: stripMarkdownImages(b.description),
         eth: eth.toFixed(4),
-        usd: formatEthToUsd(eth, ethPrice, toIntlLocale(locale)),
-        age: daysAgo === 0 ? tb("card.today") : `${daysAgo}d`,
+        usd,
+        age: ageOf(b.createdAt),
         chain: CHAIN_NAMES[b.chainId as keyof typeof CHAIN_NAMES] ?? "—",
         status: tb(`status.${statusTone}`),
         statusTone,
-        serial: `${String(rank + 1).padStart(3, "0")} / ${String(ranked.length).padStart(3, "0")}`,
+        serial: serialOf(rank),
         rarity: RANK_RARITY[rank] ?? "common",
       };
     });
 
-    return {
-      hand: dealCenterOut(cards),
-      pool: total,
-      showcaseCount: ranked.length,
-    };
-  }, [bounties, ethPrice, locale, t, tb]);
+    return { hand: cards, count: total, ...handTotals(ranked) };
+  }, [data, sopaData, ethPrice, intlLocale, t, tb]);
+
+  // ETH needs a price; USDC is already dollars. Unknown only when ETH is in the
+  // pool and there is no price to convert it with.
+  const usdTotal =
+    eth > 0 && !(ethPrice > 0) ? null : (ethPrice > 0 ? eth * ethPrice : 0) + stableUsd;
+  const bothFailed = poidhFailed && (sopaFailed || !isPoidhSopaEnabled());
 
   return (
     <section id="bounties" className="px-4 py-10 sm:px-6 sm:py-18">
@@ -139,17 +189,17 @@ export function BountiesSection({
           aside={
             <>
               <StatTile
-                value={data ? `${pool.toFixed(2)} ETH` : pendingValue}
+                value={totalsReady ? `${eth.toFixed(2)} ETH` : pendingValue}
                 label={t("stats.pool")}
               />
-              <StatTile value={data ? showcaseCount : pendingValue} label={t("stats.open")} />
+              <StatTile value={totalsReady ? count : pendingValue} label={t("stats.open")} />
               <StatTile
                 value={
-                  !data
+                  !totalsReady
                     ? pendingValue
-                    : ethPrice > 0
-                      ? formatEthToUsd(pool, ethPrice, toIntlLocale(locale))
-                      : status("dataUnavailable")
+                    : usdTotal === null
+                      ? status("dataUnavailable")
+                      : formatEthToUsd(usdTotal, 1, intlLocale)
                 }
                 label={t("stats.usd")}
               />
@@ -157,16 +207,23 @@ export function BountiesSection({
           }
         />
 
-        {unavailable ? (
+        {bothFailed ? (
           <p role="status" className="py-8 text-sm text-muted-foreground">
             {status("gov.loadFailed")}
           </p>
-        ) : isLoading && hand.length === 0 ? (
+        ) : (isLoading || sopaQuery.isLoading) && hand.length === 0 ? (
           <div className="flex h-[420px] items-center justify-center rounded-[22px] border border-border bg-muted/30 font-mono text-sm text-muted-foreground/70">
             …
           </div>
         ) : (
-          <BountyCardFan cards={hand} />
+          <>
+            {(poidhFailed || sopaFailed) && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {t(poidhFailed ? "partial.poidh" : "partial.sopa")}
+              </p>
+            )}
+            <BountyCardFan cards={hand} />
+          </>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card px-6 py-5">
