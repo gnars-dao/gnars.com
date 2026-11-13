@@ -62,6 +62,15 @@ Add an entry to `POIDH_SOPA.tokens` in `src/lib/config.ts`:
 
 Nothing else changes: the create modal, cards, detail page, pool stats and withdrawal banner all read that list. Bounties in a token missing from the list still render, with `?` as the symbol and 18 decimals assumed.
 
+## Homepage hand
+
+The homepage bounty fan (`src/components/newhome/BountiesSection.tsx`, ranking in `bounty-hand.ts`) mixes open Sopa bounties (any category) with poidh V3 skate/surf ones:
+
+1. Bounties issued by a `POIDH_SOPA.teamIssuers` wallet lead, newest first, and carry the "Gnars Team" mark.
+2. Everything else (community Sopa + poidh) is ranked by USD value (USDC at face value), so a near-zero bounty from anyone sinks instead of taking the Legendary slot.
+
+To feature a team member's bounties, add their wallet to `POIDH_SOPA.teamIssuers` in `src/lib/config.ts`. Each source fails on its own: if one read fails the other's cards still render, with a notice, and the totals read as unavailable.
+
 ## Categories
 
 `src/lib/poidh-sopa/categories.ts` (`skate, tech, surf, snow, art, parkour, music, weed, creative`). The contract accepts any 1–32 byte slug; the UI only offers this list. Labels live in `messages/*/bounties.json` → `sopa.categories`.
