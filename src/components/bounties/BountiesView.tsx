@@ -65,7 +65,9 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
   const [status, setStatus] = useState<"open" | "closed" | "voting" | "all">("open");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterGnarly] = useState(false);
-  const [categoryFilter, setCategoryFilter] = useState<string>("skate");
+  // Show the newest bounties from every category by default. Users can narrow
+  // the list after it loads; starting on skate hid recent Sopa/community bounties.
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const sopaEnabled = isPoidhSopaEnabled();
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 

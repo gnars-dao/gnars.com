@@ -4,7 +4,7 @@ import { matchesGnarsKeywords } from "@/lib/poidh/keywords";
 import type { PoidhBounty, PoidhClaim } from "@/types/poidh";
 
 const POIDH_TRPC = "https://poidh.xyz/api/trpc";
-const LIST_CACHE_TTL = 60 * 15; // 15 minutes
+const LIST_CACHE_TTL = 60; // 1 minute; new bounties should appear promptly
 const DETAIL_CACHE_TTL = 60; // 1 minute
 
 const SUPPORTED_CHAIN_IDS: number[] = Object.values(SUPPORTED_CHAINS);
