@@ -35,28 +35,31 @@ Verbs that derive from kept-English nouns: write them PT-style around the Englis
 
 ### Specific term mapping
 
-| English                      | PT-BR               | Notes                             |
-| ---------------------------- | ------------------- | --------------------------------- |
-| Connect wallet               | Conectar wallet     | keep "wallet"                     |
-| Place bid                    | Dar Lance           |                                   |
-| Create proposal              | Criar Proposta      |                                   |
-| Vote against                 | Votar contra        |                                   |
-| Vote for                     | Votar a favor       |                                   |
-| Abstain                      | Abster              |                                   |
-| Loading…                     | Carregando…         |                                   |
-| Something went wrong         | Algo deu errado     |                                   |
-| Not found                    | Não encontrado      |                                   |
-| Empty / nothing here yet     | Nada por aqui ainda |                                   |
-| Skater                       | Skatista            | OK to localize                    |
-| Community                    | Comunidade          |                                   |
-| Members                      | Membros             |                                   |
-| Treasury                     | Tesouro             |                                   |
-| Governance                   | Governança          |                                   |
-| Auction                      | Leilão              |                                   |
-| Delegation                   | Delegação           |                                   |
-| Coin proposal (wizard label) | Proposta de Coin    | translate "proposal", keep "coin" |
-| Onchain                      | Onchain             | keep                              |
-| Mainnet / Base               | Mainnet / Base      | keep                              |
+| English                      | PT-BR               | Notes                               |
+| ---------------------------- | ------------------- | ----------------------------------- |
+| Connect wallet               | Conectar wallet     | keep "wallet"                       |
+| Place bid                    | Dar Lance           |                                     |
+| Create proposal              | Criar Proposta      |                                     |
+| Vote against                 | Votar contra        |                                     |
+| Vote for                     | Votar a favor       |                                     |
+| Abstain                      | Abster              |                                     |
+| Loading…                     | Carregando…         |                                     |
+| Something went wrong         | Algo deu errado     |                                     |
+| Not found                    | Não encontrado      |                                     |
+| Empty / nothing here yet     | Nada por aqui ainda |                                     |
+| Skater                       | Skatista            | OK to localize                      |
+| Community                    | Comunidade          |                                     |
+| Members                      | Membros             |                                     |
+| Treasury                     | Tesouro             |                                     |
+| Governance                   | Governança          |                                     |
+| Auction                      | Leilão              |                                     |
+| Delegation                   | Delegação           |                                     |
+| Coin proposal (wizard label) | Proposta de Coin    | translate "proposal", keep "coin"   |
+| Onchain                      | Onchain             | keep                                |
+| Resolve vote (bounty)        | Apurar votação      | counting the result, not "resolver" |
+| Prize pool                   | Prêmio              | don't keep "prize pool" in PT       |
+| Issuer (bounty)              | Criador             | not "emissor"                       |
+| Mainnet / Base               | Mainnet / Base      | keep                                |
 
 ### Style rules
 
