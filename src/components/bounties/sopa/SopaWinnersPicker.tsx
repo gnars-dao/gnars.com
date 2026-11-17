@@ -2,12 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { AlertCircle, Loader2, Trophy } from "lucide-react";
+import { AlertCircle, Loader2, Trophy, Vote } from "lucide-react";
+import { useReadContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { sopaCalls, usePoidhSopaWrite } from "@/hooks/use-poidh-sopa-write";
+import { POIDH_SOPA } from "@/lib/config";
+import { POIDH_SOPA_ABI } from "@/lib/poidh-sopa/abi";
 import {
   equalSplitPercents,
   MAX_WINNERS,
@@ -23,10 +26,13 @@ interface SopaWinnersPickerProps {
   onDone: () => void;
 }
 
+type Mode = "pay" | "vote";
+
 /**
- * Issuer picks 1–10 claims and a % split. Solo bounties (and open bounties that never
- * had an outside contributor) pay at once with `acceptClaims`; open bounties with
- * contributors go to a contributor vote with `submitWinnersForVote`.
+ * Issuer picks 1–10 claims and a % split. Solo bounties pay at once with `acceptClaims`.
+ * Open bounties with outside contributors must go to a contributor vote
+ * (`submitWinnersForVote`). Open bounties funded only by the issuer can do either: pay
+ * now, or close to new claims behind a vote that passes on the issuer's weight alone.
  */
 export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
   const t = useTranslations("bounties");
@@ -34,7 +40,19 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
   const [selected, setSelected] = useState<number[]>([]);
   const [percents, setPercents] = useState<string[]>([]);
 
-  const needsVote = Boolean(bounty.isOpenBounty && bounty.everHadExternalContributor);
+  const mustVote = Boolean(bounty.isOpenBounty && bounty.everHadExternalContributor);
+  const canChoose = Boolean(bounty.isOpenBounty) && !mustVote;
+  const [mode, setMode] = useState<Mode>("pay");
+  const needsVote = mustVote || (canChoose && mode === "vote");
+
+  const { data: votingPeriod } = useReadContract({
+    address: POIDH_SOPA.address ?? undefined,
+    abi: POIDH_SOPA_ABI,
+    functionName: "votingPeriod",
+    chainId: POIDH_SOPA.chainId,
+    query: { enabled: !!POIDH_SOPA.address && Boolean(bounty.isOpenBounty) },
+  });
+  const voteHours = typeof votingPeriod === "bigint" ? String(votingPeriod / 3600n) : null;
   const candidates = bounty.claims.filter((c) => !c.accepted);
   const token = findSopaToken(bounty.token);
   const decimals = token?.decimals ?? 18;
@@ -91,11 +109,52 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
           <Trophy className="w-4 h-4 text-primary" />
           {t("sopa.winners.title")}
         </CardTitle>
-        <CardDescription>
-          {needsVote ? t("sopa.winners.voteDescription") : t("sopa.winners.payDescription")}
-        </CardDescription>
+        {!canChoose && (
+          <CardDescription>
+            {mustVote ? t("sopa.winners.voteDescription") : t("sopa.winners.payDescription")}
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
+        {canChoose && (
+          <div className="space-y-2">
+            <div
+              role="group"
+              aria-label={t("sopa.winners.modeLabel")}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-1 rounded-md bg-muted p-1"
+            >
+              {(["pay", "vote"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={mode === m}
+                  disabled={write.isPending}
+                  onClick={() => setMode(m)}
+                  className={cn(
+                    "flex min-h-10 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed",
+                    mode === m
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {m === "pay" ? (
+                    <Trophy className="w-3.5 h-3.5" />
+                  ) : (
+                    <Vote className="w-3.5 h-3.5" />
+                  )}
+                  {m === "pay" ? t("sopa.winners.modePay") : t("sopa.winners.modeVote")}
+                </button>
+              ))}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {mode === "pay"
+                ? t("sopa.winners.payDescription")
+                : voteHours
+                  ? t("sopa.winners.closeForVoteDescription", { hours: voteHours })
+                  : t("sopa.winners.closeForVoteDescriptionNoPeriod")}
+            </p>
+          </div>
+        )}
         <ul className="space-y-2">
           {candidates.map((claim) => {
             const idx = selected.indexOf(claim.id);
@@ -105,7 +164,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
               <li
                 key={claim.id}
                 className={cn(
-                  "flex items-center gap-3 rounded-md border px-3 py-2",
+                  "flex items-center gap-2 sm:gap-3 rounded-md border px-2.5 sm:px-3 py-2",
                   isSelected ? "border-primary/50 bg-primary/5" : "border-border",
                 )}
               >
@@ -122,7 +181,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
                   <span className="font-medium truncate block">
                     #{claim.id} · {claim.name || t("sopa.claimFallback", { id: claim.id })}
                   </span>
-                  <span className="text-xs text-muted-foreground font-mono">
+                  <span className="block truncate text-xs text-muted-foreground font-mono">
                     {claim.issuer.slice(0, 6)}…{claim.issuer.slice(-4)}
                   </span>
                 </label>
@@ -132,7 +191,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
                       inputMode="decimal"
                       value={percents[idx] ?? ""}
                       onChange={(e) => setPercent(idx, e.target.value)}
-                      className="h-8 w-20 text-right tabular-nums"
+                      className="h-8 w-16 px-2 sm:w-20 text-right tabular-nums"
                       aria-label={t("sopa.winners.shareLabel", { id: claim.id })}
                       disabled={write.isPending}
                     />

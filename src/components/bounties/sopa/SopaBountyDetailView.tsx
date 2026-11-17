@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  Settings2,
   Trophy,
   Users,
 } from "lucide-react";
@@ -46,6 +47,7 @@ import { getExplorerUrl, getTxUrl } from "@/lib/poidh/config";
 import { SopaCategoryChip, SopaSourceBadge, SopaStatusBadge } from "./SopaBountyCard";
 import { SopaVotePanel } from "./SopaVotePanel";
 import { SopaWinnersPicker } from "./SopaWinnersPicker";
+import { SopaWithdrawalBanner } from "./SopaWithdrawalBanner";
 import { useSopaWallet } from "./use-sopa-wallet";
 
 /** What the bounty is worth: live escrow, or what was paid / committed once it closed. */
@@ -173,6 +175,13 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
         </Link>
       </Button>
 
+      {/* Winners and refunded issuers withdraw here, not only from the list page */}
+      {address && (
+        <div className="mb-6 space-y-2 empty:hidden">
+          <SopaWithdrawalBanner userAddress={address as `0x${string}`} />
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -213,6 +222,85 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
               <Markdown>{bounty.description}</Markdown>
             </CardContent>
           </Card>
+
+          {/* Manage (issuer): what to do next, and the way out */}
+          {isIssuer && (isActive || bounty.status === "voting") && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Settings2 className="w-4 h-4" />
+                  {t("sopa.manage.title")}
+                </CardTitle>
+                <CardDescription>
+                  {bounty.status === "voting"
+                    ? t("sopa.manage.votingLocked")
+                    : bounty.claims.length === 0
+                      ? t("sopa.manage.waitingClaims")
+                      : bounty.isOpenBounty
+                        ? t("sopa.manage.pickOrVote")
+                        : t("sopa.manage.pick")}
+                </CardDescription>
+              </CardHeader>
+              {isActive && (
+                <CardContent className="space-y-2 border-t pt-4">
+                  <div className="text-sm font-medium">{t("sopa.manage.endTitle")}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {bounty.isOpenBounty
+                      ? t("sopa.manage.endDescriptionOpen")
+                      : t("sopa.manage.endDescriptionSolo")}
+                  </p>
+                  {connectGate ??
+                    (confirmCancel ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="outline"
+                          className="cursor-pointer"
+                          onClick={() => setConfirmCancel(false)}
+                          disabled={cancel.isPending}
+                        >
+                          {t("cta.keepIt")}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="cursor-pointer"
+                          disabled={cancel.isPending}
+                          onClick={() =>
+                            run(cancel, {
+                              build: sopaCalls.cancel(bounty.id, Boolean(bounty.isOpenBounty)),
+                            })
+                          }
+                        >
+                          {cancel.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            t("sopa.manage.endConfirm")
+                          )}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="w-full cursor-pointer border-destructive/40 text-destructive"
+                        onClick={() => setConfirmCancel(true)}
+                      >
+                        {t("sopa.manage.endCta")}
+                      </Button>
+                    ))}
+                  {cancel.hash && cancel.isSuccess && (
+                    <a
+                      href={getTxUrl(POIDH_SOPA.chainId, cancel.hash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline"
+                    >
+                      {t("detail.viewTx")}
+                    </a>
+                  )}
+                  <WriteError error={cancel.error} />
+                </CardContent>
+              )}
+            </Card>
+          )}
 
           {bounty.status === "voting" && (
             <SopaVotePanel bounty={bounty} address={address} onDone={refresh} />
@@ -492,66 +580,6 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
                     </span>
                   </div>
                 ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Cancel (issuer) */}
-          {isActive && isIssuer && (
-            <Card className="border-destructive/30">
-              <CardHeader>
-                <CardTitle className="text-base">{t("detail.cancelBounty")}</CardTitle>
-                <CardDescription>{t("detail.cancelDescription")}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {connectGate ??
-                  (confirmCancel ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        variant="outline"
-                        className="cursor-pointer"
-                        onClick={() => setConfirmCancel(false)}
-                        disabled={cancel.isPending}
-                      >
-                        {t("cta.keepIt")}
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        className="cursor-pointer"
-                        disabled={cancel.isPending}
-                        onClick={() =>
-                          run(cancel, {
-                            build: sopaCalls.cancel(bounty.id, Boolean(bounty.isOpenBounty)),
-                          })
-                        }
-                      >
-                        {cancel.isPending ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          t("cta.yesCancel")
-                        )}
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      className="w-full cursor-pointer border-destructive/40 text-destructive"
-                      onClick={() => setConfirmCancel(true)}
-                    >
-                      {t("detail.cancelBounty")}
-                    </Button>
-                  ))}
-                {cancel.hash && cancel.isSuccess && (
-                  <a
-                    href={getTxUrl(POIDH_SOPA.chainId, cancel.hash)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-primary hover:underline"
-                  >
-                    {t("detail.viewTx")}
-                  </a>
-                )}
-                <WriteError error={cancel.error} />
               </CardContent>
             </Card>
           )}
