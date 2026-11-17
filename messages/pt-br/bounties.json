@@ -60,7 +60,7 @@
     "empty": "Nenhum bounty encontrado com seus filtros.",
     "error": "Falha ao carregar bounties",
     "showMore": "Ver mais ({count} restantes)",
-    "poidhError": "Não foi possível carregar as bounties do POIDH agora. As bounties da Sopa não foram afetadas."
+    "poidhError": "Não foi possível carregar os bounties POIDH agora. Os bounties Sopa não foram afetados."
   },
   "manifesto": {
     "sectionLabel": "Como funciona",
@@ -213,7 +213,7 @@
   },
   "sopa": {
     "sourceBadge": "Sopa",
-    "sponsoredBadge": "Patrocinada pela Gnars",
+    "sponsoredBadge": "Patrocinado pela Gnars",
     "poweredBy": "Os bounties Sopa ficam travados na Base pelo PoidhSopa, o fork do POIDH feito pela Gnars: recompensa em ETH ou USDC, paga a um ou mais vencedores.",
     "listError": "Não foi possível carregar os bounties Sopa agora. Os bounties POIDH abaixo não foram afetados.",
     "claimFallback": "Resgate #{id}",
@@ -371,7 +371,7 @@
     }
   },
   "sections": {
-    "team": "Patrocinadas pela Gnars",
+    "team": "Patrocinados pela Gnars",
     "community": "Da comunidade"
   },
   "banner": {
