@@ -35,7 +35,9 @@
     "skate": "Skate",
     "surf": "Surf",
     "parkour": "Parkour",
-    "weed": "Weed"
+    "weed": "Weed",
+    "clearSearch": "Limpar busca",
+    "reset": "Limpar filtros"
   },
   "status": {
     "open": "Aberto",
@@ -56,13 +58,16 @@
   "grid": {
     "loading": "Carregando bounties...",
     "empty": "Nenhum bounty encontrado com seus filtros.",
-    "error": "Falha ao carregar bounties"
+    "error": "Falha ao carregar bounties",
+    "showMore": "Ver mais ({count} restantes)",
+    "poidhError": "Não foi possível carregar os bounties POIDH agora. Os bounties Sopa não foram afetados."
   },
   "manifesto": {
     "sectionLabel": "Como funciona",
     "p1": "Gnars Bounties se apoia em momentos anteriores movidos pela comunidade ao permitir execução direta e permissionless. Tira a fricção dos sistemas tradicionais de grant, permitindo que ideias sejam postadas, financiadas, concluídas e recompensadas onchain num fluxo simples e aberto.",
     "howItWorksLabel": "O fluxo:",
-    "howItWorksBody": "Crie ou selecione um bounty → financie ou apoie uma missão → execute e envie o trabalho → seja verificado → receba pagamento onchain"
+    "howItWorksBody": "Crie ou selecione um bounty → financie ou apoie uma missão → execute e envie o trabalho → seja verificado → receba pagamento onchain",
+    "poweredByPoidh": "Feito com <link>POIDH</link> — Pics or it didn't happen. Os bounties ficam travados onchain no contrato POIDH V3."
   },
   "detail": {
     "backToBounties": "Voltar para Bounties",
@@ -178,8 +183,22 @@
     "proofPlaceholder": "Descreva sua prova e inclua links para fotos/vídeos...",
     "mediaLabel": "Vídeo ou foto",
     "uploadButton": "Enviar arquivo",
-    "uploading": "Enviando…",
+    "uploading": "Enviando… {progress}% ({sent, number} de {total, number} MB)",
+    "uploadingPercent": "Enviando… {progress}%",
+    "uploadingPhase": "Enviando seu arquivo",
+    "finalizingUpload": "Finalizando envio…",
+    "uploadProgressLabel": "Progresso do envio",
+    "cancelUpload": "Cancelar envio",
+    "preparingUpload": "Preparando envio…",
+    "uploadKeepOpen": "Deixe esta janela aberta e a tela ligada até o envio terminar. Vídeos grandes podem levar alguns minutos.",
     "uploadError": "Falha no upload. Tente novamente.",
+    "uploadErrorConnect": "Conecte sua carteira para enviar o arquivo.",
+    "uploadErrorWallet": "Sua carteira não assinou o pedido de envio. Escolha o arquivo de novo para tentar outra vez.",
+    "uploadErrorFile": "Esse tipo de arquivo não é aceito. Envie um vídeo, foto ou áudio.",
+    "uploadErrorRateLimit": "Muitos envios em pouco tempo. Espere alguns minutos e tente de novo.",
+    "uploadErrorAuthorize": "O servidor não autorizou o envio (erro {status}). Escolha o arquivo de novo para tentar outra vez.",
+    "uploadErrorUpload": "O envio do arquivo foi interrompido (erro {status}). Escolha o arquivo de novo para tentar outra vez.",
+    "uploadErrorNetwork": "O envio parou: a conexão caiu ou o navegador foi para segundo plano. Deixe esta tela aberta e escolha o arquivo de novo.",
     "fileTooLarge": "Arquivo muito grande (máx. 500MB para vídeo, 100MB para imagem).",
     "fileUploaded": "Arquivo enviado",
     "removeFile": "Remover",
@@ -194,6 +213,7 @@
   },
   "sopa": {
     "sourceBadge": "Sopa",
+    "sponsoredBadge": "Patrocinado pela Gnars",
     "poweredBy": "Os bounties Sopa guardam a recompensa num contrato na Base (PoidhSopa, o fork do POIDH feito pela Gnars): recompensa em ETH ou USDC, paga a um ou mais vencedores.",
     "listError": "Não foi possível carregar os bounties Sopa agora. Os bounties POIDH abaixo não foram afetados.",
     "claimFallback": "Resgate #{id}",
@@ -366,5 +386,13 @@
       "endCta": "Encerrar bounty",
       "endConfirm": "Sim, encerrar"
     }
+  },
+  "sections": {
+    "team": "Patrocinados pela Gnars",
+    "community": "Da comunidade"
+  },
+  "banner": {
+    "alt": "Banner do Gnars Bounties {index}",
+    "label": "Banner do Gnars Bounties"
   }
 }

@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SopaBounty } from "@/lib/poidh-sopa/types";
@@ -14,6 +16,15 @@ interface BountyGridProps {
   sopaBounties?: SopaBounty[];
   isLoading: boolean;
   error: Error | null;
+  /** Placeholder cards while loading. */
+  skeletonCount?: number;
+  /** Offered on the empty state when filters are what emptied the grid. */
+  onReset?: () => void;
+  /**
+   * Cards rendered up front; the rest wait behind "Show more", so a phone does not lay
+   * out a hundred cards in one column. Remount (change `key`) to start over.
+   */
+  pageSize?: number;
 }
 
 type GridItem =
@@ -54,20 +65,30 @@ function SkeletonCard() {
   );
 }
 
-export function BountyGrid({ bounties, sopaBounties = [], isLoading, error }: BountyGridProps) {
+export function BountyGrid({
+  bounties,
+  sopaBounties = [],
+  isLoading,
+  error,
+  skeletonCount = 6,
+  onReset,
+  pageSize = 12,
+}: BountyGridProps) {
   const t = useTranslations("bounties");
+  const [visible, setVisible] = useState(pageSize);
 
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {Array.from({ length: 6 }).map((_, i) => (
+        {Array.from({ length: skeletonCount }).map((_, i) => (
           <SkeletonCard key={i} />
         ))}
       </div>
     );
   }
 
-  if (error) {
+  // A POIDH outage must not hide the Sopa bounties sharing this grid.
+  if (error && sopaBounties.length === 0) {
     return (
       <div className="text-center py-16">
         <p className="text-destructive font-medium mb-1">{t("grid.error")}</p>
@@ -76,20 +97,49 @@ export function BountyGrid({ bounties, sopaBounties = [], isLoading, error }: Bo
     );
   }
 
-  const items = mergeItems(bounties, sopaBounties);
+  const items = mergeItems(error ? [] : bounties, sopaBounties);
 
   if (items.length === 0) {
-    return <div className="text-center py-16 text-muted-foreground">{t("grid.empty")}</div>;
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
+        <p>{t("grid.empty")}</p>
+        {onReset && (
+          <Button variant="outline" size="sm" onClick={onReset}>
+            {t("filters.reset")}
+          </Button>
+        )}
+      </div>
+    );
   }
 
+  const hidden = items.length - visible;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-      {items.map((item) =>
-        item.source === "sopa" ? (
-          <SopaBountyCard key={`sopa-${item.bounty.id}`} bounty={item.bounty} />
-        ) : (
-          <BountyCard key={item.bounty.id} bounty={item.bounty} />
-        ),
+    <div className="space-y-5">
+      {error && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {t("grid.poidhError")}
+        </div>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {items
+          .slice(0, visible)
+          .map((item) =>
+            item.source === "sopa" ? (
+              <SopaBountyCard key={`sopa-${item.bounty.id}`} bounty={item.bounty} />
+            ) : (
+              <BountyCard key={`${item.bounty.chainId}-${item.bounty.id}`} bounty={item.bounty} />
+            ),
+          )}
+      </div>
+      {hidden > 0 && (
+        <Button
+          variant="outline"
+          className="h-11 w-full sm:mx-auto sm:flex sm:w-auto sm:px-8"
+          onClick={() => setVisible((v) => v + pageSize)}
+        >
+          {t("grid.showMore", { count: hidden })}
+        </Button>
       )}
     </div>
   );

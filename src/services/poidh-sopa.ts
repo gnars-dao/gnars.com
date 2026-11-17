@@ -269,36 +269,49 @@ async function readSopaBountiesUncached(): Promise<SopaBountiesRead> {
 
 // The contract address is an argument so it is part of the cache key: a new deploy (or a
 // local fork) never serves another contract's cached list.
-const readSopaBountiesCached = unstable_cache(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- cache-key only
-  async (_address: `0x${string}`) => {
-    const { partial, ...result } = await readSopaBountiesUncached();
-    // A failed read must not be pinned for a TTL as if it were "no bounties".
-    if (result.error) throw new Error(result.error);
-    // Neither may a partial one (rows without categories): serve it uncached instead.
-    if (partial) throw new PartialSopaReadError(result);
-    return result;
-  },
-  ["poidh-sopa-bounties-v1"],
-  { revalidate: LIST_TTL_SECONDS },
-);
+function cachedSopaList(ttlSeconds: number) {
+  return unstable_cache(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- cache-key only
+    async (_address: `0x${string}`) => {
+      const { partial, ...result } = await readSopaBountiesUncached();
+      // A failed read must not be pinned for a TTL as if it were "no bounties".
+      if (result.error) throw new Error(result.error);
+      // Neither may a partial one (rows without categories): serve it uncached instead.
+      if (partial) throw new PartialSopaReadError(result);
+      return result;
+    },
+    ["poidh-sopa-bounties-v1", String(ttlSeconds)],
+    { revalidate: ttlSeconds },
+  );
+}
 
-export const fetchSopaBounties = cache(async (): Promise<SopaBountiesResult> => {
-  if (!contractAddress()) return { bounties: [], error: null };
-  try {
-    return await readSopaBountiesCached(contractAddress()!);
-  } catch (err) {
-    // Checked by name too: the cache layer may rethrow across module instances.
-    if (err instanceof PartialSopaReadError) return { ...err.result, partial: true };
-    if (err instanceof Error && err.name === "PartialSopaReadError" && "result" in err) {
-      return { ...(err as PartialSopaReadError).result, partial: true };
+const sopaListReaders = new Map<number, ReturnType<typeof cachedSopaList>>();
+
+/**
+ * `ttlSeconds` matters beyond freshness: a route's ISR window drops to the shortest
+ * cache it reads, so a page with a longer `revalidate` (the homepage, 300 s) passes
+ * its own window instead of re-rendering every minute.
+ */
+export const fetchSopaBounties = cache(
+  async (ttlSeconds: number = LIST_TTL_SECONDS): Promise<SopaBountiesResult> => {
+    if (!contractAddress()) return { bounties: [], error: null };
+    try {
+      let read = sopaListReaders.get(ttlSeconds);
+      if (!read) sopaListReaders.set(ttlSeconds, (read = cachedSopaList(ttlSeconds)));
+      return await read(contractAddress()!);
+    } catch (err) {
+      // Checked by name too: the cache layer may rethrow across module instances.
+      if (err instanceof PartialSopaReadError) return { ...err.result, partial: true };
+      if (err instanceof Error && err.name === "PartialSopaReadError" && "result" in err) {
+        return { ...(err as PartialSopaReadError).result, partial: true };
+      }
+      return {
+        bounties: [],
+        error: err instanceof Error ? err.message : "Sopa bounties could not be read.",
+      };
     }
-    return {
-      bounties: [],
-      error: err instanceof Error ? err.message : "Sopa bounties could not be read.",
-    };
-  }
-});
+  },
+);
 
 // ─── Detail ──────────────────────────────────────────────────────────────────
 

@@ -22,9 +22,9 @@ function stripMarkdownImages(text: string): string {
 }
 
 const STATUS_STYLES = {
-  Canceled: "bg-red-500/10 text-red-400 border-red-500/20",
-  Voting: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-  Open: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  Canceled: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
+  Voting: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20",
+  Open: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
   Closed: "bg-muted text-muted-foreground border-border",
 } as const;
 
@@ -32,6 +32,20 @@ const CHAIN_DOT_COLORS: Record<number, string> = {
   8453: "bg-blue-500", // Base
   42161: "bg-cyan-400", // Arbitrum
 };
+
+/**
+ * The small facts under a card's reward. Spacing, not dots, separates them, so a
+ * wrapped line never opens on a stray separator.
+ */
+export function BountyMeta({ items }: { items: (string | false | null | undefined)[] }) {
+  return (
+    <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      {items.filter(Boolean).map((item, i) => (
+        <li key={i}>{item}</li>
+      ))}
+    </ul>
+  );
+}
 
 export function BountyCard({ bounty }: BountyCardProps) {
   const t = useTranslations("bounties");
@@ -110,36 +124,21 @@ export function BountyCard({ bounty }: BountyCardProps) {
         </div>
 
         {/* Meta */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>{timeLabel}</span>
-          {bounty.isMultiplayer && (
-            <div className="flex items-center gap-1">
-              <span className="text-muted-foreground/40">·</span>
-              <span>{t("card.multiplayer")}</span>
-            </div>
-          )}
-          {bounty.hasClaims && (
-            <div className="flex items-center gap-1">
-              <span className="text-muted-foreground/40">·</span>
-              <span>{t("card.hasClaims")}</span>
-            </div>
-          )}
-          {bounty.isOpenBounty && (
-            <div className="flex items-center gap-1">
-              <span className="text-muted-foreground/40">·</span>
-              <span>{t("card.videoRequired")}</span>
-            </div>
-          )}
-        </div>
+        <BountyMeta
+          items={[
+            timeLabel,
+            bounty.isMultiplayer && t("card.multiplayer"),
+            bounty.hasClaims && t("card.hasClaims"),
+            bounty.isOpenBounty && t("card.videoRequired"),
+          ]}
+        />
       </CardContent>
 
       {/* Actions */}
       <CardFooter className="px-5 pb-5 pt-4">
-        <Link href={detailHref} className="block w-full">
-          <Button className="w-full text-sm font-semibold bg-primary hover:bg-primary/90 text-primary-foreground">
-            {t("cta.view")}
-          </Button>
-        </Link>
+        <Button asChild className="w-full text-sm font-semibold">
+          <Link href={detailHref}>{t("cta.view")}</Link>
+        </Button>
       </CardFooter>
     </Card>
   );

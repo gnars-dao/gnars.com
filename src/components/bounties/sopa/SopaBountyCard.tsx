@@ -2,37 +2,36 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { formatEther } from "viem";
+import { BountyMeta } from "@/components/bounties/BountyCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { formatEthToUsd, useEthPrice } from "@/hooks/use-eth-price";
 import { Link } from "@/i18n/navigation";
+import { isPoidhSopaTeamIssuer } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
 import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
 import { isSopaCategory } from "@/lib/poidh-sopa/categories";
 import { findSopaToken, formatSopaReward, isEthToken } from "@/lib/poidh-sopa/tokens";
 import type { SopaBounty, SopaStatus } from "@/lib/poidh-sopa/types";
+import { markdownPreview } from "@/lib/poidh/bounty-list";
 
 export const SOPA_STATUS_STYLES: Record<SopaStatus, string> = {
-  cancelled: "bg-red-500/10 text-red-400 border-red-500/20",
-  voting: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-  open: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  cancelled: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
+  voting: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20",
+  open: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
   paid: "bg-muted text-muted-foreground border-border",
 };
 
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/!\[.*?\]\(.*?\)/g, "")
-    .replace(/[#*_`>]/g, "")
-    .trim();
-}
-
-/** Source badge shared by the card and the detail page. */
-export function SopaSourceBadge() {
+/**
+ * Source badge shared by the card and the detail page. A team wallet's bounty reads
+ * "Gnars Sponsored"; the contract is permissionless, so anyone else's stays "Sopa".
+ */
+export function SopaSourceBadge({ issuer }: { issuer: string }) {
   const t = useTranslations("bounties");
   return (
     <Badge className="bg-primary text-primary-foreground border-transparent">
-      {t("sopa.sourceBadge")}
+      {isPoidhSopaTeamIssuer(issuer) ? t("sopa.sponsoredBadge") : t("sopa.sourceBadge")}
     </Badge>
   );
 }
@@ -81,7 +80,7 @@ export function SopaBountyCard({ bounty }: { bounty: SopaBounty }) {
       <CardContent className="flex flex-col flex-1 px-5 pt-5 pb-0 gap-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <SopaSourceBadge />
+            <SopaSourceBadge issuer={bounty.issuer} />
             <SopaCategoryChip category={bounty.category} />
           </div>
           <SopaStatusBadge status={bounty.status} />
@@ -92,7 +91,7 @@ export function SopaBountyCard({ bounty }: { bounty: SopaBounty }) {
         </h3>
 
         <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed flex-1">
-          {stripMarkdown(bounty.description)}
+          {markdownPreview(bounty.description)}
         </p>
 
         <div className="rounded-lg bg-muted/40 px-4 py-3 border border-border/50">
@@ -114,25 +113,20 @@ export function SopaBountyCard({ bounty }: { bounty: SopaBounty }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>{timeLabel}</span>
-          {bounty.isOpenBounty !== null && (
-            <div className="flex items-center gap-1">
-              <span className="text-muted-foreground/40">·</span>
-              <span>{bounty.isOpenBounty ? t("sopa.type.open") : t("sopa.type.solo")}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <span className="text-muted-foreground/40">·</span>
-            <span>Base</span>
-          </div>
-        </div>
+        <BountyMeta
+          items={[
+            timeLabel,
+            bounty.isOpenBounty !== null &&
+              (bounty.isOpenBounty ? t("sopa.type.open") : t("sopa.type.solo")),
+            "Base",
+          ]}
+        />
       </CardContent>
 
       <CardFooter className="px-5 pb-5 pt-4">
-        <Link href={`/community/bounties/sopa/${bounty.id}`} className="block w-full">
-          <Button className="w-full text-sm font-semibold">{t("cta.view")}</Button>
-        </Link>
+        <Button asChild className="w-full text-sm font-semibold">
+          <Link href={`/community/bounties/sopa/${bounty.id}`}>{t("cta.view")}</Link>
+        </Button>
       </CardFooter>
     </Card>
   );

@@ -54,7 +54,7 @@
   "bounties": {
     "eyebrow": "Bounties",
     "title": "Challenges",
-    "body": "Gnars Bounties are challenges from the community: pay athletes in ETH to land the tricks, runs, and stunts the community wants to see filmed.",
+    "body": "Gnars Bounties are challenges from the community: pay athletes in ETH or USDC to land the tricks, runs, and stunts the community wants to see filmed.",
     "stats": {
       "pool": "Open pool",
       "open": "Open bounties",
@@ -72,7 +72,9 @@
       "chain": "CHAIN",
       "usd": "USD",
       "type": "Poidh Bounty",
-      "tapToFlip": "TAP TO FLIP"
+      "typeSopa": "Gnars Bounty",
+      "tapToFlip": "TAP TO FLIP",
+      "team": "GNARS TEAM"
     },
     "rarity": {
       "legendary": "Legendary",
@@ -104,6 +106,10 @@
       "challenge": "THE CHALLENGE",
       "submitClaim": "Submit claim",
       "tapToFlipBack": "TAP TO FLIP BACK"
+    },
+    "partial": {
+      "poidh": "poidh bounties could not be loaded right now, so only bounties created on this site are shown.",
+      "sopa": "Bounties created on this site could not be loaded right now, so only poidh bounties are shown."
     }
   },
   "rails": {

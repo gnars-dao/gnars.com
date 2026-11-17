@@ -3,6 +3,8 @@ import {
   MAX_MEDIA_UPLOAD_BYTES,
   MAX_VIDEO_UPLOAD_BYTES,
   pinataUploadSchema,
+  signedUploadExpirySeconds,
+  uploadMimeType,
 } from "./pinata-policy";
 
 describe("Pinata upload policy", () => {
@@ -25,5 +27,21 @@ describe("Pinata upload policy", () => {
       { ...file, filename: "x".repeat(256) },
     ])
       expect(pinataUploadSchema.safeParse(value).success).toBe(false);
+  });
+  it("scales the signed URL lifetime with file size, capped at 30 minutes", () => {
+    expect(signedUploadExpirySeconds(40_000)).toBe(301);
+    // 48 MB phone video: 5 min + ~16 min at 50 KB/s.
+    expect(signedUploadExpirySeconds(50_739_164)).toBe(1315);
+    expect(signedUploadExpirySeconds(MAX_VIDEO_UPLOAD_BYTES)).toBe(1800);
+  });
+  it("falls back to the extension when the browser leaves the MIME type empty", () => {
+    expect(uploadMimeType({ name: "IMG_7910.MOV", type: "" })).toBe("video/quicktime");
+    expect(uploadMimeType({ name: "clip.mp4", type: "application/octet-stream" })).toBe(
+      "video/mp4",
+    );
+    expect(uploadMimeType({ name: "clip.mov", type: "video/mp4" })).toBe("video/mp4");
+    expect(uploadMimeType({ name: "notes.xyz", type: "" })).toBe("");
+    expect(uploadMimeType({ name: "mov", type: "" })).toBe("");
+    expect(uploadMimeType({ name: ".mov", type: "" })).toBe("");
   });
 });

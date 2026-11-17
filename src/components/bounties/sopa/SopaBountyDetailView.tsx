@@ -185,7 +185,7 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
       {/* Header */}
       <div className="mb-8">
         <div className="flex flex-wrap items-center gap-2 mb-4">
-          <SopaSourceBadge />
+          <SopaSourceBadge issuer={bounty.issuer} />
           <Badge variant="outline">Base</Badge>
           <SopaStatusBadge status={bounty.status} />
           {bounty.isOpenBounty !== null && (

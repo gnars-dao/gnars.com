@@ -1,10 +1,11 @@
 import { cache } from "react";
+import { mergeNewest } from "@/lib/poidh/bounty-list";
 import { SUPPORTED_CHAINS } from "@/lib/poidh/config";
 import { matchesGnarsKeywords } from "@/lib/poidh/keywords";
 import type { PoidhBounty, PoidhClaim } from "@/types/poidh";
 
 const POIDH_TRPC = "https://poidh.xyz/api/trpc";
-const LIST_CACHE_TTL = 60 * 15; // 15 minutes
+const LIST_CACHE_TTL = 60; // 1 minute; new bounties should appear promptly
 const DETAIL_CACHE_TTL = 60; // 1 minute
 
 const SUPPORTED_CHAIN_IDS: number[] = Object.values(SUPPORTED_CHAINS);
@@ -36,10 +37,13 @@ async function fetchFromPoidh(
   return data?.result?.data?.json;
 }
 
+/** `bounties.fetchAll` answers 400 above this; larger limits would need its cursor. */
+const UPSTREAM_MAX_LIMIT = 100;
+
 async function fetchBountiesByStatus(status: string, limit: number): Promise<PoidhBounty[]> {
   const data = await fetchFromPoidh(
     "bounties.fetchAll",
-    { status, sortType: "date", limit },
+    { status, sortType: "date", limit: Math.min(limit, UPSTREAM_MAX_LIMIT) },
     LIST_CACHE_TTL,
   );
   return ((data as { items?: PoidhBounty[] })?.items ?? []) as PoidhBounty[];
@@ -73,17 +77,19 @@ export const fetchPoidhBounties = cache(
     let bounties: PoidhBounty[];
 
     if (status === "all") {
+      // Each status is fetched up to the limit (at most 100 upstream) and the merge keeps the
+      // newest `limit`. Callers that want "All" to hold every tab ask for up to 300.
       const statuses = ["open", "progress", "past"];
       const results = await Promise.all(
         statuses.map(async (s) => {
-          const items = await fetchBountiesByStatus(s, Math.ceil(clampedLimit / 3));
+          const items = await fetchBountiesByStatus(s, clampedLimit);
           return items.map((item) => ({
             ...item,
             isCompleted: s === "past",
           }));
         }),
       );
-      bounties = results.flat().slice(0, clampedLimit);
+      bounties = mergeNewest(results, clampedLimit);
     } else {
       const statusMap: Record<string, string> = {
         open: "open",

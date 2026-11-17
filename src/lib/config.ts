@@ -248,6 +248,8 @@ export interface PoidhSopaToken {
   address: `0x${string}`;
   decimals: number;
   logo?: string;
+  /** Pegged to the US dollar: summed at face value wherever rewards are shown in USD. */
+  usdStable?: boolean;
 }
 
 export const POIDH_SOPA = {
@@ -265,9 +267,21 @@ export const POIDH_SOPA = {
       symbol: "USDC",
       address: TREASURY_TOKEN_ALLOWLIST.USDC,
       decimals: 6,
+      usdStable: true,
     },
   ] as readonly PoidhSopaToken[],
+  /**
+   * Issuers whose bounties the homepage features as the Gnars team's own. The contract
+   * is permissionless, so anyone's bounty still shows; these just lead the hand and
+   * carry the team mark. Add a wallet here to feature its bounties.
+   */
+  teamIssuers: [
+    SWAP_FEE_SPLIT_RECIPIENT, // SOPA — issued the first Sopa bounties
+  ] as readonly `0x${string}`[],
 } as const;
+
+export const isPoidhSopaTeamIssuer = (address: string): boolean =>
+  POIDH_SOPA.teamIssuers.some((a) => a.toLowerCase() === address.toLowerCase());
 
 export const isPoidhSopaEnabled = (): boolean => POIDH_SOPA.address !== null;
 
