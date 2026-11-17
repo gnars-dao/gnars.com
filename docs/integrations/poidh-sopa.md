@@ -40,6 +40,8 @@ Status comes from `Bounty.claimer`: `0x0` = open (voting when a proposal is pend
 
 Detail (`fetchSopaBountyFresh`, uncached so the page sees its own writes): struct, `getParticipants`, `everHadExternalContributor`, `getWinners`, `getCurrentProposal`, `bountyVotingTracker`, `bountyFees`, and claims via `bountyClaims(id, i)` (enumerated until revert) + `claims(cid)` + claim NFT `tokenURI(cid)` for the proof media.
 
+Results (`fetchSopaHistory`, cached 5 min, a failed read never cached): the newest 50 paid bounties from the list, then `getWinners` + `bountyFees` per bounty and `claims(cid)` per winning claim (three multicalls). Each winner's amount is the paid total net of the fee snapshot, split by share (`previewPayouts`, the same math as the payout preview). Rendered by `SopaBountyHistory` on `/community/bounties`; winners link to `/members/[address]`, their claim (`/community/bounties/sopa/[id]#claim-[cid]`) and the claim NFT on Basescan. The payout tx hash is not shown: `BountyPaid` logs would need a scan from the deploy block in 10k chunks, and no keyless indexer serves Base reliably.
+
 To swap in an indexer later, reimplement `src/services/poidh-sopa.ts` with the same return types (`src/lib/poidh-sopa/types.ts`).
 
 ## Writes

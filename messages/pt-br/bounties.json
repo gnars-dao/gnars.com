@@ -377,5 +377,16 @@
   "banner": {
     "alt": "Banner do Gnars Bounties {index}",
     "label": "Banner do Gnars Bounties"
+  },
+  "history": {
+    "title": "Resultados",
+    "description": "Bounties Sopa concluídos, quem venceu e quanto recebeu. Lido direto do contrato na Base.",
+    "paid": "Pago aos vencedores",
+    "paidPartial": "Pago aos vencedores (alguns bounties não puderam ser lidos)",
+    "finished": "Bounties concluídos",
+    "winners": "Vencedores",
+    "winnersUnavailable": "Não foi possível ler os vencedores deste bounty agora.",
+    "proof": "Prova onchain",
+    "error": "Não foi possível carregar os bounties concluídos agora."
   }
 }

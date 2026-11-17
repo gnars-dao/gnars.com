@@ -6,6 +6,7 @@ import { PlusCircle, Search, X } from "lucide-react";
 import { BountyGrid } from "@/components/bounties/BountyGrid";
 import { CreateBountyModal } from "@/components/bounties/CreateBountyModal";
 import { PendingWithdrawalBanner } from "@/components/bounties/PendingWithdrawalBanner";
+import { SopaBountyHistory } from "@/components/bounties/sopa/SopaBountyHistory";
 import { Button } from "@/components/ui/button";
 import ContentImage from "@/components/ui/content-image";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import { usePoidhBounties } from "@/hooks/usePoidhBounties";
 import { isPoidhSopaEnabled } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
 import { formatTokenAmount } from "@/lib/poidh-sopa/tokens";
-import type { SopaBountiesResult } from "@/lib/poidh-sopa/types";
+import type { SopaBountiesResult, SopaHistoryResult } from "@/lib/poidh-sopa/types";
 import {
   filterCommunityBounties,
   filterCommunitySopaBounties,
@@ -56,9 +57,11 @@ interface BountiesViewProps {
   initialBounties: PoidhBounty[];
   /** PoidhSopa list from the server render; undefined when Sopa is not configured. */
   initialSopa?: SopaBountiesResult;
+  /** Finished Sopa bounties and their winners; undefined when Sopa is not configured. */
+  history?: SopaHistoryResult;
 }
 
-export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps) {
+export function BountiesView({ initialBounties, initialSopa, history }: BountiesViewProps) {
   const t = useTranslations("bounties");
   const locale = useLocale();
   const [status, setStatus] = useState<StatusFilter>("open");
@@ -374,6 +377,8 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
             />
           </section>
         )}
+
+        {history && <SopaBountyHistory history={history} />}
 
         <div className="rounded-3xl border border-border bg-muted/30 p-6 md:p-8">
           <div className="max-w-4xl space-y-5">

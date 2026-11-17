@@ -91,3 +91,28 @@ export interface SopaBountiesResult {
    */
   partial?: boolean;
 }
+
+export interface SopaHistoryWinner {
+  claimId: number;
+  /** Who submitted the winning claim (and was paid). */
+  claimer: `0x${string}`;
+  name: string;
+  shareBps: number;
+  /** Raw token units paid to this winner, net of the bounty's fee snapshot. */
+  amount: string;
+}
+
+export interface SopaHistoryEntry {
+  bounty: SopaBounty;
+  /** Empty when the winners could not be read; the bounty still counts as finished. */
+  winners: SopaHistoryWinner[];
+}
+
+export interface SopaHistoryResult {
+  /** Paid bounties, newest first. */
+  entries: SopaHistoryEntry[];
+  /** Claim NFT contract: each winning claim is a token there, the onchain proof. */
+  claimNft: `0x${string}` | null;
+  /** Set when the read failed — render as a failure, never as "nothing paid yet". */
+  error: string | null;
+}
