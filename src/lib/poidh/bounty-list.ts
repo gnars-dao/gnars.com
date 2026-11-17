@@ -1,9 +1,9 @@
 import { formatUnits } from "viem";
-import { POIDH_SOPA, type PoidhSopaToken } from "@/lib/config";
+import { isPoidhSopaTeamIssuer, POIDH_SOPA, type PoidhSopaToken } from "@/lib/config";
 import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
 import { isEthToken } from "@/lib/poidh-sopa/tokens";
 import type { SopaBounty, SopaStatus } from "@/lib/poidh-sopa/types";
-import { classifyGnarsDiscipline } from "@/lib/poidh/keywords";
+import { classifyGnarsDiscipline, GNARS_DISCIPLINES } from "@/lib/poidh/keywords";
 import type { PoidhBounty } from "@/types/poidh";
 
 /**
@@ -34,6 +34,38 @@ export function filterTeamBounties(
   return bounties.filter(
     (b) => (!statuses || statuses.includes(b.status)) && matchesQuery(b, query),
   );
+}
+
+/**
+ * The contract is permissionless, so only bounties issued by a team wallet
+ * (`POIDH_SOPA.teamIssuers`) are Gnars-sponsored and lead the page; anyone else's
+ * Sopa bounty sits with the community ones.
+ */
+export function splitSponsored(
+  bounties: readonly SopaBounty[],
+  isSponsored: (issuer: string) => boolean = isPoidhSopaTeamIssuer,
+): { sponsored: SopaBounty[]; community: SopaBounty[] } {
+  const sponsored: SopaBounty[] = [];
+  const community: SopaBounty[] = [];
+  for (const b of bounties) (isSponsored(b.issuer) ? sponsored : community).push(b);
+  return { sponsored, community };
+}
+
+/**
+ * Community Sopa bounties: status, search and discipline all apply. The category the
+ * creator picked counts when it is a discipline; otherwise the text is classified.
+ */
+export function filterCommunitySopaBounties(
+  bounties: readonly SopaBounty[],
+  { status, query, category }: { status: BountyStatusFilter; query: string; category: string },
+): SopaBounty[] {
+  return filterTeamBounties(bounties, { status, query }).filter((b) => {
+    if (category === "all") return true;
+    const picked = (GNARS_DISCIPLINES as readonly string[]).includes(b.category ?? "")
+      ? b.category
+      : classifyGnarsDiscipline(`${b.title} ${b.description}`);
+    return picked === category;
+  });
 }
 
 /** POIDH feed bounties: search, then the discipline when one is picked ("all" = any). */

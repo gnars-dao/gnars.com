@@ -87,7 +87,8 @@ export function BountyGrid({
     );
   }
 
-  if (error) {
+  // A POIDH outage must not hide the Sopa bounties sharing this grid.
+  if (error && sopaBounties.length === 0) {
     return (
       <div className="text-center py-16">
         <p className="text-destructive font-medium mb-1">{t("grid.error")}</p>
@@ -96,7 +97,7 @@ export function BountyGrid({
     );
   }
 
-  const items = mergeItems(bounties, sopaBounties);
+  const items = mergeItems(error ? [] : bounties, sopaBounties);
 
   if (items.length === 0) {
     return (
@@ -115,6 +116,11 @@ export function BountyGrid({
 
   return (
     <div className="space-y-5">
+      {error && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {t("grid.poidhError")}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {items
           .slice(0, visible)

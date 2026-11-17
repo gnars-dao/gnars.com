@@ -59,7 +59,8 @@
     "loading": "Loading bounties...",
     "empty": "No bounties found matching your filters.",
     "error": "Failed to load bounties",
-    "showMore": "Show more ({count} left)"
+    "showMore": "Show more ({count} left)",
+    "poidhError": "POIDH bounties could not be loaded right now. Sopa bounties are unaffected."
   },
   "manifesto": {
     "sectionLabel": "How it works",
@@ -212,6 +213,7 @@
   },
   "sopa": {
     "sourceBadge": "Sopa",
+    "sponsoredBadge": "Gnars Sponsored",
     "poweredBy": "Sopa bounties are escrowed on Base by PoidhSopa, the Gnars fork of POIDH: rewards in ETH or USDC, paid to one or more winners.",
     "listError": "Sopa bounties could not be loaded right now. POIDH bounties below are unaffected.",
     "claimFallback": "Claim #{id}",
@@ -369,8 +371,8 @@
     }
   },
   "sections": {
-    "team": "From the Gnars team",
-    "community": "From the POIDH community"
+    "team": "Sponsored by Gnars",
+    "community": "From the community"
   },
   "banner": {
     "alt": "Gnars Bounties banner {index}",

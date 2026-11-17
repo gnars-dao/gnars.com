@@ -4,9 +4,11 @@ import type { SopaBounty } from "@/lib/poidh-sopa/types";
 import type { PoidhBounty } from "@/types/poidh";
 import {
   filterCommunityBounties,
+  filterCommunitySopaBounties,
   filterTeamBounties,
   markdownPreview,
   mergeNewest,
+  splitSponsored,
   summarizePool,
 } from "./bounty-list";
 
@@ -67,6 +69,52 @@ describe("filterTeamBounties", () => {
 
   it("searches title and description, case- and whitespace-insensitive", () => {
     expect(ids(filterTeamBounties(list, { status: "all", query: "  OLLIE " }))).toEqual([2]);
+  });
+});
+
+describe("splitSponsored", () => {
+  const TEAM = "0x2222222222222222222222222222222222222222";
+  const isTeam = (issuer: string) => issuer.toLowerCase() === TEAM;
+
+  it("sponsors only team-issued bounties, matching the issuer case-insensitively", () => {
+    const team = sopa({ id: 1, issuer: TEAM.toUpperCase().replace("0X", "0x") as `0x${string}` });
+    const other = sopa({ id: 2, issuer: OTHER });
+    const { sponsored, community } = splitSponsored([team, other], isTeam);
+    expect(sponsored.map((b) => b.id)).toEqual([1]);
+    expect(community.map((b) => b.id)).toEqual([2]);
+  });
+});
+
+describe("filterCommunitySopaBounties", () => {
+  const bounties = [
+    sopa({ id: 1, category: "skate", title: "Kickflip" }),
+    sopa({ id: 2, category: "tech", title: "Surf the big wave" }),
+    sopa({ id: 3, category: "surf", status: "paid", title: "Barrel" }),
+  ];
+
+  it("uses the creator's category when it is a discipline, else the text", () => {
+    const ids = (category: string) =>
+      filterCommunitySopaBounties(bounties, { status: "all", query: "", category }).map(
+        (b) => b.id,
+      );
+    expect(ids("skate")).toEqual([1]);
+    expect(ids("surf")).toEqual([2, 3]);
+    expect(ids("all")).toEqual([1, 2, 3]);
+  });
+
+  it("applies status and search too", () => {
+    expect(
+      filterCommunitySopaBounties(bounties, { status: "open", query: "", category: "surf" }).map(
+        (b) => b.id,
+      ),
+    ).toEqual([2]);
+    expect(
+      filterCommunitySopaBounties(bounties, {
+        status: "all",
+        query: "barrel",
+        category: "all",
+      }).map((b) => b.id),
+    ).toEqual([3]);
   });
 });
 

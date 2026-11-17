@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { formatEthToUsd, useEthPrice } from "@/hooks/use-eth-price";
 import { Link } from "@/i18n/navigation";
+import { isPoidhSopaTeamIssuer } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
 import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
 import { isSopaCategory } from "@/lib/poidh-sopa/categories";
@@ -22,12 +23,15 @@ export const SOPA_STATUS_STYLES: Record<SopaStatus, string> = {
   paid: "bg-muted text-muted-foreground border-border",
 };
 
-/** Source badge shared by the card and the detail page. */
-export function SopaSourceBadge() {
+/**
+ * Source badge shared by the card and the detail page. A team wallet's bounty reads
+ * "Gnars Sponsored"; the contract is permissionless, so anyone else's stays "Sopa".
+ */
+export function SopaSourceBadge({ issuer }: { issuer: string }) {
   const t = useTranslations("bounties");
   return (
     <Badge className="bg-primary text-primary-foreground border-transparent">
-      {t("sopa.sourceBadge")}
+      {isPoidhSopaTeamIssuer(issuer) ? t("sopa.sponsoredBadge") : t("sopa.sourceBadge")}
     </Badge>
   );
 }
@@ -76,7 +80,7 @@ export function SopaBountyCard({ bounty }: { bounty: SopaBounty }) {
       <CardContent className="flex flex-col flex-1 px-5 pt-5 pb-0 gap-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <SopaSourceBadge />
+            <SopaSourceBadge issuer={bounty.issuer} />
             <SopaCategoryChip category={bounty.category} />
           </div>
           <SopaStatusBadge status={bounty.status} />

@@ -19,7 +19,9 @@ import { formatTokenAmount } from "@/lib/poidh-sopa/tokens";
 import type { SopaBountiesResult } from "@/lib/poidh-sopa/types";
 import {
   filterCommunityBounties,
+  filterCommunitySopaBounties,
   filterTeamBounties,
+  splitSponsored,
   summarizePool,
   type BountyStatusFilter,
 } from "@/lib/poidh/bounty-list";
@@ -85,13 +87,21 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
   const sopaQuery = usePoidhSopaBounties(initialSopa);
   const query = searchQuery.trim().toLowerCase();
 
-  const teamBounties = useMemo(
-    () =>
-      !sopaEnabled || sourceFilter === "v3"
-        ? []
-        : filterTeamBounties(sopaQuery.data?.bounties ?? [], { status, query }),
-    [sopaEnabled, sourceFilter, status, query, sopaQuery.data],
-  );
+  // Sponsored = issued by a team wallet; anyone else's Sopa bounty joins the community grid.
+  const { teamBounties, communitySopaBounties } = useMemo(() => {
+    if (!sopaEnabled || sourceFilter === "v3") {
+      return { teamBounties: [], communitySopaBounties: [] };
+    }
+    const { sponsored, community } = splitSponsored(sopaQuery.data?.bounties ?? []);
+    return {
+      teamBounties: filterTeamBounties(sponsored, { status, query }),
+      communitySopaBounties: filterCommunitySopaBounties(community, {
+        status,
+        query,
+        category: categoryFilter,
+      }),
+    };
+  }, [sopaEnabled, sourceFilter, status, query, categoryFilter, sopaQuery.data]);
 
   const communityBounties = useMemo(
     () =>
@@ -102,7 +112,11 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
   );
 
   const totalValue = useMemo(() => {
-    const pool = summarizePool(communityBounties, teamBounties, ethPrice);
+    const pool = summarizePool(
+      communityBounties,
+      [...teamBounties, ...communitySopaBounties],
+      ethPrice,
+    );
     return {
       eth: formatTokenAmount(pool.totalWei, 18, 4),
       usd:
@@ -119,7 +133,7 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
         ({ token, raw }) => `${formatTokenAmount(raw, token.decimals, 2)} ${token.symbol}`,
       ),
     };
-  }, [communityBounties, teamBounties, ethPrice, locale]);
+  }, [communityBounties, teamBounties, communitySopaBounties, ethPrice, locale]);
 
   // The two sources load and fail independently: one being down or slow must never hide
   // the other's bounties or stats.
@@ -135,6 +149,8 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
       sopaQuery.isLoading ||
       Boolean(sopaQuery.error) ||
       teamBounties.length > 0);
+  // Picking "Sopa" still lists non-team Sopa bounties here, without the POIDH feed.
+  const communitySectionShown = v3Shown || communitySopaBounties.length > 0;
 
   const resetFilters = () => {
     setStatus("open");
@@ -295,7 +311,7 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
           </div>
         </div>
 
-        {/* The team's own bounties, whatever discipline is picked below */}
+        {/* Gnars-sponsored bounties lead, whatever discipline is picked below */}
         {teamSectionShown && (
           <section className="space-y-4">
             <SectionHeading
@@ -321,13 +337,17 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
           </section>
         )}
 
-        {v3Shown && (
+        {communitySectionShown && (
           <section className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               {sopaEnabled ? (
                 <SectionHeading
                   title={t("sections.community")}
-                  count={data && !isLoading ? communityBounties.length : null}
+                  count={
+                    !v3Shown || (data && !isLoading)
+                      ? communityBounties.length + communitySopaBounties.length
+                      : null
+                  }
                 />
               ) : (
                 <span />
@@ -347,8 +367,9 @@ export function BountiesView({ initialBounties, initialSopa }: BountiesViewProps
             <BountyGrid
               key={filterKey}
               bounties={communityBounties}
-              isLoading={isLoading}
-              error={error}
+              sopaBounties={communitySopaBounties}
+              isLoading={v3Shown && isLoading}
+              error={v3Shown ? error : null}
               onReset={canReset ? resetFilters : undefined}
             />
           </section>
