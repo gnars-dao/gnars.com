@@ -21,11 +21,18 @@ import {
   type SopaBountyTuple,
   type SopaCreatedLog,
 } from "@/lib/poidh-sopa/bounty-data";
+import {
+  buildHistoryEntry,
+  paidBounties,
+  type RawClaim,
+  type RawWinners,
+} from "@/lib/poidh-sopa/history";
 import type {
   SopaBountiesResult,
   SopaBounty,
   SopaBountyDetail,
   SopaClaim,
+  SopaHistoryResult,
   SopaParticipant,
   SopaShare,
 } from "@/lib/poidh-sopa/types";
@@ -568,5 +575,113 @@ export const fetchSopaBounty = cache(async (id: number) => {
   } catch (err) {
     console.error("[poidh-sopa] detail read failed", id, err);
     throw err;
+  }
+});
+
+// ─── History ─────────────────────────────────────────────────────────────────
+
+const HISTORY_TTL_SECONDS = 300;
+/** Newest paid bounties shown in the results section. */
+const HISTORY_LIMIT = 50;
+
+/**
+ * Paid bounties with their winners and net payouts: `getWinners` + `bountyFees` per paid
+ * bounty, then `claims(cid)` for every winning claim. Three multicalls whatever the count.
+ */
+async function readSopaHistoryUncached(address: `0x${string}`): Promise<SopaHistoryResult> {
+  const list = await fetchSopaBounties();
+  if (list.error) return { entries: [], claimNft: null, error: list.error };
+  const paid = paidBounties(list.bounties).slice(0, HISTORY_LIMIT);
+  if (paid.length === 0) return { entries: [], claimNft: null, error: null };
+  const rpc = getClient();
+
+  const [winnerReads, feeReads, claimNft] = await Promise.all([
+    rpc.multicall({
+      allowFailure: true,
+      contracts: paid.map((b) => ({
+        address,
+        abi: POIDH_SOPA_ABI,
+        functionName: "getWinners" as const,
+        args: [BigInt(b.id)] as const,
+      })),
+    }),
+    rpc.multicall({
+      allowFailure: true,
+      contracts: paid.map((b) => ({
+        address,
+        abi: POIDH_SOPA_ABI,
+        functionName: "bountyFees" as const,
+        args: [BigInt(b.id)] as const,
+      })),
+    }),
+    rpc
+      .readContract({ address, abi: POIDH_SOPA_ABI, functionName: "poidhNft" })
+      .then((a) => a as `0x${string}`)
+      .catch(() => null),
+  ]);
+
+  const winners: (RawWinners | null)[] = winnerReads.map((r) => {
+    if (r.status !== "success") return null;
+    const [claimIds, sharesBps] = r.result as unknown as readonly [
+      readonly bigint[],
+      readonly bigint[],
+    ];
+    return { claimIds, sharesBps };
+  });
+  const fees: (number[] | null)[] = feeReads.map((r) =>
+    r.status === "success" ? (r.result as unknown as readonly number[]).map(Number) : null,
+  );
+
+  const claimIds = [...new Set(winners.flatMap((w) => w?.claimIds ?? []))];
+  const claimReads =
+    claimIds.length === 0
+      ? []
+      : await rpc.multicall({
+          allowFailure: true,
+          contracts: claimIds.map((cid) => ({
+            address,
+            abi: POIDH_SOPA_ABI,
+            functionName: "claims" as const,
+            args: [cid] as const,
+          })),
+        });
+  const claims = new Map<number, RawClaim>();
+  claimReads.forEach((r, i) => {
+    if (r.status !== "success") return;
+    const c = r.result as unknown as ClaimTuple;
+    claims.set(Number(claimIds[i]), { claimer: c[1], name: c[4] });
+  });
+
+  return {
+    entries: paid.map((b, i) => buildHistoryEntry(b, winners[i], fees[i], claims)),
+    claimNft,
+    error: null,
+  };
+}
+
+const cachedSopaHistory = unstable_cache(
+  async (address: `0x${string}`) => {
+    const result = await readSopaHistoryUncached(address);
+    // A failed read must not be pinned for the TTL as if nothing had been paid.
+    if (result.error) throw new Error(result.error);
+    return result;
+  },
+  ["poidh-sopa-history-v1"],
+  { revalidate: HISTORY_TTL_SECONDS },
+);
+
+/** Finished Sopa bounties and their winners, for the results section. */
+export const fetchSopaHistory = cache(async (): Promise<SopaHistoryResult> => {
+  const address = contractAddress();
+  if (!address) return { entries: [], claimNft: null, error: null };
+  try {
+    return await cachedSopaHistory(address);
+  } catch (err) {
+    console.error("[poidh-sopa] history read failed", err);
+    return {
+      entries: [],
+      claimNft: null,
+      error: "Finished Sopa bounties could not be read from Base.",
+    };
   }
 });

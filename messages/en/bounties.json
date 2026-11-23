@@ -394,5 +394,16 @@
   "banner": {
     "alt": "Gnars Bounties banner {index}",
     "label": "Gnars Bounties banner"
+  },
+  "history": {
+    "title": "Results",
+    "description": "Finished Sopa bounties, who won and what they were paid. Read from the contract on Base.",
+    "paid": "Paid to winners",
+    "paidPartial": "Paid to winners (some bounties could not be read)",
+    "finished": "Bounties finished",
+    "winners": "Winners",
+    "winnersUnavailable": "The winners of this bounty could not be read right now.",
+    "proof": "Onchain proof",
+    "error": "Finished bounties could not be loaded right now."
   }
 }

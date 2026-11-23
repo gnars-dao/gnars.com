@@ -329,7 +329,8 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
                   return (
                     <div
                       key={claim.id}
-                      className={`rounded-lg border p-4 space-y-3 ${claim.accepted ? "border-emerald-500/40 bg-emerald-500/5" : "border-border"}`}
+                      id={`claim-${claim.id}`}
+                      className={`scroll-mt-24 rounded-lg border p-4 space-y-3 ${claim.accepted ? "border-emerald-500/40 bg-emerald-500/5" : "border-border"}`}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="font-semibold break-words">
