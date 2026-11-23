@@ -19,14 +19,13 @@ import {
 } from "@/lib/poidh-sopa/shares";
 import { findSopaToken, formatTokenAmount } from "@/lib/poidh-sopa/tokens";
 import type { SopaBountyDetail } from "@/lib/poidh-sopa/types";
+import { allowedWinnersModes, type WinnersMode } from "@/lib/poidh-sopa/winners-mode";
 import { cn } from "@/lib/utils";
 
 interface SopaWinnersPickerProps {
   bounty: SopaBountyDetail;
   onDone: () => void;
 }
-
-type Mode = "pay" | "vote";
 
 /**
  * Issuer picks 1–10 claims and a % split. Solo bounties pay at once with `acceptClaims`.
@@ -40,10 +39,10 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
   const [selected, setSelected] = useState<number[]>([]);
   const [percents, setPercents] = useState<string[]>([]);
 
-  const mustVote = Boolean(bounty.isOpenBounty && bounty.everHadExternalContributor);
-  const canChoose = Boolean(bounty.isOpenBounty) && !mustVote;
-  const [mode, setMode] = useState<Mode>("pay");
-  const needsVote = mustVote || (canChoose && mode === "vote");
+  const modes = allowedWinnersModes(bounty);
+  const canChoose = modes.length > 1;
+  const [mode, setMode] = useState<WinnersMode>("pay");
+  const needsVote = canChoose ? mode === "vote" : modes[0] === "vote";
 
   const { data: votingPeriod } = useReadContract({
     address: POIDH_SOPA.address ?? undefined,
@@ -111,7 +110,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
         </CardTitle>
         {!canChoose && (
           <CardDescription>
-            {mustVote ? t("sopa.winners.voteDescription") : t("sopa.winners.payDescription")}
+            {needsVote ? t("sopa.winners.voteDescription") : t("sopa.winners.payDescription")}
           </CardDescription>
         )}
       </CardHeader>
@@ -123,7 +122,7 @@ export function SopaWinnersPicker({ bounty, onDone }: SopaWinnersPickerProps) {
               aria-label={t("sopa.winners.modeLabel")}
               className="grid grid-cols-1 sm:grid-cols-2 gap-1 rounded-md bg-muted p-1"
             >
-              {(["pay", "vote"] as const).map((m) => (
+              {modes.map((m) => (
                 <button
                   key={m}
                   type="button"
