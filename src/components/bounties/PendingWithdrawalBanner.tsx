@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Wallet } from "lucide-react";
 import { formatEther } from "viem";
 import { useReadContract } from "wagmi";
-import { SopaWithdrawalBanner } from "@/components/bounties/sopa/SopaWithdrawalBanner";
+import { SopaWithdrawPanel } from "@/components/bounties/sopa/SopaWithdrawPanel";
 import { Button } from "@/components/ui/button";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { usePoidhWithdraw } from "@/hooks/usePoidhContract";
@@ -109,7 +109,7 @@ export function PendingWithdrawalBanner() {
           userAddress={address as `0x${string}`}
         />
       ))}
-      {isPoidhSopaEnabled() && <SopaWithdrawalBanner userAddress={address as `0x${string}`} />}
+      {isPoidhSopaEnabled() && <SopaWithdrawPanel />}
     </div>
   );
 }

@@ -297,9 +297,7 @@
       "description": "Você contribuiu com {amount} {token}. Dá para retirar enquanto o bounty estiver aberto."
     },
     "withdrawal": {
-      "claimable": "{amount} {token} para sacar no Sopa",
-      "description": "De ganhos, reembolsos ou contribuições retiradas de bounties Sopa.",
-      "withdraw": "Sacar {token}"
+      "youWon": "Você ganhou {amount} {token}"
     },
     "winners": {
       "title": "Escolher vencedores",

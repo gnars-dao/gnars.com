@@ -29,12 +29,13 @@ import {
   usePoidhSopaBounty,
 } from "@/hooks/use-poidh-sopa-bounties";
 import { sopaCalls, usePoidhSopaWrite } from "@/hooks/use-poidh-sopa-write";
+import { useUserAddress } from "@/hooks/use-user-address";
 import { Link } from "@/i18n/navigation";
 import { POIDH_SOPA } from "@/lib/config";
 import { toIntlLocale } from "@/lib/i18n/format";
 import { POIDH_SOPA_ABI } from "@/lib/poidh-sopa/abi";
 import { displayAmount } from "@/lib/poidh-sopa/bounty-data";
-import { bpsToPercentString } from "@/lib/poidh-sopa/shares";
+import { bpsToPercentString, previewPayouts } from "@/lib/poidh-sopa/shares";
 import {
   findSopaToken,
   formatTokenAmount,
@@ -46,6 +47,7 @@ import { getExplorerUrl, getTxUrl } from "@/lib/poidh/config";
 import { SopaCategoryChip, SopaSourceBadge, SopaStatusBadge } from "./SopaBountyCard";
 import { SopaVotePanel } from "./SopaVotePanel";
 import { SopaWinnersPicker } from "./SopaWinnersPicker";
+import { SopaWithdrawPanel } from "./SopaWithdrawPanel";
 import { useSopaWallet } from "./use-sopa-wallet";
 
 /** What the bounty is worth: live escrow, or what was paid / committed once it closed. */
@@ -131,6 +133,29 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
   const myContribution = bounty.participants.find((p) => p.address.toLowerCase() === lower);
   const isActive = bounty.status === "open";
   const winners = new Map(bounty.winners.map((w) => [w.claimId, w.shareBps]));
+  // Net prize per winning claim (same math as the contract's payout), for the winner's own
+  // "you won" line. Either of the user's accounts may have submitted the claim.
+  const { saAddress, adminAddress } = useUserAddress();
+  const mine = new Set([saAddress, adminAddress].filter(Boolean).map((a) => a!.toLowerCase()));
+  // A paid bounty's on-chain amount is 0: without the paid / created total the prize is
+  // unknown, and an unknown prize is not shown (never as 0).
+  const paidTotal = bounty.paidAmount ?? bounty.createdAmount;
+  const payouts =
+    bounty.status === "paid" && bounty.winners.length > 0 && paidTotal
+      ? previewPayouts(
+          BigInt(paidTotal),
+          bounty.winners.map((w) => w.shareBps),
+          [bounty.fees.poidhBps, bounty.fees.sopaBps],
+        )
+      : [];
+  const prizeByClaim = new Map(bounty.winners.map((w, i) => [w.claimId, payouts[i]]));
+  const myWinningClaim =
+    bounty.status === "paid"
+      ? bounty.claims.find(
+          (c) => c.accepted && winners.has(c.id) && mine.has(c.issuer.toLowerCase()),
+        )
+      : undefined;
+  const myPrize = myWinningClaim ? prizeByClaim.get(myWinningClaim.id) : undefined;
   const feePercent = (bounty.fees.poidhBps + bounty.fees.sopaBps) / 100;
 
   const joinRaw = parseTokenAmountInput(joinAmount, decimals);
@@ -172,6 +197,10 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
           {t("detail.backToBounties")}
         </Link>
       </Button>
+
+      {/* The winner's prize sits in their own claim below; anyone else with a balance to
+          pull sees it here. */}
+      {!myWinningClaim && <SopaWithdrawPanel className="mb-6" />}
 
       {/* Header */}
       <div className="mb-8">
@@ -257,6 +286,22 @@ export function SopaBountyDetailView({ initialBounty }: SopaBountyDetailViewProp
                           </Badge>
                         )}
                       </div>
+                      {claim.id === myWinningClaim?.id && (
+                        <div className="space-y-2">
+                          {myPrize !== undefined && (
+                            <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                              <Trophy className="h-4 w-4" />
+                              {t("sopa.withdrawal.youWon", {
+                                amount: formatTokenAmount(myPrize, decimals, digits),
+                                token: symbol,
+                              })}
+                            </p>
+                          )}
+                          {/* Shows the real pending total (all bounties, both accounts): the
+                              contract keeps one balance per token, not per bounty. */}
+                          <SopaWithdrawPanel />
+                        </div>
+                      )}
                       {claim.uri && <MediaEmbed url={claim.uri} alt={claim.name} />}
                       {claim.description && (
                         <Markdown className="prose-sm">{claim.description}</Markdown>

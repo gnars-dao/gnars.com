@@ -101,5 +101,32 @@
   "tv": {
     "openFullscreen": "Open Gnars TV fullscreen",
     "closeFullscreen": "Close fullscreen"
+  },
+  "prizes": {
+    "title": "{amounts} to withdraw",
+    "description": "From Sopa bounty winnings, refunds or withdrawn contributions.",
+    "withdraw": "Withdraw {token}",
+    "withdrawAll": "Withdraw all",
+    "heldIn": "Held in your {account} wallet (<address></address>). We sign from it for you.",
+    "accountAdmin": "admin",
+    "accountSa": "Gnars",
+    "withdrawn": "Withdrawn!",
+    "sent": "{amounts} sent to <address></address>",
+    "viewTx": "View tx",
+    "readFailed": "Could not check your bounty balance. Reload to try again.",
+    "drawerLabel": "Bounty prizes",
+    "drawerWithdraw": "Withdraw",
+    "confirmInWallet": "Confirm in wallet",
+    "waitingConfirmation": "Waiting for confirmation",
+    "errors": {
+      "userRejected": "Transaction cancelled in wallet.",
+      "insufficientFunds": "Not enough funds in your wallet to cover this transaction.",
+      "NothingToWithdraw": "Nothing to withdraw.",
+      "TransferFailed": "The transfer failed. Try again in a moment.",
+      "noSigner": "Connect the wallet that holds this balance and try again."
+    },
+    "waiting": "Bounty prize waiting to be withdrawn",
+    "readPartial": "One of your balances could not be checked: the total may be incomplete.",
+    "readFailedShort": "Could not check"
   }
 }

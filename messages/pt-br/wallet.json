@@ -101,5 +101,32 @@
   "tv": {
     "openFullscreen": "Abrir Gnars TV em tela cheia",
     "closeFullscreen": "Fechar tela cheia"
+  },
+  "prizes": {
+    "title": "{amounts} para sacar",
+    "description": "De ganhos, reembolsos ou contribuições retiradas de bounties Sopa.",
+    "withdraw": "Sacar {token}",
+    "withdrawAll": "Sacar tudo",
+    "heldIn": "Está na sua carteira {account} (<address></address>). A gente assina por ela pra você.",
+    "accountAdmin": "admin",
+    "accountSa": "Gnars",
+    "withdrawn": "Sacado!",
+    "sent": "{amounts} enviado para <address></address>",
+    "viewTx": "Ver tx",
+    "readFailed": "Não deu pra consultar seu saldo de bounties. Recarregue para tentar de novo.",
+    "drawerLabel": "Prêmios de bounty",
+    "drawerWithdraw": "Sacar",
+    "confirmInWallet": "Confirme na carteira",
+    "waitingConfirmation": "Aguardando confirmação",
+    "errors": {
+      "userRejected": "Transação cancelada na carteira.",
+      "insufficientFunds": "Saldo insuficiente na carteira para cobrir essa transação.",
+      "NothingToWithdraw": "Nada para sacar.",
+      "TransferFailed": "A transferência falhou. Tente de novo em instantes.",
+      "noSigner": "Conecte a carteira que tem esse saldo e tente de novo."
+    },
+    "waiting": "Prêmio de bounty esperando para sacar",
+    "readPartial": "Não deu pra consultar um dos seus saldos: o total pode estar incompleto.",
+    "readFailedShort": "Não deu pra consultar"
   }
 }

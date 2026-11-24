@@ -10,6 +10,7 @@ import {
   useDisconnect,
   useWalletDetailsModal,
 } from "thirdweb/react";
+import { SopaWithdrawPanel } from "@/components/bounties/sopa/SopaWithdrawPanel";
 import { useViewAccount } from "@/components/layout/ViewAccountContext";
 import { AddressDisplay } from "@/components/ui/address-display";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -33,8 +34,10 @@ import { Separator } from "@/components/ui/separator";
 import { useDelegationStatus } from "@/hooks/use-delegation-status";
 import { useEoaDelegate } from "@/hooks/use-eoa-delegate";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useSopaPendingWithdrawals } from "@/hooks/use-sopa-withdrawals";
 import { useUserAddress } from "@/hooks/use-user-address";
 import { useRouter } from "@/i18n/navigation";
+import { isPoidhSopaEnabled } from "@/lib/config";
 import { getThirdwebClient } from "@/lib/thirdweb";
 
 function shortAddress(addr: string | undefined) {
@@ -57,6 +60,8 @@ export function WalletDrawer() {
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  // A bounty prize waiting to be pulled marks the avatar on every page.
+  const { hasPending: hasPrize } = useSopaPendingWithdrawals();
 
   useEffect(() => setMounted(true), []);
 
@@ -66,9 +71,18 @@ export function WalletDrawer() {
     <Button
       size="sm"
       variant="ghost"
-      className="w-full cursor-pointer"
+      className="relative w-full cursor-pointer"
       onClick={() => setOpen(true)}
     >
+      {mounted && hasPrize ? (
+        <>
+          <span
+            aria-hidden
+            className="absolute right-1 top-1 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-background"
+          />
+          <span className="sr-only">{t("prizes.waiting")}</span>
+        </>
+      ) : null}
       <span className="hidden md:inline">
         <AddressDisplay
           address={address}
@@ -359,6 +373,8 @@ function WalletPanelBody({ address, closePanel }: WalletPanelBodyProps) {
             )
           }
         />
+
+        {isPoidhSopaEnabled() ? <SopaWithdrawPanel variant="compact" /> : null}
       </div>
 
       {status.needsSmartAccountDelegation ? (

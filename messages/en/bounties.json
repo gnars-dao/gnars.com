@@ -297,9 +297,7 @@
       "description": "You contributed {amount} {token}. You can take it back while the bounty is open."
     },
     "withdrawal": {
-      "claimable": "{amount} {token} to withdraw on Sopa",
-      "description": "From Sopa bounty winnings, refunds or withdrawn contributions.",
-      "withdraw": "Withdraw {token}"
+      "youWon": "You won {amount} {token}"
     },
     "winners": {
       "title": "Pick the winners",
