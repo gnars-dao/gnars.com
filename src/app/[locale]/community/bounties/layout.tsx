@@ -23,6 +23,14 @@ export async function generateMetadata({
       },
     },
     openGraph: {
+      images: [
+        {
+          url: "https://gnars.com/images/bounties-preview-zima.jpg",
+          width: 1200,
+          height: 630,
+          alt: "Gnars DAO Bounties — Build it. Prove it. Get rewarded.",
+        },
+      ],
       title: t("title"),
       description: t("description"),
       type: "website",
@@ -31,20 +39,28 @@ export async function generateMetadata({
     },
     twitter: {
       card: "summary_large_image",
+      images: [
+        {
+          url: "https://gnars.com/images/bounties-preview-zima.jpg",
+          width: 1200,
+          height: 630,
+          alt: "Gnars DAO Bounties — Build it. Prove it. Get rewarded.",
+        },
+      ],
       title: t("title"),
       description: t("description"),
     },
     other: {
       "fc:frame": JSON.stringify({
         version: "next",
-        imageUrl: "https://gnars.com/community/bounties/opengraph-image",
+        imageUrl: "https://gnars.com/images/bounties-preview-zima.jpg",
         button: {
           title: "View Challenges",
           action: {
             type: "launch_frame",
             name: "Gnars Challenges",
             url: "https://gnars.com/community/bounties",
-            splashImageUrl: "https://gnars.com/community/bounties/opengraph-image",
+            splashImageUrl: "https://gnars.com/images/bounties-preview-zima.jpg",
           },
         },
       }),
