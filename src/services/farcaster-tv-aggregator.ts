@@ -2,7 +2,7 @@ import "server-only";
 import { cache as reactCache } from "react";
 import { unstable_cache } from "next/cache";
 import { getCoin, getCoinHolders, getProfile } from "@zoralabs/coins-sdk";
-import { createPublicClient, http, parseAbi } from "viem";
+import { createPublicClient, fallback, http, parseAbi } from "viem";
 import { base } from "viem/chains";
 import { DAO_ADDRESSES, GNARS_CREATOR_ALLOWLIST } from "@/lib/config";
 import { subgraphQuery } from "@/lib/subgraph";
@@ -31,19 +31,22 @@ const MAX_FARCASTER_HOLDINGS_PER_USER = 6;
 const MAX_FARCASTER_USERS = 40;
 
 const CACHE_REVALIDATE_SECONDS = 60 * 15;
-const FARCASTER_TV_CACHE_KEY = "farcaster-tv-aggregator:v1";
+// v2: the qualified-creators entry now carries its discovery verdict.
+const FARCASTER_TV_CACHE_KEY = "farcaster-tv-aggregator:v2";
 
 const LRU_MAX_ENTRIES = 6;
 
-// RPC client - prefer server-side ALCHEMY_API_KEY, fallback to NEXT_PUBLIC_ for compatibility
+// RPC client - prefer server-side ALCHEMY_API_KEY, fallback to NEXT_PUBLIC_ for compatibility.
+// The public Base RPC sits behind it: an Alchemy key over its monthly cap answers
+// every balanceOf with 429, and that was emptying the whole creator list (GNARS-23).
 const alchemyKey = process.env.ALCHEMY_API_KEY || process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
-const rpcUrl = alchemyKey
-  ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
-  : "https://mainnet.base.org";
+const PUBLIC_BASE_RPC = "https://mainnet.base.org";
 
 const viemClient = createPublicClient({
   chain: base,
-  transport: http(rpcUrl),
+  transport: alchemyKey
+    ? fallback([http(`https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`), http(PUBLIC_BASE_RPC)])
+    : http(PUBLIC_BASE_RPC),
 });
 
 const erc721Abi = parseAbi(["function balanceOf(address owner) view returns (uint256)"]);
@@ -140,6 +143,100 @@ export function buildFarcasterSliceReport(
     };
   }
   return { status: "ok", ...counts };
+}
+
+/**
+ * Everything the creator discovery could NOT read — GNARS-23.
+ *
+ * Discovery runs before any Farcaster lookup: Zora coin holders and subgraph
+ * NFT holders become candidates, candidates become wallets, wallets get a
+ * Gnars NFT balance, and only holders go on to Neynar. Every step used to
+ * swallow its errors, and an unread balance was written down as `0`. With the
+ * RPC rate-limited, nobody qualified, only the wallet-less allowlist remained,
+ * Neynar was never asked, and the slice reported `ok` with 0 creators.
+ */
+export interface DiscoveryHoles {
+  /** Candidate sources that failed outright (e.g. "Zora coin holders"). */
+  failedSources: string[];
+  /** How many sources discovery tried. */
+  sourcesAsked: number;
+  /** Wallets whose Gnars NFT balance was asked for. */
+  balanceReads: number;
+  /** Of those, how many came back as an error rather than a number. */
+  balanceReadsFailed: number;
+  /** Candidates dropped because their Zora profile could not be read. */
+  profilesFailed: number;
+  /** First error seen, so the verdict says why. */
+  firstReason?: string;
+}
+
+export function deriveDiscoveryState(holes: DiscoveryHoles): FarcasterSliceState {
+  const allSourcesFailed =
+    holes.sourcesAsked > 0 && holes.failedSources.length >= holes.sourcesAsked;
+  const allBalancesFailed =
+    holes.balanceReads > 0 && holes.balanceReadsFailed >= holes.balanceReads;
+
+  if (allSourcesFailed) {
+    return {
+      status: "unavailable",
+      reason: `Creator discovery failed (${holes.failedSources.join(", ")}): ${holes.firstReason || "no response"}`,
+    };
+  }
+  if (allBalancesFailed) {
+    return {
+      status: "unavailable",
+      reason: `Could not read Gnars NFT balances: ${holes.firstReason || "no response"}`,
+    };
+  }
+
+  const unresolved = holes.balanceReadsFailed + holes.profilesFailed;
+  if (unresolved === 0 && holes.failedSources.length === 0) return { status: "ok" };
+
+  const parts = [
+    holes.failedSources.length > 0 && `source failed: ${holes.failedSources.join(", ")}`,
+    holes.balanceReadsFailed > 0 && `${holes.balanceReadsFailed} NFT balance reads failed`,
+    holes.profilesFailed > 0 && `${holes.profilesFailed} Zora profiles unreadable`,
+  ].filter(Boolean);
+  return {
+    status: "incomplete",
+    reason: `Creator discovery incomplete (${parts.join("; ")}): ${holes.firstReason || "no response"}`,
+    unresolvedWallets: unresolved,
+  };
+}
+
+/** The worse of two verdicts wins; two holes add up. */
+export function mergeSliceStates(
+  a: FarcasterSliceState,
+  b: FarcasterSliceState,
+): FarcasterSliceState {
+  if (a.status === "unavailable") return a;
+  if (b.status === "unavailable") return b;
+  if (a.status === "incomplete" && b.status === "incomplete") {
+    return {
+      status: "incomplete",
+      reason: `${a.reason}; ${b.reason}`,
+      unresolvedWallets: a.unresolvedWallets + b.unresolvedWallets,
+    };
+  }
+  if (a.status === "incomplete") return a;
+  return b;
+}
+
+/** The Zora SDK answers `{ error }` instead of throwing; pull it out of any result shape. */
+function sdkError(result: unknown): unknown {
+  return result && typeof result === "object" && "error" in result
+    ? (result as { error?: unknown }).error
+    : undefined;
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message.split("\n")[0];
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err).slice(0, 200);
+  } catch {
+    return "unknown error";
+  }
 }
 
 export interface FarcasterTVData {
@@ -290,8 +387,21 @@ async function runWithConcurrency<T, R>(
   return results;
 }
 
-async function batchCheckNftBalances(wallets: string[]): Promise<Map<string, number>> {
+/**
+ * Gnars NFT balance per wallet. A wallet whose read failed is ABSENT from the
+ * map — never `0` — and is counted in `holes.balanceReadsFailed`.
+ */
+async function batchCheckNftBalances(
+  wallets: string[],
+  holes: DiscoveryHoles,
+): Promise<Map<string, number>> {
   if (wallets.length === 0) return new Map();
+  holes.balanceReads += wallets.length;
+
+  const noteFailure = (err: unknown) => {
+    holes.balanceReadsFailed++;
+    holes.firstReason ??= errorMessage(err);
+  };
 
   try {
     const contracts = wallets.map((wallet) => ({
@@ -313,7 +423,7 @@ async function batchCheckNftBalances(wallets: string[]): Promise<Map<string, num
       if (result.status === "success") {
         balances.set(wallets[i].toLowerCase(), Number(result.result));
       } else {
-        balances.set(wallets[i].toLowerCase(), 0);
+        noteFailure(result.error);
       }
     }
 
@@ -331,8 +441,8 @@ async function batchCheckNftBalances(wallets: string[]): Promise<Map<string, num
             args: [wallet as `0x${string}`],
           });
           balances.set(wallet.toLowerCase(), Number(balance));
-        } catch {
-          balances.set(wallet.toLowerCase(), 0);
+        } catch (readErr) {
+          noteFailure(readErr);
         }
       }),
     );
@@ -340,9 +450,10 @@ async function batchCheckNftBalances(wallets: string[]): Promise<Map<string, num
   }
 }
 
-async function fetchCandidateCreators(): Promise<CandidateCreator[]> {
+async function fetchCandidateCreators(holes: DiscoveryHoles): Promise<CandidateCreator[]> {
   const candidates: CandidateCreator[] = [];
   const seenHandles = new Set<string>();
+  holes.sourcesAsked++;
 
   let cursor: string | undefined;
   let page = 1;
@@ -355,6 +466,14 @@ async function fetchCandidateCreators(): Promise<CandidateCreator[]> {
         count: 50,
         after: cursor,
       });
+      // The SDK returns `{ error }` instead of throwing; an empty page from a
+      // failed call is not "no more holders".
+      const holdersError = sdkError(result);
+      if (holdersError || !result?.data?.zora20Token) {
+        throw new Error(
+          holdersError ? errorMessage(holdersError) : "Zora returned no coin holder data",
+        );
+      }
 
       const tokenBalances = result?.data?.zora20Token?.tokenBalances;
       const edges = tokenBalances?.edges || [];
@@ -390,6 +509,8 @@ async function fetchCandidateCreators(): Promise<CandidateCreator[]> {
       page++;
     } catch (err) {
       console.warn("[farcaster-tv] Failed to fetch coin holders page:", err);
+      holes.failedSources.push(`Zora coin holders (page ${page})`);
+      holes.firstReason ??= errorMessage(err);
       break;
     }
   }
@@ -403,8 +524,12 @@ const MAX_NFT_HOLDER_CANDIDATES = 200;
  * Discover creators by Gnars NFT ownership via Builder DAO subgraph.
  * Resolves NFT holder wallets to Zora profiles.
  */
-async function fetchNftHolderCandidates(excludeHandles: Set<string>): Promise<CandidateCreator[]> {
+async function fetchNftHolderCandidates(
+  excludeHandles: Set<string>,
+  holes: DiscoveryHoles,
+): Promise<CandidateCreator[]> {
   const dao = GNARS_NFT_ADDRESS.toLowerCase();
+  holes.sourcesAsked++;
   const PAGE_SIZE = 200;
 
   // Query Builder DAO subgraph for top NFT holders
@@ -430,6 +555,8 @@ async function fetchNftHolderCandidates(excludeHandles: Set<string>): Promise<Ca
     holders = result.daotokenOwners || [];
   } catch (err) {
     console.warn("[farcaster-tv] Failed to fetch NFT holders from subgraph:", err);
+    holes.failedSources.push("Builder subgraph NFT holders");
+    holes.firstReason ??= errorMessage(err);
     return [];
   }
 
@@ -441,7 +568,10 @@ async function fetchNftHolderCandidates(excludeHandles: Set<string>): Promise<Ca
     async (holder) => {
       try {
         const profileResult = await getProfile({ identifier: holder.owner });
+        const profileError = sdkError(profileResult);
+        if (profileError) throw new Error(errorMessage(profileError));
         const profile = profileResult?.data?.profile;
+        // No profile is an answer: this holder has no Zora account.
         if (!profile) return;
 
         const handle = (profile as { handle?: string }).handle;
@@ -459,8 +589,9 @@ async function fetchNftHolderCandidates(excludeHandles: Set<string>): Promise<Ca
           coinBalance: 0, // NFT-discovered, no coin balance known yet
           wallets: [holder.owner.toLowerCase()],
         });
-      } catch {
-        // Skip wallet if profile resolution fails
+      } catch (err) {
+        holes.profilesFailed++;
+        holes.firstReason ??= errorMessage(err);
       }
     },
     MAX_CONCURRENT_PROFILE_FETCHES,
@@ -469,12 +600,17 @@ async function fetchNftHolderCandidates(excludeHandles: Set<string>): Promise<Ca
   return candidates;
 }
 
-async function fetchProfileWallets(candidates: CandidateCreator[]): Promise<CandidateCreator[]> {
+async function fetchProfileWallets(
+  candidates: CandidateCreator[],
+  holes: DiscoveryHoles,
+): Promise<CandidateCreator[]> {
   const results = await runWithConcurrency(
     candidates,
     async (candidate) => {
       try {
         const profileResult = await getProfile({ identifier: candidate.handle });
+        const profileError = sdkError(profileResult);
+        if (profileError) throw new Error(errorMessage(profileError));
         const fullProfile = profileResult?.data?.profile;
         if (!fullProfile) return candidate;
 
@@ -494,7 +630,11 @@ async function fetchProfileWallets(candidates: CandidateCreator[]): Promise<Cand
         }
 
         return { ...candidate, wallets };
-      } catch {
+      } catch (err) {
+        // Dropped below for having no wallets — record why, so it is a hole
+        // and not a creator who "holds nothing".
+        holes.profilesFailed++;
+        holes.firstReason ??= errorMessage(err);
         return candidate;
       }
     },
@@ -504,20 +644,34 @@ async function fetchProfileWallets(candidates: CandidateCreator[]): Promise<Cand
   return results.filter((c) => c.wallets.length > 0);
 }
 
-async function fetchQualifiedCreators(): Promise<QualifiedCreator[]> {
+type QualifiedCreatorsResult = {
+  creators: QualifiedCreator[];
+  /** Whether `creators` is the full list or what survived failed reads. */
+  discovery: FarcasterSliceState;
+};
+
+async function fetchQualifiedCreators(): Promise<QualifiedCreatorsResult> {
+  const holes: DiscoveryHoles = {
+    failedSources: [],
+    sourcesAsked: 0,
+    balanceReads: 0,
+    balanceReadsFailed: 0,
+    profilesFailed: 0,
+  };
+
   // Path A: Coin holder discovery (Zora SDK)
-  const coinCandidates = await fetchCandidateCreators();
+  const coinCandidates = await fetchCandidateCreators(holes);
 
   // Merge & dedup — coin candidates take priority (they have coin balance data)
   const seenHandles = new Set<string>(coinCandidates.map((c) => c.handle));
 
   // Path B: NFT holder discovery (Builder DAO subgraph)
-  const nftCandidates = await fetchNftHolderCandidates(seenHandles);
+  const nftCandidates = await fetchNftHolderCandidates(seenHandles, holes);
 
   const allCandidates = [...coinCandidates, ...nftCandidates];
 
   // Resolve wallets for all candidates (coin candidates may already have wallets from prior step)
-  const candidatesWithWallets = await fetchProfileWallets(allCandidates);
+  const candidatesWithWallets = await fetchProfileWallets(allCandidates, holes);
 
   // Batch check NFT balances across all wallets
   const allWallets = new Set<string>();
@@ -527,7 +681,7 @@ async function fetchQualifiedCreators(): Promise<QualifiedCreator[]> {
     }
   }
 
-  const nftBalances = await batchCheckNftBalances(Array.from(allWallets));
+  const nftBalances = await batchCheckNftBalances(Array.from(allWallets), holes);
 
   // Qualify: NFT ≥ 1 is the only gate
   const qualifiedCreators: QualifiedCreator[] = [];
@@ -565,7 +719,12 @@ async function fetchQualifiedCreators(): Promise<QualifiedCreator[]> {
     }
   }
 
-  return qualifiedCreators;
+  const discovery = deriveDiscoveryState(holes);
+  if (discovery.status !== "ok") {
+    console.warn(`[farcaster-tv] Creator discovery ${discovery.status}: ${discovery.reason}`);
+  }
+
+  return { creators: qualifiedCreators, discovery };
 }
 
 function rankByFollowerCount(matches: FarcasterCreatorMatch[]): FarcasterCreatorMatch[] {
@@ -885,16 +1044,20 @@ async function fetchFarcasterHoldings(
  * Cached qualified creators list — exported so the feed route can start
  * fetchCreatorContent in parallel with Farcaster holdings.
  */
-export const getQualifiedCreators = unstable_cache(
+const getQualifiedCreatorsResult = unstable_cache(
   fetchQualifiedCreators,
   ["qualified-creators", FARCASTER_TV_CACHE_KEY],
   { revalidate: CACHE_REVALIDATE_SECONDS, tags: ["farcaster-tv-aggregator"] },
 );
 
+export async function getQualifiedCreators(): Promise<QualifiedCreator[]> {
+  return (await getQualifiedCreatorsResult()).creators;
+}
+
 const getCachedFarcasterTVPayload = unstable_cache(
   async (): Promise<FarcasterTVPayload> => {
     const start = Date.now();
-    const qualifiedCreators = await getQualifiedCreators();
+    const { creators: qualifiedCreators, discovery } = await getQualifiedCreatorsResult();
 
     // No `assertNeynarApiKey` gate here any more, on purpose. A function
     // returning a boolean to say whether a read is possible is the two-state
@@ -911,7 +1074,9 @@ const getCachedFarcasterTVPayload = unstable_cache(
       qualifiedCreators,
       items: farcasterHoldings.items,
       stats: farcasterHoldings.stats,
-      farcaster: farcasterHoldings.farcaster,
+      // A healthy Neynar answer about a creator list that discovery could not
+      // build is still a guess about the creators it never found.
+      farcaster: mergeSliceStates(discovery, farcasterHoldings.farcaster),
       durationMs,
     };
   },

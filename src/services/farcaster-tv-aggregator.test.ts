@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { FarcasterLookup } from "./farcaster";
-import { buildFarcasterSliceReport, deriveFarcasterSliceState } from "./farcaster-tv-aggregator";
+import {
+  buildFarcasterSliceReport,
+  deriveDiscoveryState,
+  deriveFarcasterSliceState,
+  mergeSliceStates,
+  type DiscoveryHoles,
+} from "./farcaster-tv-aggregator";
 
 /**
  * The /tv half of issue #2.
@@ -131,5 +137,86 @@ describe("buildFarcasterSliceReport — a failed read has no number to quote", (
       { items: 0, creators: 0, coins: 0, nfts: 0 },
     );
     expect(report).toEqual({ status: "ok", items: 0, creators: 0, coins: 0, nfts: 0 });
+  });
+});
+
+/**
+ * GNARS-23: the zero that came from BEFORE Neynar.
+ *
+ * Every Gnars NFT balance read was rate-limited (HTTP 429), each failure was
+ * written down as "0 NFTs", nobody qualified, the allowlist had no wallets to
+ * look up, and the slice said `ok` with 0 creators.
+ */
+const healthy = (over: Partial<DiscoveryHoles> = {}): DiscoveryHoles => ({
+  failedSources: [],
+  sourcesAsked: 2,
+  balanceReads: 200,
+  balanceReadsFailed: 0,
+  profilesFailed: 0,
+  ...over,
+});
+
+describe("deriveDiscoveryState", () => {
+  it("ok when every source and every balance answered", () => {
+    expect(deriveDiscoveryState(healthy())).toEqual({ status: "ok" });
+  });
+
+  it("unavailable when every balance read failed — the production failure", () => {
+    const state = deriveDiscoveryState(
+      healthy({ balanceReadsFailed: 200, firstReason: "HTTP request failed. Status: 429" }),
+    );
+    expect(state.status).toBe("unavailable");
+    expect((state as { reason: string }).reason).toMatch(/429/);
+  });
+
+  it("unavailable when every candidate source failed", () => {
+    const state = deriveDiscoveryState(
+      healthy({
+        failedSources: ["Zora coin holders (page 1)", "Builder subgraph NFT holders"],
+        balanceReads: 0,
+      }),
+    );
+    expect(state.status).toBe("unavailable");
+  });
+
+  it("incomplete when some reads failed, counting the holes", () => {
+    const state = deriveDiscoveryState(healthy({ balanceReadsFailed: 3, profilesFailed: 2 }));
+    expect(state).toMatchObject({ status: "incomplete", unresolvedWallets: 5 });
+  });
+
+  it("incomplete when one source failed even if nothing else did", () => {
+    const state = deriveDiscoveryState(
+      healthy({ failedSources: ["Builder subgraph NFT holders"] }),
+    );
+    expect(state.status).toBe("incomplete");
+  });
+
+  it("ok when there was nothing to read — not a failure", () => {
+    expect(deriveDiscoveryState(healthy({ balanceReads: 0 }))).toEqual({ status: "ok" });
+  });
+});
+
+describe("mergeSliceStates", () => {
+  const ok = { status: "ok" } as const;
+  const gone = { status: "unavailable", reason: "429" } as const;
+  const part = (n: number) =>
+    ({ status: "incomplete", reason: `r${n}`, unresolvedWallets: n }) as const;
+
+  it("a broken discovery is not rescued by a healthy (empty) Neynar answer", () => {
+    expect(mergeSliceStates(gone, ok)).toEqual(gone);
+    expect(mergeSliceStates(ok, gone)).toEqual(gone);
+  });
+
+  it("the worse verdict wins", () => {
+    expect(mergeSliceStates(part(1), gone).status).toBe("unavailable");
+    expect(mergeSliceStates(ok, part(2))).toEqual(part(2));
+    expect(mergeSliceStates(ok, ok)).toEqual(ok);
+  });
+
+  it("two partial reads add their holes", () => {
+    expect(mergeSliceStates(part(1), part(2))).toMatchObject({
+      status: "incomplete",
+      unresolvedWallets: 3,
+    });
   });
 });
